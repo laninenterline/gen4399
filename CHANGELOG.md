@@ -2,6 +2,45 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.0] - 2026-11-07
+
+### 新增
+
+- **web 路径真实提交**（`https://web.4399.com/user/reg.php`）：
+  - `submit_registration()` 现在接受 `bundle.path in {"web", "unified"}`。
+    web 流程：`GET user/?_c=login&_a=checkUser` 取 `encryptCode`（JSONP）→
+    页面同款 `encode_4399()` 加密 `login_password` / `relogin_pwd` →
+    `POST user/?_c=reg`（JSONP 响应）→ 按 `{state, code, msg, validateState}`
+    判定（`state=true` → success；`code=200/360` → captcha；`msg` → rejected）。
+  - 新增 `gen4399/_des.py`：纯标准库 DES/3DES-EDE-ECB + `encode_4399()`
+    （`encodeURIComponent` + NUL 零填充 + `"0x"` hex），与站点 `action.js`
+    的真实 JS 向量（node 提取）及 pycryptodome 交叉验证；不新增运行时依赖。
+  - CLI `gen4399 submit --form-path web|unified`（默认 unified）；
+    legacy `--submit` 默认走 web（2.1.0 时 web 会报错）。
+  - 新增 `tests/test_des.py`；`tests/test_submit.py` / `tests/test_cli.py`
+    增加 web 路径的 payload、DES 加密、JSONP 判定、退出码覆盖。
+- 文档：`docs/submit.md` 增加 web 协议/字段/DES/判定/PII 对比章节；
+  README、`docs/rules.md`、`docs/project-overview.md`、SECURITY 同步。
+
+### 变更
+
+- `SubmitResult.path` 现在为 `web` / `unified`；web 的 `app_id` 返回空串（不适用），
+  `app_id` / `level` 参数仅 unified 使用。
+- `SubmitResult.encrypted_fields`：web 为 `login_password`/`relogin_pwd`（DES），
+  unified 仍为 4 个字段（AES）。
+- **web 路径的 PII 处理弱于 unified**：只有密码用 DES；`true_name`/`sfz` 是明文
+  放在 HTTPS POST body（浏览器原流程是 JSONP GET 放 query，本库改用 POST body
+  降低 URL 日志泄露风险）。
+- 两条路径的注册 POST 均**单次不重试**；`retry_policy` 只作用于 GET。
+- dry-run 均只 GET：unified 拉 `regFrame.do`，web 取 `encryptCode`（只带用户名）。
+- `__version__ = "2.2.0"`；仍为**零运行时依赖**（AES/DES 均为纯标准库实现）。
+
+### 安全
+
+- web dry-run 不发送姓名/身份证；真实提交才发送，且仅发往 4399 官方端点。
+- 成功判定仍是启发式：web 的 `state=true` 成功响应**未实测**（只实测了
+  非法用户名被拒 `state=false, code=100`），请以登录 `https://u.4399.com/` 为准。
+
 ## [2.1.0] - 2026-11-07
 
 ### 新增
@@ -33,8 +72,8 @@
 - **库不会自动提交**：`prepare_registration()` 仍只准备数据；真实提交必须显式
   调用 `submit_registration()`（API 默认 `dry_run=False`，调用即提交；CLI 默认
   dry-run，必须加 `--yes`）。
-- **只支持 `unified`**：`bundle.path == "web"` 提交抛 `SubmitError`
-  （web 提交端点未实测，仍用浏览器）。
+- **（2.1.0 行为）只支持 `unified`**：`bundle.path == "web"` 提交抛 `SubmitError`
+  （2.2.0 起 web 路径已支持，见上）。
 - **POST 不自动重试**（超时 / 5xx / 429 直接抛错），避免服务端已建号却重复提交；
   `retry_policy` 只作用于 GET 注册表单。
 - `SubmitResult` 的 `repr()` / `to_dict()` 已脱敏：不含明文密码/身份证/Cookie 值，

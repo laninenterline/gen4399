@@ -9,13 +9,16 @@
 
 - **默认不提交注册**：`prepare_registration()` 只准备数据；真实提交必须显式
   调用 `submit_registration()`（CLI 加 `--yes`；CLI 默认 dry-run）。
-- **只支持 `unified` 路径**（`POST /ptlogin/register.do`）。`web` 的提交端点未实测，
-  本库不提交，请继续用浏览器完成。
+- **支持 `web` / `unified` 两条路径**（2.2.0 起）：`unified` 提交 `POST /ptlogin/register.do`，
+  `web` 提交 `POST /user/?_c=reg`（web.4399.com）。两者都需显式调用 / `--yes`。
 - **只应使用本人的真实身份信息**：使用他人身份证号可能违法，也可能违反 4399 用户协议。
 - 身份信息默认只在内存中使用；只有显式调用 `load_profiles` / 传 `--profile-file` 才会读取文件。
-  只有显式真实提交时，姓名/身份证等字段才会（`sec=1` 时 AES 加密后）发往 4399 官方端点，
-  不经过任何第三方服务器。
-- dry-run 只 GET 注册表单页（不含 PII），不发 POST、不建号；但 dry-run 仍会联网。
+  只有显式真实提交时，姓名/身份证等字段才会发往 4399 官方端点，不经过任何第三方服务器：
+  `unified` 路径 `sec=1` 时 AES 加密；`web` 路径只有密码用 DES 加密，
+  `true_name` / `sfz` 是**明文**放在 HTTPS POST body（比浏览器原 JSONP GET 的 query
+  更不易进 URL 日志，但仍是明文）。
+- dry-run 只发 GET（unified：注册表单页；web：`checkUser`，只带用户名），
+  不含姓名/身份证、不发注册 POST、不建号；但 dry-run 仍会联网。
 - `--show-pii` 会明文显示身份证/密码/QQ；`--output`/`save()` 默认 0600 权限且默认打码。
 - 日志与错误信息不会包含密码或完整身份证号；`repr(Account)` / `repr(RegistrationBundle)` /
   `repr(SubmitResult)` 已脱敏；`SubmitResult.to_dict()` 不含密码/身份证/Cookie 值，
@@ -31,14 +34,16 @@
    自动化注册与批量操作；是否允许脚本提交请自行确认。
 3. **不要批量注册**：不要用本库为他人或批量创建账号。CLI 检测到多身份时会在 stderr
    警告，但那只是提醒，不构成任何授权。
-4. **PII 流向**：真实提交只把字段发往 4399 官方端点（`ptlogin.4399.com`）；
-   `sec=1` 时先经页面同款 AES 加密，但口令 `lzYW5qaXVqa` 公开在前端 JS 中，
-   **不构成机密性保护**，只是协议要求。
+4. **PII 流向**：真实提交只把字段发往 4399 官方端点（`ptlogin.4399.com` /
+   `web.4399.com`）。`unified` 的 AES 口令 `lzYW5qaXVqa` 与 `web` 的 DES 算法/
+   `encryptCode` 都公开在前端 JS 中，**都不构成机密性保护**，只是协议要求；
+   `web` 的 `true_name`/`sfz` 更是明文（HTTPS body）。更在意 PII 时优先用 `unified`。
 5. **先 dry-run**：库不会自动提交、CLI 默认 dry-run；先跑一次 dry-run 检查端点/字段/
-   加密开关，确认后再加 `--yes`。
+   加密开关（`unified` 看 `sec`，`web` 看 `encryptCode`/DES 字段），确认后再加 `--yes`。
 6. **POST 不自动重试**：超时后服务端可能已建号；请先尝试登录确认，不要立即重跑。
-7. **成功判定是推断**：4399 `register.do` 的成功响应未经实测，`success` 为启发式；
-   请以登录 `https://u.4399.com/` 为准，`unknown` 不代表失败。
+7. **成功判定是推断**：4399 两条路径的成功响应均未经实测（`register.do` 与 web
+   `_c=reg`），`success` 为启发式；请以登录 `https://u.4399.com/` 为准，
+   `unknown` 不代表失败。
 8. 本库不绕过验证码/风控；出现 `captcha` 时需人工处理。
 
 ## 建议

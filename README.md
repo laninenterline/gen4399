@@ -8,14 +8,14 @@
   - `check_username()` / `is_username_available()` —— 查询用户名是否可注册
 - 表单：两条注册路径的字段定义 + 提交前本地整表校验（不联网）
 - 编排：`prepare_registration()` 一键准备好「可照着填 / 可直接提交」的注册数据
-- 提交（2.1.0）：`submit_registration()` / `gen4399 submit` 真实 POST 到 4399
-  ——**库不会自动提交**（CLI 默认 dry-run），仅 `unified` 路径，需显式调用 / `--yes`
+- 提交（2.1.0 / 2.2.0）：`submit_registration()` / `gen4399 submit` 真实提交到 4399
+  ——**库不会自动提交**（CLI 默认 dry-run）；支持 `web` 与 `unified` 两条路径
 - 身份信息：可从 `姓名|身份证号[|QQ]` 格式的 txt 批量读取
 
 > **默认不提交注册**：`prepare_registration()` 只准备数据，不会自动提交；
 > 真实提交必须显式调用 `submit_registration()`，命令行必须显式加 `--yes`。
-> 目前只有 `unified` 路径能提交（`web` 仍请用浏览器）。
-> 请只使用你本人的真实身份信息，并遵守 4399 的用户协议。
+> 2.2.0 起 `web` / `unified` 两条路径都可提交。请只使用你本人的真实身份信息，
+> 并遵守 4399 的用户协议。
 
 ## 安装
 
@@ -65,18 +65,18 @@ validate_username("abc_12345")  # [Violation(code='charset', ...)]
 > 生成默认用小写字母+数字（36 字符集），更好读。
 
 ```python
-# 2.1.0：把准备好的注册数据真正 POST 出去（先 dry-run，不创建账号）
+# 2.1.0+：把准备好的注册数据真正提交出去（先 dry-run，不创建账号）
 from gen4399 import submit_registration
 
-# bundle = prepare_registration(profile, path="unified")
-r = submit_registration(bundle, dry_run=True)   # 只拉表单 + 组装/加密，不发 POST
+# bundle = prepare_registration(profile, path="unified")   # 或 path="web"
+r = submit_registration(bundle, dry_run=True)   # 只拉必要数据 + 组装/加密，不发注册 POST
 r.kind                                          # 'dry_run'
-r = submit_registration(bundle, dry_run=False)  # 真实提交（仅 unified；仅限本人身份）
+r = submit_registration(bundle, dry_run=False)  # 真实提交（web / unified；仅限本人身份）
 if r:                                           # SubmitResult.__bool__ == r.ok
     print("（启发式）判定成功：", r.message)
 ```
 
-> 详细字段、结果判定、CLI 退出码与合规要求见 [提交注册（POST，2.1.0）](#提交注册post210)。
+> 详细字段、结果判定、CLI 退出码与合规要求见 [提交注册（web / unified，2.2.0）](#提交注册web--unified220)。
 
 ## 远程接口（调用 4399 官方 API）
 
@@ -136,13 +136,13 @@ repr(acc)                                 # 密码打码，可安全写日志
 >
 > 账号名可以「预探测」（官方 `isExist.do`）；**密码无法预探测**——
 > 4399 没有密码校验接口，只有注册提交时才校验（2.1.0 起可显式提交，见
-> [提交注册（POST，2.1.0）](#提交注册post210)）。
+> [提交注册（web / unified，2.2.0）](#提交注册web--unified220)）。
 > 密码侧只能保证通过公开规则（本库 `validate()` 在本地保证）。
 
 ## 注册表单（字段定义 + 本地校验）
 
-覆盖两条注册路径：`web` 只做本地校验；`unified` 在 2.1.0 起还可以**显式提交**
-（见[提交注册](#提交注册post210)一节）。本地校验本身不联网、不提交：
+覆盖两条注册路径：2.2.0 起 `web` / `unified` 都可**显式提交**
+（见[提交注册](#提交注册web--unified220)一节）。本地校验本身不联网、不提交：
 
 ```python
 from gen4399 import get_form, check_registration_form
@@ -167,8 +167,8 @@ res.messages()  # ['idcard: 身份证号校验码不正确，请核对']
 
 | 路径 | 页面 | 提交地址 | 本库能否提交 |
 |---|---|---|---|
-| `web` | https://web.4399.com/user/reg.php | `POST /user/?_c=reg` | ❌ 未实测，请用浏览器 |
-| `unified` | https://u.4399.com/register.html | `POST /ptlogin/register.do` | ✅ 2.1.0 起 `submit_registration()`（CLI 需 `--yes`，默认 dry-run） |
+| `web` | https://web.4399.com/user/reg.php | `POST /user/?_c=reg` | ✅ 2.2.0 起 `submit_registration()`（CLI 需 `--yes`，默认 dry-run） |
+| `unified` | https://u.4399.com/register.html | `POST /ptlogin/register.do` | ✅ 2.1.0 起（CLI 需 `--yes`，默认 dry-run） |
 
 单独校验字段也可用：`validate_realname()` / `validate_idcard()` / `validate_qq()`
 （QQ 会自动 `strip()`，首尾空白不会导致误判）。
@@ -230,7 +230,8 @@ bundle = prepare_registration(profile, verify_username=False)
 ```
 
 > **`prepare_registration()` 本身不会提交注册**。它把能自动化的部分（生成、查重、校验、组字段）
-> 全做完；2.1.0 起可在拿到 `bundle` 后显式调用 `submit_registration()` 提交（见下一节），
+> 全做完；2.1.0 起可在拿到 `bundle` 后显式调用 `submit_registration()` 提交
+> （2.2.0 起 `web` / `unified` 都支持，见下一节），
 > 或继续在 `bundle.url` 页面手动提交。
 
 对应的 `RemoteError` 子类：`RemoteTimeoutError`、`RemoteHTTPError`、`RemoteParseError`。
@@ -272,14 +273,20 @@ python -m gen4399 --check-form abc12345 Abc123456 --profile-file ids.txt
 > `--profile-file` 与 `--realname/--idcard` 互斥；某行格式/内容不合法时整体报错，
 > 错误信息带行号（退出码 2）。
 
-## 提交注册（POST，2.1.0）
+## 提交注册（web / unified，2.2.0）
 
-2.1.0 起，库可以把 `unified` 路径准备好的数据**真实 POST** 到 4399。
-这是显式操作：库不会自动提交；**CLI 默认 dry-run**（必须加 `--yes` 才发 POST）；
-API 调用 `submit_registration()` 本身即视为提交（默认 `dry_run=False`），
+2.1.0 起支持 `unified`（ptlogin）路径提交，2.2.0 起也支持 `web`
+（web.4399.com 用户中心）路径。两者都是显式操作：库不会自动提交；
+**CLI 默认 dry-run**（必须加 `--yes` 才发送注册请求）；API 调用
+`submit_registration()` 即视为提交（默认 `dry_run=False`），
 **推荐先传 `dry_run=True` 演练**，确认无误后再真实提交。
 
-> 协议细节（端点、字段表、AES 参数、结果判定、未验证项）见
+| 路径 | 提交流程 | 敏感字段处理 |
+|---|---|---|
+| `web` | `GET user/?_c=login&_a=checkUser` 取 `encryptCode` → `POST user/?_c=reg`（JSONP 响应） | 密码用页面同款 `encode_4399()`（DES/3DES）；`true_name`/`sfz` 明文在 HTTPS 请求体中 |
+| `unified` | `GET regFrame.do` 取隐藏域/会话 → `POST register.do` | `sec=1` 时 AES-256-CBC 加密 `password/passwordveri/realname/idcard` |
+
+> 协议细节（端点、字段表、AES/DES 参数、结果判定、未验证项）见
 > [docs/submit.md](docs/submit.md)。
 
 ### API
@@ -291,14 +298,16 @@ from gen4399 import (
 )
 
 profile = RegistrationProfile("张三", "460206194611192084", qq="123456789")
-bundle = prepare_registration(profile, path="unified")   # 提交必须 unified（默认是 web）
 
-# 1) dry-run（推荐先跑）：只 GET 注册表单、本地组装/加密字段，不发 POST
+# 两条路径都支持：web（默认）与 unified
+bundle = prepare_registration(profile, path="web")        # 或 path="unified"
+
+# 1) dry-run（推荐先跑）：只拉必要数据、本地组装/加密字段，不发注册 POST
 result = submit_registration(bundle, dry_run=True)
 result.kind              # 'dry_run'
 bool(result)             # False（dry-run 不算成功）
 result.endpoint          # 将要 POST 的地址
-result.encrypted_fields  # ('password', 'passwordveri', 'realname', 'idcard')
+result.encrypted_fields  # web: 2 个(DES)；unified: 4 个(AES)
 
 # 2) 真实提交（仅限本人真实身份，请先确认遵守 4399 用户协议）
 result = submit_registration(bundle, dry_run=False)
@@ -314,8 +323,8 @@ else:
 ```python
 submit_registration(
     bundle: RegistrationBundle, *,
-    app_id: str = "u4399",
-    level: int = 4,
+    app_id: str = "u4399",        # 仅 unified 使用
+    level: int = 4,               # 仅 unified 使用
     timeout: float = 10.0,
     dry_run: bool = False,
     retry_policy: RetryPolicy | None = None,
@@ -330,55 +339,72 @@ submit_registration(
 | `kind` | `str` | `success` / `rejected` / `captcha` / `unknown` / `dry_run` |
 | `message` | `str` | 人读说明；`rejected` 时是服务端错误文案 |
 | `username` | `str` | 提交的用户名 |
-| `path` | `str` | 注册路径，目前恒为 `unified` |
-| `app_id` | `str` | 提交用的 appId |
+| `path` | `str` | 注册路径：`web` 或 `unified` |
+| `app_id` | `str` | 提交用的 appId；web 路径不适用，返回空串 |
 | `endpoint` | `str` | 实际（dry-run 时是「将要」）POST 的地址 |
-| `http_status` | `int \| None` | POST 的 HTTP 状态码；dry-run 为 `None` |
+| `http_status` | `int \| None` | 注册 POST 的 HTTP 状态码；dry-run 为 `None` |
 | `final_url` | `str \| None` | 跟随重定向后的最终地址（已去掉 query/fragment） |
-| `encrypted_fields` | `tuple[str, ...]` | 实际加密的字段名（`sec=1` 时 4 个） |
+| `encrypted_fields` | `tuple[str, ...]` | 实际加密的字段名（web 2 个 DES；unified 4 个 AES） |
 | `login_cookies` | `tuple[str, ...]` | 提交后 CookieJar 中的登录 Cookie **名字**（不含值） |
 | `field_names` | `tuple[str, ...]` | 提交的字段名（不含值） |
-| `dry_run` | `bool` | 是否只是 dry-run（未发 POST） |
+| `dry_run` | `bool` | 是否只是 dry-run（未发注册 POST） |
 | `elapsed` | `float` | 整个调用的耗时（秒） |
 
 - `SubmitResult.to_dict()` 返回可 JSON 序列化的脱敏字典（`--json` 用的就是它）。
-- `SubmitError`：参数/状态不合法（如 `bundle.path == "web"`）。网络失败抛
-  `RemoteError` 子类（`RemoteTimeoutError` / `RemoteHTTPError` / `RemoteParseError`）。
-- `retry_policy` 只作用于 **GET 注册表单**；**POST 永远单次尝试、不自动重试**
-  （防止超时后重复注册）。
+- `SubmitError`：参数/路径不合法。网络失败抛 `RemoteError` 子类
+  （`RemoteTimeoutError` / `RemoteHTTPError` / `RemoteParseError`）。
+- `retry_policy` 只作用于 **GET**（unified 拉表单 / web 取 encryptCode）；
+  **注册 POST 永远单次尝试、不自动重试**（防止超时后重复注册）。
 
 ### CLI
 
 ```bash
-# 默认 dry-run：只 GET 表单并在本地组装/加密，绝不发 POST
+# 默认 dry-run：本地组装/加密，绝不发注册 POST
 gen4399 submit --realname 张三 --idcard 460206194611192084
+gen4399 submit --form-path web --realname 张三 --idcard 460206194611192084      # web
+gen4399 submit --form-path unified --realname 张三 --idcard 460206194611192084  # unified
 
 # 真实提交：必须显式加 --yes
-gen4399 submit --realname 张三 --idcard 460206194611192084 --qq 123456789 --yes
+gen4399 submit --form-path web --realname 张三 --idcard 460206194611192084 --qq 123456789 --yes
+gen4399 submit --form-path unified --realname 张三 --idcard 460206194611192084 --yes
 
-# 其它选项：appId / level / 超时 / JSON / 输出目录
-gen4399 submit --realname 张三 --idcard ... --app-id u4399 --level 4 \
-    --timeout 10 --json --output out/     # dry-run；--output 写 out/submit.json（0600）
+# 其它选项：JSON / 输出目录（--output 写 out/submit.json，0600）
+gen4399 submit --realname 张三 --idcard ... --timeout 10 --json --output out/
 
 # 批量身份（必须均为本人或已获授权；多于 1 个时 stderr 会警告）
 gen4399 submit --profile-file ids.txt          # dry-run
 gen4399 submit --profile-file ids.txt --yes    # 真实提交
 ```
 
-- 子命令的 `--form-path` 只接受 `unified`（默认就是它）；`web` 提交端点未实测，
-  本库不提交，请继续用浏览器。
-- `--yes` 才发送 POST；不加 `--yes` 时仍会 GET 一次注册表单（只读）。
+- `--form-path` 可选 `web` / `unified`，**默认 `unified`**（推荐：PII 加密更完整）。
+- `--yes` 才发送注册 POST；不加 `--yes` 时只做 dry-run（仍会 GET 一次：
+  unified 拉 `regFrame.do`，web 取 `encryptCode`）。
 - 多身份会依次提交；可用 `--min-interval` 控制间隔，`--json` / `--output` 汇总结果。
 - 退出码：**0** 成功或 dry-run；**1** 被拒 / 未知 / 需要验证码；**2** 参数、网络或配置错误。
-- legacy 模式同样可用（注意 legacy 的 `--form-path` 默认是 `web`）：
+- legacy 模式同样可用（legacy 的 `--form-path` 默认是 `web`）：
 
 ```bash
+gen4399 --submit --yes --realname 张三 --idcard 460206194611192084
 gen4399 --submit --form-path unified --yes --realname 张三 --idcard 460206194611192084
 ```
 
 ### 流程简述
 
 ```
+web 路径（2.2.0）
+GET  https://web.4399.com/user/?_c=login&_a=checkUser&user=<登录名>
+  └─ JSONP {state,data}，data = encryptCode
+        ↓
+encode_4399(password, encryptCode)  # DES/3DES-ECB + 零填充 + "0x"+hex
+        ↓
+POST https://web.4399.com/user/?_c=reg&jsoncallback=<cb>
+  字段：cid=3000, login_name, login_password(密文), relogin_pwd(密文),
+        qq, true_name, sfz, encrypt=1
+        ↓
+解析 JSONP {state, code, msg, validateState}
+  state=true → success；code 200/360 → captcha；msg → rejected；否则 unknown
+
+unified 路径（2.1.0）
 GET  https://ptlogin.4399.com/ptlogin/regFrame.do
   ├─ 下发 USESSIONID Cookie（会话）
   └─ 解析 <form action> + 全部 hidden 隐藏域 + sec
@@ -395,13 +421,18 @@ POST <form action>（即 /ptlogin/register.do）
 
 ### 限制与成功判定
 
-- **只支持 `unified` 路径**（`/ptlogin/register.do`）。`web` 的 `POST /user/?_c=reg`
-  未实测，本库不提交。
-- **成功判定是启发式的**：4399 的成功响应**未经实测**（研究过程没有创建真实账号）。
-  代码按顺序判定：`isAutoRegSuccess=true` → `success`；`<div id="Msg">` 有文案 →
-  `rejected`；提交后新增登录 Cookie（`Pauth` / `Uauth` / `Xauth` / `user_4399` /
-  `ck_accname`）或最终跳离 ptlogin → `success`；含「验证码」→ `captcha`；否则 `unknown`。
+- **两条路径都支持**，但成功判定都是启发式的（4399 两条成功响应均未创建真实
+  账号实测过）：
+  - `web`：JSONP `state=true` → `success`；`code=200/360` → `captcha`；
+    `msg` → `rejected`；出现登录 Cookie → `success`；非 JSONP 响应 → `unknown`。
+  - `unified`：`isAutoRegSuccess=true` → `success`；`<div id="Msg">` 有文案 →
+    `rejected`；新增登录 Cookie 或跳离 ptlogin → `success`；含「验证码」→
+    `captcha`；否则 `unknown`。
   **最终请以登录 `https://u.4399.com/` 为准**；`unknown` 不代表失败。
+- **`web` 路径的 PII 处理弱于 `unified`**：密码用 DES（页面协议要求，无现代
+  机密性），`true_name`/`sfz` 以明文放在 HTTPS POST body（浏览器原流程是
+  JSONP GET 放 query；本库改用 POST body 以降低 URL 日志泄露风险）。
+  更在意 PII 时优先用 `unified`（AES 加密 4 个字段）。
 - **POST 不自动重试**：超时 / 5xx / 429 都直接抛错。若超时后不确定是否已建号，
   请先尝试登录确认，不要立即重跑 `--yes`。
 - 验证码/风控不绕过：`captcha` 时需人工处理。
@@ -410,7 +441,7 @@ POST <form action>（即 /ptlogin/register.do）
 
 ## CLI
 
-2.0 起提供两种用法，旧 flag 模式完全兼容；2.1.0 新增 `submit` 子命令：
+2.0 起提供两种用法，旧 flag 模式完全兼容；2.1.0 新增 `submit` 子命令，2.2.0 起支持 `web` 路径：
 
 ```bash
 # 2.0 子命令（推荐）
@@ -420,13 +451,15 @@ gen4399 account --offline -c 3
 gen4399 form fields web
 gen4399 prepare --profile-file ids.txt --json
 gen4399 profile check --profile-file ids.txt
-gen4399 submit --realname 张三 --idcard ...         # 2.1.0：默认 dry-run
+gen4399 submit --realname 张三 --idcard ...         # 2.1.0+：默认 dry-run
+gen4399 submit --form-path web --realname 张三 --idcard ...   # 2.2.0：web dry-run
 gen4399 rules
 
 # 旧 flag 模式（与 1.x 兼容）
 gen4399 -n 20 -c 5
 gen4399 --check "Abc12345"
-gen4399 --submit --form-path unified --yes --realname 张三 --idcard ...   # 2.1.0 真实提交
+gen4399 --submit --yes --realname 张三 --idcard ...                  # legacy 默认 web
+gen4399 --submit --form-path unified --yes --realname 张三 --idcard ...
 ```
 
 ### 子命令
@@ -481,8 +514,9 @@ python -m gen4399 --prepare --no-verify --realname 张三 --idcard ...
 python -m gen4399 --prepare --no-verify --profile-file ids.txt   # 批量
 python -m gen4399 --check-available "abc12345"
 python -m gen4399 --timeout 3 --check-available "abc12345"
-python -m gen4399 submit --realname 张三 --idcard ...              # 2.1.0：dry-run
-python -m gen4399 submit --realname 张三 --idcard ... --yes        # 2.1.0：真实提交（仅 unified）
+python -m gen4399 submit --realname 张三 --idcard ...              # 2.1.0+：dry-run
+python -m gen4399 submit --realname 张三 --idcard ... --yes        # 2.1.0+：真实提交（默认 unified）
+python -m gen4399 submit --form-path web --realname 张三 --idcard ... --yes   # 2.2.0：web 真实提交
 ```
 
 - `-n` 是**密码**总长度（默认 16）；自动生成用户名长度用 `--username-length`（默认 12）。
@@ -495,13 +529,16 @@ python -m gen4399 submit --realname 张三 --idcard ... --yes        # 2.1.0：�
 ## 安全与合规
 
 - **默认不提交注册**：`prepare` / `form build` 只准备数据；真实提交必须显式
-  `submit_registration(..., dry_run=False)` 或 `gen4399 submit --yes`，且仅支持
-  `unified` 路径。
+  `submit_registration(..., dry_run=False)` 或 `gen4399 submit --yes`；
+  2.2.0 起 `web` / `unified` 两条路径都支持。
 - 请只使用**本人**真实身份信息；使用他人身份可能违法，也违反 4399 用户协议。
   不要批量注册他人账号。
-- 真实提交只把姓名/身份证等字段发往 **4399 官方端点**（`ptlogin.4399.com`），
-  且 `sec=1` 时先经 4399 页面同款 AES 加密；库不经过任何第三方服务器。
-  注意该 AES 口令公开在前端 JS 中，**不提供机密性保护**，只是协议要求。
+- 真实提交只把字段发往 **4399 官方端点**（`ptlogin.4399.com` /
+  `web.4399.com`），库不经过任何第三方服务器。`unified` 路径 `sec=1` 时先经
+  页面同款 AES 加密；`web` 路径只有密码用页面同款 DES，`true_name`/`sfz`
+  是明文在 HTTPS 请求体中（比浏览器原 JSONP GET 的 query 更不易进 URL 日志，
+  但仍是明文）。AES 口令/DES 算法均公开在前端 JS 中，**都不提供机密性保护**，
+  只是协议要求。
 - `--yes` 前请先跑一次 dry-run；POST **不自动重试**，超时后先确认是否已建号。
 - 身份文件建议 `chmod 600`（库会警告过宽权限）；`--show-pii`/`--output --show-pii`
   会输出明文，注意屏幕共享与日志。
@@ -521,14 +558,16 @@ python -m gen4399 submit --realname 张三 --idcard ... --yes        # 2.1.0：�
 会。`python scripts/verify_rules.py` 做冒烟检查；见 [docs/rules.md](docs/rules.md)。
 
 **Q：能自动提交注册吗？**
-2.1.0 起可以，但必须**显式触发**：库不会自动提交；CLI 需加 `--yes`（默认 dry-run），
-API 需显式调用 `submit_registration()`（默认 `dry_run=False`，建议先传 `dry_run=True`）。
-只支持 `unified` 路径（`web` 仍用浏览器），且仅限本人真实身份、遵守 4399 用户协议。
-成功判定是启发式的（4399 成功响应未经实测），请以登录 `https://u.4399.com/` 为准。
+2.1.0 起可以，2.2.0 起 `web` / `unified` 两条路径都行，但必须**显式触发**：
+库不会自动提交；CLI 需加 `--yes`（默认 dry-run），API 需显式调用
+`submit_registration()`（默认 `dry_run=False`，建议先传 `dry_run=True`）。
+仅限本人真实身份、遵守 4399 用户协议。成功判定是启发式的（4399 两条路径的
+成功响应均未经实测），请以登录 `https://u.4399.com/` 为准。
 
 **Q：dry-run 会联网吗？**
-会，但只 `GET regFrame.do` 拉注册表单（不发 POST、不发送姓名/身份证等 PII、不建号），
-用于确认接口字段与加密开关 `sec` 是否仍符合预期。
+会，但只发 GET、不发注册 POST、不建号：`unified` 路径 `GET regFrame.do` 拉表单；
+`web` 路径 `GET checkUser` 取 `encryptCode`（只带用户名）。`web` 的 dry-run 不会
+发送姓名/身份证（它们在真正的 POST body 里），用于确认接口/加密是否仍符合预期。
 
 **Q：POST 超时/失败会自动重试吗？**
 不会。POST 永远单次尝试，避免服务端其实已建号却被重复提交；超时后请先尝试登录确认。
@@ -536,7 +575,7 @@ API 需显式调用 `submit_registration()`（默认 `dry_run=False`，建议先
 ## 规则来源
 
 - 4399 前端 `validation.js` 的 `CheakPWD()` / `CheakUsername()` / `CheckRealname()` / `__checkIdcard()`
-- `https://web.4399.com/user/reg.php` 注册页提示
+- `https://web.4399.com/user/reg.php` 注册页与其 `web_reg.js` / `action.js`（`encode_4399` DES 加密）
 - `https://u.4399.com/register.html`（ptlogin 统一注册面板）
 
 密码：长度 6~20、只允许字母和数字、不能纯数字/纯小写/纯大写。

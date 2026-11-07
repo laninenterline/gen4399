@@ -40,7 +40,7 @@ python scripts/verify_rules.py
 5. 更新 `gen4399/_rules.py` 的 `RULES_VERSION` / `RULES_CHECKED_AT`；
 6. 补测试并更新本文件。
 
-## 提交协议（2.1.0）
+## 提交协议（unified 2.1.0 / web 2.2.0）
 
 > 来源：`~/4399recon/REPORT-full.md` / `protocol-username-register.json`
 > （2026-11-07 被动分析 + 少量无害探测；**未创建真实账号**）。
@@ -92,3 +92,30 @@ HTTP 200 重渲染 HTML，错误在
 4. 含「验证码」→ `captcha`；跳离 ptlogin → `success`；否则 `unknown`。
 
 最终以登录 `https://u.4399.com/` 为准。
+
+### web 路径提交（2.2.0）
+
+注册页 `https://web.4399.com/user/reg.php` 的表单会被 JS 接管，流程与 ptlogin 不同：
+
+1. `GET https://web.4399.com/user/?_c=login&_a=checkUser&user=<登录名>&jsoncallback=<cb>`
+   → JSONP `{state, data, url}`，`data` 即密码加密 key `encryptCode`
+   （实测 6 位 hex，如 `5c43e3`；`state` 表示用户名是否可用）。
+2. 密码加密：`encode_4399(pwd, encryptCode)`，来自站点 `action.js`：
+   `"0x" + hex(DES/3DES-ECB(encodeURIComponent(pwd), key))`；
+   key ≤8 字符用 DES、>8 字符用 3DES-EDE，key/明文均 NUL 补齐（明文补齐到 8 字节倍数）。
+   实现：`gen4399/_des.py`（纯标准库）；真实 JS 向量见 `tests/test_des.py`。
+3. 提交：浏览器用 JSONP GET
+   `GET /user/?_c=reg&jsoncallback=?&cid=3000&login_name=…&login_password=0x…&relogin_pwd=0x…&qq=…&true_name=…&sfz=…&encrypt=1`；
+   本库改用 **POST 表单体**（`jsoncallback` 放 query，服务端实测同样接受），
+   避免姓名/身份证进入 URL 日志。
+4. 响应 JSONP：`{state, code, msg, validateState}`。
+   `state=true` → 成功（`validateState !== '2'` 时页面提示可能需激活/补充信息）；
+   `code=200`（图形验证码）/`360`（手机验证码）→ `captcha`；否则 `msg` → `rejected`。
+
+字段：`cid=3000`、`login_name`、`login_password`（密文）、`relogin_pwd`（密文）、
+`qq`、`true_name`、`sfz`、`encrypt=1`；页面上的协议勾选框没有 `name`，不随表单提交。
+
+**PII 注意**：web 路径只有密码用 DES；`true_name`/`sfz` 是明文（HTTPS body），
+DES 本身也不提供现代机密性保护。**成功响应（`state=true`）未实测**：
+只验证了非法用户名会被服务端拒绝（`state=false, code=100`），以及 POST body
+被接受；真实成功/验证码流程均为代码推断。
