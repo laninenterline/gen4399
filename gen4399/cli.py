@@ -34,6 +34,7 @@ from .forms import (
     get_form,
 )
 from .remote import (
+    DEFAULT_TIMEOUT,
     RemoteError,
     check_username,
     fetch_suggested_usernames,
@@ -50,6 +51,7 @@ from .core import (
     USERNAME_MAX_LENGTH,
     USERNAME_MIN_LENGTH,
     Gen4399Error,
+    InvalidLengthError,
     entropy_bits,
     generate_many,
     generate_usernames,
@@ -104,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--account", action="store_true",
                    help="生成一套账号名+密码，默认自动调用官方接口查重账号名")
     p.add_argument("--no-verify", action="store_true",
-                   help="配合 --account 使用，跳过在线查重（离线可用）")
+                   help="配合 --account / --prepare 使用，跳过在线查重（离线可用）")
     p.add_argument("--check-available", metavar="NAME", default=None,
                    help="调用 4399 官方 isExist.do 查询用户名是否还能注册")
     p.add_argument("--form-fields", choices=["web", "unified"], default=None,
@@ -127,11 +129,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--prepare", action="store_true",
                    help="一键准备注册数据（生成用户名+密码、查重、校验、输出填表清单；不提交）")
     p.add_argument("--username-length", type=int, default=None,
-                   help="--prepare 自动生成用户名的长度，默认 12")
+                   help="--prepare / --account 自动生成用户名的长度，默认 12")
     p.add_argument("--show-pii", action="store_true",
-                   help="配合 --build-form 显示完整身份证号（默认打码）")
+                   help="配合 --build-form 显示完整身份证号/密码/QQ（默认打码）")
     p.add_argument("--entropy", action="store_true",
                    help="只输出熵估算（bit），不生成")
+    p.add_argument("--timeout", type=float, default=None, metavar="SECONDS",
+                   help=f"远程接口单次超时，默认 {DEFAULT_TIMEOUT:g} 秒")
     p.add_argument("-V", "--version", action="version",
                    version=f"gen4399 {__version__}")
     return p
@@ -151,6 +155,7 @@ def _report(violations, raw: str) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     """CLI 主函数。返回退出码：0 成功，1 校验失败，2 参数错误。"""
     args = build_parser().parse_args(argv)
+    timeout = DEFAULT_TIMEOUT if args.timeout is None else args.timeout
 
     # 校验模式
     if args.check is not None:
@@ -216,6 +221,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 prefix=args.prefix,
                 suffix=args.suffix,
                 verify_username=not args.no_verify,
+                timeout=timeout,
             )
         except (Gen4399Error, TypeError, ValueError) as exc:
             print(f"错误：{exc}", file=sys.stderr)
@@ -252,10 +258,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             if name in ("sfz", "idcard") and not args.show_pii:
                 shown = profile.masked_idcard()
             elif name in ("login_password", "password",
-                          "relogin_pwd", "passwordveri"):
+                          "relogin_pwd", "passwordveri") and not args.show_pii:
                 shown = "*" * len(value)
+            elif name in ("qq", "email") and not args.show_pii:
+                shown = value[:2] + "*" * max(0, len(value) - 2) if value else value
             print(f"{name:<18}{labels.get(name, ''):<12}{shown}")
-        print("\n# 提示：身份证号默认打码，复制时请看原始文件或加 --show-pii",
+        print("\n# 提示：身份证/密码/QQ 默认打码，需要明文请加 --show-pii",
               file=sys.stderr)
         print("# 提示：本命令只生成清单，不会提交注册", file=sys.stderr)
         return 0
@@ -265,10 +273,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             acc = generate_account(
                 verify_username=not args.no_verify,
-                username_length=args.length or DEFAULT_USERNAME_LENGTH,
+                username_length=args.username_length
+                or DEFAULT_USERNAME_LENGTH,
                 password_length=args.length or DEFAULT_LENGTH,
                 prefix=args.prefix,
                 suffix=args.suffix,
+                timeout=timeout,
             )
         except (RemoteError, Gen4399Error, TypeError, ValueError) as exc:
             print(f"错误：{exc}", file=sys.stderr)
@@ -284,7 +294,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     # 远程：查询用户名可用性
     if args.check_available is not None:
         try:
-            res = check_username(args.check_available)
+            res = check_username(args.check_available, timeout=timeout)
         except RemoteError as exc:
             print(f"错误：{exc}", file=sys.stderr)
             return 2
@@ -302,8 +312,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 prefix=args.prefix,
                 suffix=args.suffix,
                 verify_available=args.verify,
+                timeout=timeout,
             )
-        except RemoteError as exc:
+        except (Gen4399Error, TypeError, ValueError) as exc:
             print(f"错误：{exc}", file=sys.stderr)
             return 2
         for name in names:
@@ -317,6 +328,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         length = DEFAULT_USERNAME_LENGTH if as_username else DEFAULT_LENGTH
 
     try:
+        min_len = USERNAME_MIN_LENGTH if as_username else MIN_LENGTH
+        max_len = USERNAME_MAX_LENGTH if as_username else MAX_LENGTH
+        if not min_len <= length <= max_len:
+            raise InvalidLengthError(
+                f"长度必须为 {min_len}~{max_len}，收到 {length}"
+            )
         bits = entropy_bits(
             length, len(args.prefix), len(args.suffix), charset_size=len(charset)
         )
