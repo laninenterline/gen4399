@@ -3,8 +3,9 @@
 import math
 import unittest
 
+from unittest import mock
+
 from gen4399 import (
-    CHARSET,
     DEFAULT_LENGTH,
     DEFAULT_USERNAME_LENGTH,
     MAX_LENGTH,
@@ -18,6 +19,7 @@ from gen4399 import (
     InvalidPrefixError,
     InvalidSuffixError,
     Violation,
+    check_fixed_part,
     entropy_bits,
     generate,
     generate_many,
@@ -186,6 +188,46 @@ class TestSuffix(unittest.TestCase):
             self.assertTrue(pw.startswith("lg"))
             self.assertTrue(pw.endswith("gz"))
             self.assertEqual(validate(pw), [])
+
+
+class TestCheckFixedPart(unittest.TestCase):
+    def test_ok(self):
+        check_fixed_part("abc123", "prefix")
+        check_fixed_part("", "suffix")
+
+    def test_invalid(self):
+        with self.assertRaises(InvalidPrefixError):
+            check_fixed_part("a_b", "prefix")
+        with self.assertRaises(InvalidSuffixError):
+            check_fixed_part("中", "suffix")
+
+    def test_type_error(self):
+        with self.assertRaises(TypeError):
+            check_fixed_part(123, "prefix")  # type: ignore[arg-type]
+
+    def test_private_alias_kept(self):
+        import gen4399.core as core
+
+        self.assertIs(core._check_fixed_part, core.check_fixed_part)
+
+
+class TestUniqueBatch(unittest.TestCase):
+    def test_password_batch_unique(self):
+        items = generate_many(30, unique=True)
+        self.assertEqual(len(items), 30)
+        self.assertEqual(len(set(items)), 30)
+        for pw in items:
+            self.assertEqual(validate(pw), [])
+
+    def test_username_batch_unique(self):
+        items = generate_usernames(30, unique=True)
+        self.assertEqual(len(items), 30)
+        self.assertEqual(len(set(items)), 30)
+
+    def test_unique_exhausted_raises(self):
+        with mock.patch("gen4399.core.generate", return_value="Abc123"):
+            with self.assertRaises(GenerationError):
+                generate_many(2, unique=True)
 
 
 class TestEntropy(unittest.TestCase):

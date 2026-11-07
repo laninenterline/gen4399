@@ -10,6 +10,7 @@
     pw = generate(suffix="gz")      # 以 "gz" 结尾的 16 位
     pw = generate(prefix="lg", suffix="gz")
     generate_many(5)                # 一次生成 5 个
+    generate_many(5, unique=True)   # 保证 5 个互不相同
 
     # 账号名（用户名）——本地生成
     generate_username()             # 12 位小写字母+数字
@@ -19,6 +20,7 @@
     # 账号名（用户名）——调用 4399 官方接口
     fetch_suggested_username()      # 服务端分配的账号，如 '4257237567'
     is_username_available("abc12345")   # True / False
+    check_username("abc12345").kind     # 'available' / 'taken' / 'invalid'
     generate_available_username()   # 本地生成 + 服务端确认可注册
     generate_account()              # 返回 Account(username, password)
 
@@ -60,6 +62,7 @@ from .registration import (
 )
 from .remote import (
     DEFAULT_APP_ID,
+    DEFAULT_USER_AGENT,
     Account,
     generate_account,
     generate_available_username,
@@ -78,6 +81,7 @@ from .remote import (
 )
 from .core import (
     CHARSET,
+    check_fixed_part,
     DEFAULT_LENGTH,
     DEFAULT_USERNAME_LENGTH,
     MAX_LENGTH,
@@ -103,7 +107,7 @@ from .core import (
     validate_username,
 )
 
-__version__ = "1.8.1"
+__version__ = "1.9.0"
 
 __all__ = [
     "CHARSET",
@@ -121,6 +125,7 @@ __all__ = [
     "InvalidPrefixError",
     "InvalidSuffixError",
     "GenerationError",
+    "check_fixed_part",
     "validate",
     "is_valid",
     "generate",
@@ -133,6 +138,7 @@ __all__ = [
     "REG_FRAME_URL",
     "IS_EXIST_URL",
     "DEFAULT_APP_ID",
+    "DEFAULT_USER_AGENT",
     "DEFAULT_TIMEOUT",
     "RemoteError",
     "RemoteTimeoutError",

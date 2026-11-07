@@ -26,6 +26,7 @@ import math
 import re
 import secrets
 import string
+from collections.abc import Callable
 from dataclasses import dataclass
 
 __all__ = [
@@ -44,6 +45,7 @@ __all__ = [
     "InvalidPrefixError",
     "InvalidSuffixError",
     "GenerationError",
+    "check_fixed_part",
     "validate",
     "is_valid",
     "generate",
@@ -107,7 +109,11 @@ class InvalidSuffixError(InvalidFixedPartError):
 
 
 class GenerationError(Gen4399Error):
-    """在给定尝试次数内没能生成合法密码（理论上不会发生）。"""
+    """在给定尝试次数内没能生成合法结果。
+
+    常见于固定部分过长导致随机部分只剩 1 位、且 ``max_attempts`` 设得很小，
+    或批量去重时可用空间不足。
+    """
 
 
 @dataclass(frozen=True)
@@ -143,8 +149,18 @@ def _check_length_int(length: object) -> None:
         raise TypeError(f"length 必须是 int，收到 {type(length).__name__}")
 
 
-def _check_fixed_part(value: object, name: str) -> None:
-    """校验 prefix / suffix 只含 ASCII 字母数字。"""
+def check_fixed_part(value: object, name: str) -> None:
+    """校验 prefix / suffix 只含 ASCII 字母数字。
+
+    Args:
+        value: 待校验的固定部分。
+        name: ``"prefix"`` 或 ``"suffix"``，用于错误信息。
+
+    Raises:
+        InvalidPrefixError: prefix 不合法。
+        InvalidSuffixError: suffix 不合法。
+        TypeError: 传入的不是 ``str``。
+    """
     _require_str(value, name)
     if value and not _ALNUM_RE.fullmatch(value):
         if name == "prefix":
@@ -154,6 +170,10 @@ def _check_fixed_part(value: object, name: str) -> None:
         raise InvalidSuffixError(
             "后缀只能包含 ASCII 字母和数字（4399 不允许其它字符）"
         )
+
+
+#: 兼容旧名字（1.8.x 内部使用）；新代码请用 :func:`check_fixed_part`。
+_check_fixed_part = check_fixed_part
 
 
 def validate(password: str) -> list[Violation]:
@@ -299,8 +319,8 @@ def _validate_params(
 ) -> int:
     """内部参数校验，返回随机部分的长度。"""
     _check_length_int(length)
-    _check_fixed_part(prefix, "prefix")
-    _check_fixed_part(suffix, "suffix")
+    check_fixed_part(prefix, "prefix")
+    check_fixed_part(suffix, "suffix")
     if not isinstance(max_attempts, int) or isinstance(max_attempts, bool):
         raise TypeError("max_attempts 必须是 int")
     if max_attempts < 1:
@@ -367,6 +387,49 @@ def generate(
     )
 
 
+def _generate_batch(
+    count: int,
+    *,
+    unique: bool,
+    make: Callable[[], str],
+    label: str,
+) -> list[str]:
+    """批量生成的公共实现。
+
+    Args:
+        count: 需要的数量。
+        unique: 是否保证互不相同。
+        make: 生成单个元素的零参函数。
+        label: 错误信息里用的中文名称（"密码" / "用户名"）。
+
+    Returns:
+        生成结果列表。
+
+    Raises:
+        GenerationError: ``unique=True`` 且尝试次数用尽仍凑不满。
+    """
+    if not unique:
+        return [make() for _ in range(count)]
+
+    seen: set[str] = set()
+    out: list[str] = []
+    # 可用空间不足时避免死循环：给一个宽松但有限的上限
+    max_tries = max(100, count * 20)
+    for _ in range(max_tries):
+        item = make()
+        if item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+        if len(out) == count:
+            return out
+    raise GenerationError(
+        f"生成 {count} 个互不相同的{label}失败："
+        f"尝试 {max_tries} 次后只得到 {len(out)} 个，"
+        "请增加长度或减少数量"
+    )
+
+
 def generate_many(
     count: int,
     *,
@@ -374,18 +437,21 @@ def generate_many(
     prefix: str = "",
     suffix: str = "",
     max_attempts: int = 10_000,
+    unique: bool = False,
 ) -> list[str]:
-    """批量生成互不相同（概率上）的合规密码。
+    """批量生成合规密码。
 
     Args:
         count: 生成个数，必须 >= 1。
         length / prefix / suffix / max_attempts: 同 :func:`generate`。
+        unique: 为 ``True`` 时保证结果互不相同（默认 ``False``，只保证概率上不同）。
 
     Returns:
         密码列表。
 
     Raises:
         ValueError: ``count < 1``。
+        GenerationError: ``unique=True`` 时可用空间不足，凑不满 ``count`` 个。
         其它异常同 :func:`generate`。
 
     Examples:
@@ -393,6 +459,8 @@ def generate_many(
         3
         >>> all(p.endswith("gz") for p in generate_many(3, suffix="gz"))
         True
+        >>> len(set(generate_many(5, unique=True)))
+        5
     """
     if not isinstance(count, int) or isinstance(count, bool):
         raise TypeError("count 必须是 int")
@@ -400,15 +468,17 @@ def generate_many(
         raise ValueError("count 必须 >= 1")
     # 先校验一次参数，避免生成到一半才抛错
     _validate_params(length, prefix, suffix, max_attempts)
-    return [
-        generate(
+    return _generate_batch(
+        count,
+        unique=unique,
+        make=lambda: generate(
             length=length,
             prefix=prefix,
             suffix=suffix,
             max_attempts=max_attempts,
-        )
-        for _ in range(count)
-    ]
+        ),
+        label="密码",
+    )
 
 
 def generate_username(
@@ -476,18 +546,21 @@ def generate_usernames(
     prefix: str = "",
     suffix: str = "",
     max_attempts: int = 10_000,
+    unique: bool = False,
 ) -> list[str]:
     """批量生成符合 4399 注册规则的随机用户名。
 
     Args:
         count: 生成个数，必须 >= 1。
         length / prefix / suffix / max_attempts: 同 :func:`generate_username`。
+        unique: 为 ``True`` 时保证结果互不相同。
 
     Returns:
         用户名列表。
 
     Raises:
         ValueError: ``count < 1``。
+        GenerationError: ``unique=True`` 时可用空间不足，凑不满 ``count`` 个。
         其它异常同 :func:`generate_username`。
 
     Examples:
@@ -495,6 +568,8 @@ def generate_usernames(
         3
         >>> all(u.startswith("u") for u in generate_usernames(3, prefix="u"))
         True
+        >>> len(set(generate_usernames(5, unique=True)))
+        5
     """
     if not isinstance(count, int) or isinstance(count, bool):
         raise TypeError("count 必须是 int")
@@ -510,12 +585,14 @@ def generate_usernames(
         max_len=USERNAME_MAX_LENGTH,
         label="用户名长度",
     )
-    return [
-        generate_username(
+    return _generate_batch(
+        count,
+        unique=unique,
+        make=lambda: generate_username(
             length=length,
             prefix=prefix,
             suffix=suffix,
             max_attempts=max_attempts,
-        )
-        for _ in range(count)
-    ]
+        ),
+        label="用户名",
+    )
