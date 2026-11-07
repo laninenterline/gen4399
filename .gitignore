@@ -13,3 +13,6 @@ htmlcov/
 .probe/
 venv/
 .venv/
+# 本地身份/账号文件（含 PII，勿提交）
+sfz.txt
+accounts.json

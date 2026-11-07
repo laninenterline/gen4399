@@ -301,6 +301,7 @@ body: appId=www_home&regMode=false&level=4&username=&password=&passwordveri=&ses
 | `gen4399/remote/_http.py` | `RemoteSession`（CookieJar，GET 重试 / POST 单次）、`parse_registration_form()`、`HttpResponse`、`RegFormSnapshot` |
 | `gen4399/cli.py` | `submit` 子命令（`--form-path web\|unified`）、legacy `--submit/--yes/--app-id/--level` |
 | `gen4399/__init__.py` | 顶层导出 `submit_registration` / `SubmitResult` / `SubmitError` |
+| `scripts/make_account.py` | 便捷脚本：读身份 → `prepare_registration()` → `submit_registration()` → 保存到 `accounts.json`（默认 dry-run，`--yes` 才提交） |
 
 ### Python API
 

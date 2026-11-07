@@ -2,7 +2,7 @@
 
 - **对象**：`gen4399` 2.2.0（tag `v2.2.0`，2026-11-07）
 - **内容**：项目定位与边界、仓库地图、分层架构、4399 规则快照、各模块职责、关键数据流、API/CLI 速查、工程质量实测、PII 治理、演进史与已知问题清单。
-- **方法**：通读全部源码（5,973 行，含 remote 包与 2.1.0/2.2.0 新增的 submit/_aes/_des）+ 13 个测试文件 + 全部文档；实跑 pytest / coverage / doctest；CLI 与 API 定向探针验证。
+- **方法**：通读全部源码（5,993 行，含 remote 包与 2.1.0/2.2.0 新增的 submit/_aes/_des）+ 14 个测试文件 + 全部文档；实跑 pytest / coverage / doctest；CLI 与 API 定向探针验证。
 - **时效**：基于 2026-11-07 工作区快照，规则版本 `4399-2026-11`；行号引用以该版本源码为准。
 
 ---
@@ -68,8 +68,9 @@ lead-workspace/
 │   ├── _rules.py      35 行  # 规则快照版本/来源/关键字
 │   ├── _width.py      50 行  # CJK 终端显示宽度（表格对齐）
 │   └── py.typed              # 类型标记（随包分发）
-├── tests/            13 个文件，4,523 行，495 个用例 + 457 subtests（含 test_aes/test_des/test_submit/test_submit_http）
+├── tests/            14 个文件，4,727 行，505 个用例 + 457 subtests（含 test_aes/test_des/test_submit/test_submit_http/test_make_account）
 ├── scripts/verify_rules.py   # 规则页面关键词冒烟检查（GET + 子串匹配）
+├── scripts/make_account.py   # 便捷脚本：每次运行准备并（--yes 时）提交一个账号，追加 accounts.json（0600）
 ├── docs/rules.md             # 规则快照、复核流程、改规则清单、提交协议摘要
 ├── docs/submit.md            # 2.1.0/2.2.0：web/unified 提交协议/字段/AES/DES/判定/安全/未验证项
 ├── .github/workflows/ci.yml  # 3.10–3.13 矩阵 × 7 道门禁
@@ -201,7 +202,8 @@ registration.py ──→ forms.py ──→ identity.py ──→ core.py
 - **`submit` 子命令**：`--form-path web|unified`（默认 unified）；默认 dry-run，`--yes` 才发 POST；`--app-id` / `--level`（仅 unified）、身份参数、`--json/--output`（写 `submit.json`）。多身份时 stderr 警告「仅限本人真实身份、勿批量注册」。legacy `--submit` 默认走 web。
 - **身份来源**：`--profile-file` / `--realname + --idcard`；两者都没给（且无 `--qq`）时
   默认读取当前目录 `sfz.txt`，不存在则退出码 2。`profile check` 的 `--profile-file` 可选，
-  默认同上。
+  默认同上。编码默认 UTF-8-SIG，解码失败自动回退 GB18030（兼容 GBK）；
+  `sfz.txt` / `accounts.json` 已加入 `.gitignore`。
 - 退出码约定：**0 成功（含 dry-run）；1 校验失败/注册被拒/未知/验证码；2 参数/网络/配置错误**。
 - 输出：文本（`OK:`/`FAIL:`/`DRY-RUN:`/`错误：`/`# 提示:`）与 `--json` 机器可读；`--output DIR` 写 0600 JSON（`bundle-XX.json` / `account-XX.json` / `generated.json` / `submit.json` 等）。
 
@@ -298,8 +300,8 @@ check_username(name)
 
 | 门禁 | 命令 | 实测结果 | 判定 |
 |---|---|---|---|
-| 全量测试 | `pytest -q` | **495 passed, 1 skipped, 457 subtests passed, ~1.5s** | ✅ |
-| 覆盖率 | `coverage run --branch -m pytest` + `report` | **TOTAL 94%**（2223 stmts / 89 miss / 836 branch / 72 brpart），阈值 90 满足 | ✅ |
+| 全量测试 | `pytest -q` | **505 passed, 1 skipped, 457 subtests passed, ~1.5s** | ✅ |
+| 覆盖率 | `coverage run --branch -m pytest` + `report` | **TOTAL 94%**（2234 stmts / 91 miss / 840 branch / 74 brpart），阈值 90 满足 | ✅ |
 | doctest | `pytest --doctest-modules gen4399 -q` | **11 passed, 5 skipped**（skip 均为源码 `# doctest: +SKIP` 的网络/IO 示例） | ✅ |
 | ruff | `ruff check .` | 本机未安装（离线不可装） | ⏭️ NOT-RUN |
 | mypy | `mypy gen4399` | 未安装；CI 中本身是 `continue-on-error` 观察项 | ⏭️ NOT-RUN |
@@ -409,7 +411,7 @@ check_username(name)
 
 ```bash
 pip install -e ".[dev]"          # 安装（运行时零依赖）
-python -m pytest                 # 495 项测试
+python -m pytest                 # 505 项测试
 python -m pytest --doctest-modules gen4399 -q
 python -m coverage run --branch -m pytest -q && python -m coverage report
 ```
@@ -447,13 +449,13 @@ python -m gen4399 rules                          # 规则版本与来源
 **优点**：
 - 领域边界清晰、目标克制（默认只准备、提交必须显式开启），规则来源与维护流程有记录；
 - 分层干净、单向依赖、`__init__` 门面 + 72 个导出、`py.typed`，API 文档与 doctest 齐全；
-- 工程配套成熟：零运行时依赖（新增提交层仍只用标准库）、495 测试、94% 覆盖、CI 7 道门禁、MIT、语义化版本、CHANGELOG、SECURITY/CONTRIBUTING、pre-commit；
+- 工程配套成熟：零运行时依赖（新增提交层仍只用标准库）、505 测试、94% 覆盖、CI 7 道门禁、MIT、语义化版本、CHANGELOG、SECURITY/CONTRIBUTING、pre-commit；
 - 远程层做了真实工程化：重试策略对象、抖动、Retry-After、总预算、结构化错误、HTML 解析健壮性、结构化可用性结果，以及 CookieJar 会话 + 单次 POST；
 - 提交层在安全上保守：默认不自动提交（CLI 默认 dry-run）、注册 POST 不自动重试、结果对象脱敏、只发往 4399 官方端点，并把「成功响应未实测」「web PII 弱于 unified」写进文档；
 - PII 安全意识整体在线（repr 打码、0600、权限警告、日志去 query）。
 
 **主要短板**：
-- CLI 2.0 双模式是最大维护瓶颈（1,172 行、两套 parser、`set_defaults` hack），出现 `-v` 失效、`--offline` 漏判、能力不对称、多命令静默优先级等一批一致性问题；
+- CLI 2.0 双模式是最大维护瓶颈（1,192 行、两套 parser、`set_defaults` hack），出现 `-v` 失效、`--offline` 漏判、能力不对称、多命令静默优先级等一批一致性问题；
 - PII 打码口径不统一（密码默认明文、姓名/QQ 漏遮、`to_dict` 顶层 qq 漏遮），与自身文档冲突；
 - 远程分类启发式仍偏「宽容」（未知响应→taken 的兜底、with_availability 可返回 taken）；
 - 提交能力边界未闭合：两条成功响应均未实测、依赖 4399 表单/接口结构；web 路径 PII 处理弱于 unified；

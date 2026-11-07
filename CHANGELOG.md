@@ -19,6 +19,8 @@
     legacy `--submit` 默认走 web（2.1.0 时 web 会报错）。
   - 新增 `tests/test_des.py`；`tests/test_submit.py` / `tests/test_cli.py`
     增加 web 路径的 payload、DES 加密、JSONP 判定、退出码覆盖。
+  - 新增 `scripts/make_account.py`：每次运行读取身份 → 准备 → 提交并追加保存
+    账号到 `accounts.json`（默认 dry-run，`--yes` 才真实提交；单次运行只处理一个身份）。
 - 文档：`docs/submit.md` 增加 web 协议/字段/DES/判定/PII 对比章节；
   README、`docs/rules.md`、`docs/project-overview.md`、SECURITY 同步。
 
@@ -36,6 +38,8 @@
 - **CLI 默认身份文件**：未指定任何身份来源（无 `--profile-file`，也无
   `--realname/--idcard/--qq`）时，自动读取当前目录下的 `sfz.txt`；文件不存在则
   退出码 2 并提示。`gen4399 profile check --profile-file` 改为可选（默认同上）。
+  身份文件编码默认 UTF-8-SIG，解码失败自动回退 GB18030（兼容 GBK），可用
+  `--profile-encoding` 覆盖；`sfz.txt` / `accounts.json` 加入 `.gitignore`。
 - `__version__ = "2.2.0"`；仍为**零运行时依赖**（AES/DES 均为纯标准库实现）。
 
 ### 安全

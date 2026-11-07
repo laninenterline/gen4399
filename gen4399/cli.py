@@ -167,7 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
                         "'-' 表示 stdin；未指定且未给 --realname/--idcard 时"
                         "默认读取当前目录 sfz.txt")
     p.add_argument("--profile-encoding", default=None, metavar="ENCODING",
-                   help="身份文件编码，默认 utf-8-sig（自动兼容 BOM）")
+                   help="身份文件编码；默认自动（UTF-8-SIG，失败回退 GB18030）")
     p.add_argument("--build-form", nargs=2, default=None,
                    metavar=("USERNAME", "PASSWORD"),
                    help="生成填表清单（参数名=值），不提交")
@@ -290,6 +290,23 @@ def _default_profile_file() -> Path:
     return Path.cwd() / DEFAULT_PROFILE_FILE
 
 
+def _load_profiles_auto(path, encoding: str | None):
+    """读取身份文件；未显式指定编码时先 UTF-8-SIG，失败回退 GB18030。"""
+    if encoding:
+        return load_profiles(path, encoding=encoding)
+    try:
+        return load_profiles(path, encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        if str(path) == "-":
+            raise
+        profiles = load_profiles(path, encoding="gb18030")
+        print(
+            "# 提示：身份文件不是 UTF-8，已按 GB18030 读取",
+            file=sys.stderr,
+        )
+        return profiles
+
+
 def _load_identity_profiles(args):
     """按 --profile-file / --realname+--idcard / 默认 ./sfz.txt 取身份信息。
 
@@ -308,15 +325,15 @@ def _load_identity_profiles(args):
             )
         if args.qq is not None:
             raise ValueError("--profile-file 不能与 --qq 同时使用")
-        encoding = getattr(args, "profile_encoding", None) or "utf-8-sig"
-        return load_profiles(args.profile_file, encoding=encoding)
+        encoding = getattr(args, "profile_encoding", None)
+        return _load_profiles_auto(args.profile_file, encoding)
 
     manual = bool(args.realname or args.idcard or args.qq)
     if not manual:
         default = _default_profile_file()
         if default.is_file():
-            encoding = getattr(args, "profile_encoding", None) or "utf-8-sig"
-            return load_profiles(default, encoding=encoding)
+            encoding = getattr(args, "profile_encoding", None)
+            return _load_profiles_auto(default, encoding)
         raise ValueError(
             "未指定身份来源：请用 --profile-file 指定文件，或提供 "
             "--realname + --idcard；也可把身份文件放到默认路径 "
@@ -907,7 +924,7 @@ def _add_identity_opts(sp: argparse.ArgumentParser) -> None:
                     help="每行「姓名|身份证号[|QQ]」，'-' 表示 stdin；"
                          "未指定且未给 --realname/--idcard 时默认读 ./sfz.txt")
     sp.add_argument("--profile-encoding", default=None, metavar="ENCODING",
-                    help="身份文件编码，默认 utf-8-sig")
+                    help="身份文件编码；默认自动（UTF-8-SIG，失败回退 GB18030）")
     sp.add_argument("--realname", default=None, metavar="NAME")
     sp.add_argument("--idcard", default=None, metavar="ID")
     sp.add_argument("--qq", default=None, metavar="QQ")
@@ -1050,7 +1067,10 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
         "--profile-file", metavar="FILE", default=None,
         help="身份文件；未指定时默认当前目录 sfz.txt",
     )
-    pfcheck.add_argument("--profile-encoding", default=None, metavar="ENCODING")
+    pfcheck.add_argument(
+        "--profile-encoding", default=None, metavar="ENCODING",
+        help="身份文件编码；默认自动（UTF-8-SIG，失败回退 GB18030）",
+    )
     pfcheck.add_argument("--json", action="store_true")
 
     new("rules", "打印内置规则版本")

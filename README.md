@@ -276,7 +276,9 @@ python -m gen4399 --check-form abc12345 Abc123456 --profile-file ids.txt
 > **默认身份文件**：如果既没给 `--profile-file`，也没给 `--realname/--idcard/--qq`，
 > CLI 会自动读取**当前目录下的 `sfz.txt`**（格式同样是 `姓名|身份证号[|QQ]`）。
 > 文件不存在时退出码 2 并提示；`gen4399 profile check` 也适用（其 `--profile-file`
-> 已改为可选）。
+> 已改为可选）。编码默认先按 UTF-8（含 BOM）读取，失败自动回退 **GB18030**（兼容
+> GBK 文件）；也可用 `--profile-encoding` 显式指定。`sfz.txt` / `accounts.json`
+> 已加入 `.gitignore`，避免身份/账号误提交。
 
 ## 提交注册（web / unified，2.2.0）
 
@@ -392,6 +394,34 @@ gen4399 submit --profile-file ids.txt --yes    # 真实提交
 gen4399 --submit --yes --realname 张三 --idcard 460206194611192084
 gen4399 --submit --form-path unified --yes --realname 张三 --idcard 460206194611192084
 ```
+
+### 便捷脚本：每次运行获取一个账号
+
+[scripts/make_account.py](scripts/make_account.py) 把「读身份 → 准备 → 提交 → 保存」串成一次运行，
+**每次运行只处理一条身份、只提交一个账号**：
+
+```bash
+# 1) 身份文件（默认 ./sfz.txt；也可 --profile-file 指定）
+printf '你的姓名|你的18位身份证号|你的QQ\n' > sfz.txt
+chmod 600 sfz.txt
+
+# 2) 默认 dry-run（不发注册 POST）
+python scripts/make_account.py
+
+# 3) 真实提交（仅限本人真实身份；成功/unknown 时追加到 accounts.json）
+python scripts/make_account.py --yes
+
+# 其它：web 路径 / 输出文件 / JSON
+python scripts/make_account.py --yes --form-path web --output my_accounts.json
+python scripts/make_account.py --json
+```
+
+- 身份文件编码默认 UTF-8（失败自动回退 GB18030）；`sfz.txt` / `accounts.json`
+  已在 `.gitignore` 中，避免 PII/账号误提交。
+- 成功或被判定为 `unknown` 时会追加到 `accounts.json`（默认 0600，含明文密码，
+  请妥善保管）；`unknown` 请先登录 `https://u.4399.com/` 确认，不要立刻重跑。
+- 退出码：0 成功/dry-run；1 被拒/验证码/未知；2 参数/网络/配置错误。
+- 脚本不会循环、不会重试注册 POST；每次运行都是一个独立的新账号准备流程。
 
 ### 流程简述
 

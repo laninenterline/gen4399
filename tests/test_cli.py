@@ -18,6 +18,25 @@ from gen4399.submit import SubmitResult
 VALID_ID = "460206194611192084"
 
 
+_MODULE_TMP = None
+_MODULE_CWD = None
+
+
+def setUpModule():
+    """CLI 测试统一在空的临时目录中跑，避免读到用户本地的 ./sfz.txt。"""
+    global _MODULE_TMP, _MODULE_CWD
+    _MODULE_CWD = os.getcwd()
+    _MODULE_TMP = tempfile.TemporaryDirectory()
+    os.chdir(_MODULE_TMP.name)
+
+
+def tearDownModule():
+    if _MODULE_CWD is not None:
+        os.chdir(_MODULE_CWD)
+    if _MODULE_TMP is not None:
+        _MODULE_TMP.cleanup()
+
+
 def run(argv):
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -855,6 +874,24 @@ class TestDefaultProfileFile(unittest.TestCase):
         code, _, err = run(["profile", "check"])
         self.assertEqual(code, 2)
         self.assertIn("sfz.txt", err)
+
+    def test_gb18030_default_file_falls_back(self):
+        Path("sfz.txt").write_bytes(
+            ("张三|" + VALID_ID + "\n").encode("gb18030")
+        )
+        code, out, err = run(["--prepare", "--offline", "--json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)[0]["realname"], "张三")
+        self.assertIn("GB18030", err)
+
+    def test_explicit_gbk_file_falls_back(self):
+        path = Path("gbk.txt")
+        path.write_bytes(("李四|11010119900101004X\n").encode("gb18030"))
+        code, out, _ = run([
+            "--prepare", "--offline", "--json", "--profile-file", str(path),
+        ])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)[0]["realname"], "李四")
 
     def test_submit_uses_default_sfz_txt(self):
         self._write("张三|" + VALID_ID + "\n")
