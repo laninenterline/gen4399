@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import random
 import re
 import socket
 import time
@@ -36,10 +37,9 @@ from .core import (
     DEFAULT_USERNAME_LENGTH,
     Gen4399Error,
     InvalidLengthError,
-    _check_fixed_part,
+    check_fixed_part,
     generate,
     generate_username,
-    validate,
     validate_username,
 )
 
@@ -81,8 +81,19 @@ DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
-_J_USERNAME_RE = re.compile(r'id="j-username"(?P<attrs>.*?)>', re.S)
-_VALUE_RE = re.compile(r'value="([^"]*)"')
+# 匹配 <input ... id="j-username" ...> 整个标签：不依赖属性顺序、单双引号皆可
+_INPUT_TAG_RE = re.compile(
+    r"""<input\b[^>]*\bid\s*=\s*["']j-username["'][^>]*>""",
+    re.I | re.S,
+)
+# 在标签体内取 value 属性
+_VALUE_ATTR_RE = re.compile(
+    r"""\bvalue\s*=\s*(?:"([^"]*)"|'([^']*)')""",
+    re.I | re.S,
+)
+
+#: 请求体读取上限，避免异常接口返回超大内容
+MAX_BODY_BYTES = 512 * 1024
 
 
 class RemoteError(Gen4399Error):
@@ -113,18 +124,84 @@ class UsernameAvailability:
         username: 被查询的用户名。
         available: 是否可注册。
         message: 服务端返回的原始说明（可用时为 ``"0"``）。
+        kind: 结构化分类，取值 ``available`` / ``taken`` / ``invalid`` /
+            ``unknown``。不传时按 ``message`` 自动推断。
     """
 
     username: str
     available: bool
     message: str
+    kind: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.kind:
+            object.__setattr__(self, "kind", _classify_availability(self.message))
 
     def __bool__(self) -> bool:  # 让 `if result:` 直接表示是否可用
         return self.available
 
 
-def _http_get(url: str, timeout: float) -> str:
-    """最小的 HTTP GET 封装（内部函数，便于测试时打桩）。"""
+#: 服务端"用户名可用"的响应体
+_AVAILABLE_BODY = "0"
+
+#: 服务端表示"名字本身不合法"的提示关键词
+_INVALID_HINTS = ("敏感", "至少", "字符", "长度", "格式", "不能", "非法", "限制")
+
+
+def _classify_availability(body: str) -> str:
+    """把 isExist.do 的响应体分类（内部函数）。
+
+    Returns:
+        ``available`` / ``taken`` / ``invalid`` / ``unknown``。
+    """
+    if body == _AVAILABLE_BODY:
+        return "available"
+    if not body or "<" in body:
+        # 空响应或 HTML 错误页：无法判断，不应当成"已被注册"
+        return "unknown"
+    if any(hint in body for hint in _INVALID_HINTS):
+        return "invalid"
+    return "taken"
+
+
+def _http_get(url: str, timeout: float, *, retries: int = 1) -> str:
+    """带有限重试的最小 HTTP GET 封装（内部函数，便于测试时打桩）。
+
+    Args:
+        url: 请求地址。
+        timeout: 单次请求超时（秒）。
+        retries: 总尝试次数（含首次）。超时、网络错误、5xx、429 会重试；
+            其它 4xx 直接抛出。
+
+    Returns:
+        响应体文本。
+
+    Raises:
+        RemoteTimeoutError / RemoteHTTPError / RemoteError: 请求失败。
+    """
+    if retries < 1:
+        raise ValueError("retries 必须 >= 1")
+    last_error: RemoteError | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            return _http_get_once(url, timeout)
+        except RemoteHTTPError as exc:
+            if 400 <= exc.status < 500 and exc.status != 429:
+                raise
+            last_error = exc
+        except RemoteTimeoutError as exc:
+            last_error = exc
+        except RemoteError as exc:
+            last_error = exc
+        if attempt < retries:
+            # 线性退避 + 抖动，避免并发重试同时打到接口
+            time.sleep(0.5 * attempt * (1 + random.uniform(0, 0.25)))
+    assert last_error is not None
+    raise last_error
+
+
+def _http_get_once(url: str, timeout: float) -> str:
+    """执行一次 HTTP GET 并把底层异常统一成 :class:`RemoteError` 子类。"""
     req = urllib.request.Request(
         url,
         headers={
@@ -139,7 +216,7 @@ def _http_get(url: str, timeout: float) -> str:
             status = getattr(resp, "status", 200)
             if status and not 200 <= status < 300:
                 raise RemoteHTTPError(f"HTTP {status}", status)
-            raw = resp.read()
+            raw = resp.read(MAX_BODY_BYTES)
     except urllib.error.HTTPError as exc:  # 4xx / 5xx
         raise RemoteHTTPError(f"HTTP {exc.code}", exc.code) from exc
     except socket.timeout as exc:
@@ -155,20 +232,36 @@ def _http_get(url: str, timeout: float) -> str:
 
 
 def _parse_suggested_username(html: str) -> str:
-    """从注册面板 HTML 里取出服务端预填的用户名。"""
-    m = _J_USERNAME_RE.search(html)
+    """从注册面板 HTML 里取出服务端预填的用户名。
+
+    先定位包含 ``id="j-username"`` 的 ``<input>`` 整个标签，再在标签内找
+    ``value`` 属性——这样不依赖属性出现的顺序，也兼容单/双引号。
+
+    Args:
+        html: 注册面板页面的 HTML。
+
+    Returns:
+        用户名；标签存在但 ``value`` 为空时返回 ``""``。
+
+    Raises:
+        RemoteParseError: 响应里找不到 ``j-username`` 输入框（接口结构可能变了）。
+    """
+    m = _INPUT_TAG_RE.search(html)
     if not m:
         raise RemoteParseError(
             "响应中没有找到用户名输入框（j-username），接口结构可能已变化"
         )
-    vm = _VALUE_RE.search(m.group("attrs"))
-    return vm.group(1).strip() if vm else ""
+    vm = _VALUE_ATTR_RE.search(m.group(0))
+    if vm is None:
+        return ""
+    value = vm.group(1) if vm.group(1) is not None else vm.group(2)
+    return value.strip()
 
 
 def _apply_fixed_parts(name: str, prefix: str, suffix: str) -> str:
     """把自定义前后缀套到服务端分配的用户名上，并校验最终结果。"""
-    _check_fixed_part(prefix, "prefix")
-    _check_fixed_part(suffix, "suffix")
+    check_fixed_part(prefix, "prefix")
+    check_fixed_part(suffix, "suffix")
     candidate = prefix + name + suffix
     violations = validate_username(candidate)
     if not violations:
@@ -205,9 +298,10 @@ def fetch_suggested_username(
         app_id: 业务方 appId，默认 ``u4399``。
         level: 注册等级，默认 4。
         timeout: 单次请求超时（秒）。
-        retries: 返回空用户名时的重试次数。
-        retry_delay: 首次重试间隔（秒），之后按指数递增（5s、10s、20s…）。
-            实测该接口在 20 秒左右间隔下成功率明显更高，需要时自行调大。
+        retries: 总尝试次数（含首次）。
+        retry_delay: 首次重试间隔（秒），之后指数递增（5s、10s、20s…，
+            单次封顶 60s），并自动加 ±25% 抖动。实测该接口在 20 秒左右
+            间隔下成功率明显更高，需要时自行调大。
         fallback_to_local: 拿不到服务端分配的用户名时，是否降级为本地
             :func:`generate_username` 生成（默认 False，即抛异常）。
         prefix: 加在服务端分配的用户名前面的固定前缀（只允许字母数字）。
@@ -228,6 +322,10 @@ def fetch_suggested_username(
         >>> fetch_suggested_username()        # doctest: +SKIP
         '4257237567'
     """
+    # 先校验本地参数：前缀/后缀非法时立即报错，不要白跑一次网络请求
+    check_fixed_part(prefix, "prefix")
+    check_fixed_part(suffix, "suffix")
+
     params = {
         "regMode": "reg_normal",
         "postLoginHandler": "refreshParent",
@@ -241,7 +339,7 @@ def fetch_suggested_username(
     last_error: RemoteError | None = None
     attempts = max(1, retries)
     for attempt in range(attempts):
-        html = _http_get(url, timeout)
+        html = _http_get(url, timeout, retries=2)
         try:
             name = _parse_suggested_username(html)
         except RemoteParseError as exc:
@@ -262,8 +360,10 @@ def fetch_suggested_username(
                 f"服务端返回的用户名 {name!r} 不符合 4399 规则"
             )
         if attempt < attempts - 1:
-            # 指数退避：该接口对短时间高频请求会返回空值
-            time.sleep(retry_delay * (2 ** attempt))
+            # 指数退避（封顶 + 抖动）：该接口对短时间高频请求会返回空值
+            delay = min(retry_delay * (2 ** attempt), 60.0)
+            if delay > 0:
+                time.sleep(delay * (1 + random.uniform(0, 0.25)))
 
     if fallback_to_local:
         if verify_available:
@@ -303,22 +403,27 @@ def fetch_suggested_usernames(
 
     Args:
         count: 需要的数量，必须 >= 1。
-        unique: 是否去除重复（默认 True）。
+        unique: 是否保证互不相同（默认 True）。为 True 时最多尝试
+            ``count * 3`` 次（该接口有频率限制，重复很常见）。
         其它参数同 :func:`fetch_suggested_username`。
 
     Returns:
-        用户名列表。
+        恰好 ``count`` 个用户名。
 
     Raises:
         ValueError: ``count < 1``。
+        RemoteError: 尝试次数用尽仍凑不满 ``count`` 个不重复用户名。
         其它异常同 :func:`fetch_suggested_username`。
     """
     if not isinstance(count, int) or isinstance(count, bool):
         raise TypeError("count 必须是 int")
     if count < 1:
         raise ValueError("count 必须 >= 1")
+
     out: list[str] = []
-    for _ in range(count):
+    seen: set[str] = set()
+    max_attempts = count * 3 if unique else count
+    for _ in range(max_attempts):
         name = fetch_suggested_username(
             app_id=app_id,
             level=level,
@@ -330,10 +435,18 @@ def fetch_suggested_usernames(
             suffix=suffix,
             verify_available=verify_available,
         )
-        if unique and name in out:
-            continue
+        if unique:
+            if name in seen:
+                continue
+            seen.add(name)
         out.append(name)
-    return out
+        if len(out) == count:
+            return out
+
+    raise RemoteError(
+        f"只拿到 {len(out)}/{count} 个不重复用户名（该接口有频率限制）。"
+        "可稍后重试、关闭 unique，或改用 generate_usernames() 本地生成。"
+    )
 
 
 def check_username(
@@ -350,26 +463,38 @@ def check_username(
         timeout: 请求超时（秒）。
 
     Returns:
-        :class:`UsernameAvailability`，``.available`` 为 True 表示可注册。
+        :class:`UsernameAvailability`，``.available`` 为 True 表示可注册，
+        ``.kind`` 为 ``available`` / ``taken`` / ``invalid`` 之一。
 
     Raises:
         TypeError: ``username`` 不是 ``str``。
-        RemoteError 子类: 网络或解析失败。
+        RemoteParseError: 响应为空或像 HTML 错误页，无法判断可用性
+            （以前会静默当成"已被注册"，1.9.0 起改为显式报错）。
+        RemoteError 子类: 网络失败。
 
     Examples:
         >>> check_username("abc12345").available   # doctest: +SKIP
         True
+        >>> check_username("abc12345").kind        # doctest: +SKIP
+        'available'
     """
     if not isinstance(username, str):
         raise TypeError(f"username 必须是 str，收到 {type(username).__name__}")
     query = urllib.parse.urlencode(
         {"username": username, "appId": app_id, "regMode": "reg_normal"}
     )
-    body = _http_get(f"{IS_EXIST_URL}?{query}", timeout).strip()
+    body = _http_get(f"{IS_EXIST_URL}?{query}", timeout, retries=2).strip()
+    kind = _classify_availability(body)
+    if kind == "unknown":
+        raise RemoteParseError(
+            f"isExist.do 返回了无法识别的响应（{body[:80]!r}），"
+            "可能是风控页或接口异常，请稍后重试"
+        )
     return UsernameAvailability(
         username=username,
-        available=(body == "0"),
+        available=(kind == "available"),
         message=body,
+        kind=kind,
     )
 
 
@@ -379,7 +504,11 @@ def is_username_available(
     app_id: str = DEFAULT_APP_ID,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> bool:
-    """判断用户名是否可注册（:func:`check_username` 的布尔便捷版）。"""
+    """判断用户名是否可注册（:func:`check_username` 的布尔便捷版）。
+
+    ``kind="invalid"``（名字本身不合法）也返回 False。
+    响应无法识别时抛 :class:`RemoteParseError`，不会静默返回 False。
+    """
     return check_username(username, app_id=app_id, timeout=timeout).available
 
 
@@ -439,7 +568,7 @@ def generate_available_username(
     )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class Account:
     """一套可直接拿去注册的 4399 账号信息。
 
@@ -447,11 +576,29 @@ class Account:
         username: 账号名。
         password: 密码。
         username_available: 生成时是否经服务端确认可用；``None`` 表示未校验。
+
+    Note:
+        ``repr()`` 会把密码打码，避免被日志/异常带出去；
+        需要明文请直接访问 ``.password``。
     """
 
     username: str
     password: str
     username_available: bool | None = None
+
+    def __repr__(self) -> str:
+        return (
+            f"Account(username={self.username!r}, password='***', "
+            f"username_available={self.username_available!r})"
+        )
+
+    def masked(self) -> "Account":
+        """返回密码打码后的副本，可安全打印。"""
+        return Account(
+            username=self.username,
+            password="*" * len(self.password),
+            username_available=self.username_available,
+        )
 
 
 def generate_account(
@@ -486,6 +633,8 @@ def generate_account(
         :class:`Account`。
 
     Raises:
+        ValueError: 显式传入的 ``username`` 不符合 4399 规则
+            （即使 ``verify_username=False`` 也会本地校验）。
         RemoteError: ``verify_username=True`` 时查询失败，或名字一直不可用。
         InvalidLengthError / InvalidPrefixError / InvalidSuffixError:
             参数不合法。
@@ -499,6 +648,10 @@ def generate_account(
     pwd = generate(length=password_length)
 
     if username is not None:
+        violations = validate_username(username)
+        if violations:
+            detail = "；".join(v.message for v in violations)
+            raise ValueError(f"指定的用户名 {username!r} 不符合 4399 规则：{detail}")
         if verify_username:
             res = check_username(username, app_id=app_id, timeout=timeout)
             if not res.available:

@@ -10,8 +10,8 @@ from gen4399 import (
     validate,
     validate_username,
 )
-from gen4399.remote import UsernameAvailability
 from gen4399.remote import (
+    Account,
     RemoteError,
     RemoteParseError,
     RemoteTimeoutError,
@@ -170,9 +170,11 @@ class TestRemotePrefixSuffix(unittest.TestCase):
 
 class TestFetchSuggestedUsernames(unittest.TestCase):
     @mock.patch("gen4399.remote._http_get", return_value=HTML_WITH_NAME)
-    def test_unique_filters_duplicates(self, _get):
-        names = fetch_suggested_usernames(3, unique=True)
-        self.assertEqual(names, ["4257237567"])
+    def test_unique_raises_when_cannot_fill(self, _get):
+        # 服务端一直返回同一个名字：凑不满 3 个必须报错，而不是静默少返回
+        with self.assertRaises(RemoteError) as ctx:
+            fetch_suggested_usernames(3, unique=True)
+        self.assertIn("只拿到 1/3", str(ctx.exception))
 
     @mock.patch("gen4399.remote._http_get", return_value=HTML_WITH_NAME)
     def test_unique_false_keeps_duplicates(self, _get):
@@ -222,6 +224,59 @@ class TestCheckUsername(unittest.TestCase):
     def test_type_error(self):
         with self.assertRaises(TypeError):
             check_username(123)  # type: ignore[arg-type]
+
+
+class TestParseRobustness(unittest.TestCase):
+    def test_value_before_id(self):
+        html = '<input value="4257237567" id="j-username">'
+        self.assertEqual(_parse_suggested_username(html), "4257237567")
+
+    def test_single_quotes(self):
+        html = "<input id='j-username' value='4257237567'>"
+        self.assertEqual(_parse_suggested_username(html), "4257237567")
+
+    def test_missing_value_returns_empty(self):
+        self.assertEqual(_parse_suggested_username('<input id="j-username">'), "")
+
+
+class TestAvailabilityKind(unittest.TestCase):
+    def test_kinds(self):
+        cases = {
+            "0": ("available", True),
+            "用户名已被注册": ("taken", False),
+            "用户名至少要3个字符": ("invalid", False),
+            "用户名包含敏感字符": ("invalid", False),
+        }
+        for body, (kind, available) in cases.items():
+            with mock.patch("gen4399.remote._http_get", return_value=body):
+                res = check_username("abc12345")
+            with self.subTest(body=body):
+                self.assertEqual(res.kind, kind)
+                self.assertEqual(res.available, available)
+
+    def test_unknown_response_raises(self):
+        for body in ("", "<html>502 Bad Gateway</html>"):
+            with self.subTest(body=body):
+                with mock.patch("gen4399.remote._http_get", return_value=body):
+                    with self.assertRaises(RemoteParseError):
+                        check_username("abc12345")
+
+
+class TestGenerateAccountValidation(unittest.TestCase):
+    def test_invalid_explicit_username_offline(self):
+        with self.assertRaises(ValueError) as ctx:
+            generate_account(username="ab", verify_username=False)
+        self.assertIn("不符合 4399 规则", str(ctx.exception))
+
+    def test_empty_explicit_username_offline(self):
+        with self.assertRaises(ValueError):
+            generate_account(username="", verify_username=False)
+
+    def test_repr_masks_password(self):
+        acc = Account(username="abc12345", password="Secret123")
+        self.assertNotIn("Secret123", repr(acc))
+        self.assertIn("***", repr(acc))
+        self.assertNotIn("Secret123", repr(acc.masked()))
 
 
 class TestErrorTypes(unittest.TestCase):
