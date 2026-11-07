@@ -140,6 +140,28 @@ class MakeAccountE2E(unittest.TestCase):
         )), 1)
 
     def test_diagnose_saves_sanitized_response(self):
+        # 真·未知结果（服务端既无错误文案也无成功标记）→ 记 unknown 并落盘
+        FakeSession.unified_post_body = (
+            "<html><head><title>4399提示</title></head>"
+            "<body>系统繁忙</body></html>"
+        )
+        code, _, err = run(["--yes", "--offline", "--json", "--diagnose"])
+        self.assertEqual(code, 1)
+        self.assertIn("系统繁忙", err)
+        files = list(Path(".").glob("registration-response-*.html"))
+        self.assertEqual(len(files), 1)
+        self.assertEqual(stat.S_IMODE(files[0].stat().st_mode), 0o600)
+        content = files[0].read_text(encoding="utf-8")
+        self.assertIn("系统繁忙", content)
+        self.assertNotIn(VALID_ID, content)
+        saved = json.loads(
+            Path("accounts.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(saved[0]["kind"], "unknown")
+        self.assertNotIn(saved[0]["password"], content)
+
+    def test_throttled_does_not_save_account(self):
+        # 限流（202 + 请稍后再试）→ kind=throttled，肯定没建号，不写 accounts.json
         FakeSession.unified_post_body = (
             "<html><head><title>4399提示</title></head>"
             "<body>操作频繁，请稍后再试</body></html>"
@@ -148,16 +170,7 @@ class MakeAccountE2E(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("操作频繁", err)
         self.assertIn("频率限制", err)
-        files = list(Path(".").glob("registration-response-*.html"))
-        self.assertEqual(len(files), 1)
-        self.assertEqual(stat.S_IMODE(files[0].stat().st_mode), 0o600)
-        content = files[0].read_text(encoding="utf-8")
-        self.assertIn("操作频繁", content)
-        self.assertNotIn(VALID_ID, content)
-        saved = json.loads(
-            Path("accounts.json").read_text(encoding="utf-8")
-        )
-        self.assertNotIn(saved[0]["password"], content)
+        self.assertFalse(Path("accounts.json").exists())
 
     def test_diagnose_detects_js_risk_page(self):
         FakeSession.unified_post_body = (

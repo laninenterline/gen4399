@@ -211,6 +211,7 @@ CaptchaSolver = Callable[[bytes], str]   # 入参：验证码 PNG 原始字节�
 | 参数 | 说明 |
 |---|---|
 | `--captcha-prompt` | 每轮保存图片 + 人工输入（`prompt_captcha_solver`） |
+| `--captcha-auto` | 自动挑：本机有 `tesseract` 就用 OCR，否则退回人工输入（`auto_captcha_solver()`） |
 | `--captcha-cmd CMD` | 外部命令识别（`command_captcha_solver`；命令经 `shell=True` 执行，不要拼接不可信输入） |
 | `--captcha-dir DIR` | 保存每轮验证码图片（0600）；单独给**不会**识别，需配合前两者 |
 | `--captcha-attempts N` | 最多重试轮数，默认 3 |
@@ -220,6 +221,11 @@ CaptchaSolver = Callable[[bytes], str]   # 入参：验证码 PNG 原始字节�
 - 外部识别命令失败（超时/非 0 退出）抛 `CaptchaSolverError`（`Gen4399Error` 子类），
   CLI 退出码 **2**。
 - 成功时 CLI 额外打印「验证码轮次: N」（仅 `captcha_attempts > 0`）。
+- **注册后复核（2.5.0）**：成功后默认再用同一会话 GET `https://u.4399.com/`，
+  页面里出现用户名 → `SubmitResult.verified=True`；明确未登录 → `False`；
+  拿不到页面 → `None`。`verify=False` 可跳过。
+- **限流（2.5.0）**：服务端 `202` + 「请稍后再试~」→ `kind="throttled"`，
+  肯定没建号，等几分钟再来（`make_account.py` 不会落 `accounts.json`）。
 - dry-run 不发送注册 POST，因此也不会取验证码图。
 
 ### 1.6 实测样本（脱敏）

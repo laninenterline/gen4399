@@ -68,7 +68,9 @@ __all__ = [
 ]
 
 #: ``SubmitResult.kind`` 的合法取值
-SubmitKind = Literal["success", "rejected", "captcha", "unknown", "dry_run"]
+SubmitKind = Literal[
+    "success", "rejected", "captcha", "throttled", "unknown", "dry_run"
+]
 
 #: 注册 POST 响应回调（诊断用；收到原始 ``HttpResponse``，不改变提交行为）
 ResponseHook = Callable[["_http.HttpResponse"], None]
@@ -170,6 +172,14 @@ _SCRIPT_RE = re.compile(r"<(script|style)\b.*?</\1>", re.I | re.S)
 #: 服务端重渲染表单里的图形验证码 id（``captcha.do?captchaId=…``）
 _CAPTCHA_ID_RE = re.compile(r"captchaId=([A-Za-z0-9]+)")
 
+#: 注册成功后复核账号用的页面（同一会话带 Pauth 等 Cookie 访问）
+VERIFY_URL = "https://u.4399.com/"
+
+#: 服务端限流文案（``202`` + 「请稍后再试~」等）
+_THROTTLE_RE = re.compile(
+    r"请稍后再试|稍后再试|操作过[于快]频繁|访问频繁|lastFalse\s*limit", re.I
+)
+
 #: 4399 的「提示」页外壳（``<body id="info_page">``）。实测 unified 路径在风控
 #: 触发时返回这种空壳页：没有 ``#Msg``、没有登录 Cookie，内容由 JS/App 渲染，
 #: 服务端不给出任何可判定的结果。
@@ -220,6 +230,7 @@ class SubmitResult:
     field_names: tuple[str, ...] = ()
     dry_run: bool = False
     captcha_attempts: int = 0
+    verified: bool | None = None
     elapsed: float = 0.0
 
     def __bool__(self) -> bool:  # 让 `if result:` 直接表示是否成功
@@ -250,6 +261,7 @@ class SubmitResult:
             "field_names": list(self.field_names),
             "dry_run": self.dry_run,
             "captcha_attempts": self.captcha_attempts,
+            "verified": self.verified,
             "elapsed": round(self.elapsed, 3),
         }
 
@@ -377,6 +389,32 @@ def _build_payload(
     return payload, encrypted
 
 
+def _verify_account(
+    session: "_http.RemoteSession", username: str
+) -> bool | None:
+    """注册成功后用同一会话复核账号是否真的可用。
+
+    带 ``Pauth`` 等 Cookie GET ``https://u.4399.com/``，页面里出现用户名即认为
+    账号已生效；拿不到页面 / 结构变化时返回 ``None``（无法判断，不下结论）。
+
+    Returns:
+        ``True`` 已确认、``False`` 未确认（页面明确是未登录态）、``None`` 无法判断。
+    """
+    try:
+        response = session.get(VERIFY_URL)
+    except Exception:  # noqa: BLE001 - 复核是尽力而为，任何失败都只返回 None
+        return None
+    body = response.body
+    if not body:
+        return None
+    if username in body:
+        return True
+    # 明确落到登录页 / 提示未登录，说明 Cookie 没生效
+    if ("请登录" in body or "登录后" in body) and username not in body:
+        return False
+    return None
+
+
 def _classify_response(
     *,
     status: int,
@@ -421,6 +459,14 @@ def _classify_response(
     request_host = (urllib.parse.urlsplit(request_url).hostname or "").lower()
     if final_host and final_host != request_host and 200 <= status < 400:
         return "success", True, f"注册成功（已从 ptlogin 跳转到 {final_host}）"
+
+    if _THROTTLE_RE.search(body):
+        return (
+            "throttled",
+            False,
+            "服务端限流（注册接口频率限制）：请等几分钟再试，"
+            "不要连续重试；可用 --min-interval 拉开间隔",
+        )
 
     if _INFO_PAGE_RE.search(body):
         return (
@@ -531,6 +577,8 @@ def _classify_web_response(
     if code == 360:
         detail = f"：{message}" if message else ""
         return "captcha", False, "手机验证码错误（code=360），需人工处理" + detail
+    if message and _THROTTLE_RE.search(message):
+        return "throttled", False, f"服务端限流：{message}（等几分钟再试）"
     if message:
         return "rejected", False, message
     if login_cookies:
@@ -638,6 +686,7 @@ def _submit_unified(
     on_response: ResponseHook | None = None,
     captcha: CaptchaSolver | None = None,
     captcha_attempts: int = 3,
+    verify: bool = True,
 ) -> SubmitResult:
     """unified 路径：regFrame.do -> AES 加密 -> POST register.do。
 
@@ -720,6 +769,7 @@ def _submit_unified(
         elif rounds:
             message = f"图形验证码 {rounds} 轮仍未通过（最后提示：{message}）"
 
+    verified = _verify_account(session, bundle.username) if (ok and verify) else None
     present_login = tuple(
         name for name in _LOGIN_COOKIE_NAMES if name in session.cookies
     )
@@ -737,6 +787,7 @@ def _submit_unified(
         login_cookies=present_login,
         field_names=field_names,
         captcha_attempts=rounds,
+        verified=verified,
         elapsed=time.monotonic() - started,
     )
 
@@ -845,6 +896,7 @@ def _submit_web(
     on_response: ResponseHook | None = None,
     captcha: CaptchaSolver | None = None,
     captcha_attempts: int = 3,
+    verify: bool = True,
 ) -> SubmitResult:
     """web 路径：checkUser 取 key → DES 加密密码 → POST /user/?_c=reg。
 
@@ -916,6 +968,7 @@ def _submit_web(
         if rounds:
             message = f"图形验证码 {rounds} 轮仍未通过（最后提示：{message}）"
 
+    verified = _verify_account(session, bundle.username) if (ok and verify) else None
     present_login = tuple(
         name for name in _LOGIN_COOKIE_NAMES if name in session.cookies
     )
@@ -934,6 +987,7 @@ def _submit_web(
         login_cookies=present_login,
         field_names=field_names,
         captcha_attempts=rounds,
+        verified=verified,
         elapsed=time.monotonic() - started,
     )
 
@@ -949,6 +1003,7 @@ def submit_registration(
     on_response: ResponseHook | None = None,
     captcha: CaptchaSolver | None = None,
     captcha_attempts: int = 3,
+    verify: bool = True,
 ) -> SubmitResult:
     """把准备好的注册数据真正提交到 4399（支持 ``web`` / ``unified``）。
 
@@ -1005,6 +1060,7 @@ def submit_registration(
             on_response=on_response,
             captcha=captcha,
             captcha_attempts=captcha_attempts,
+            verify=verify,
         )
     return _submit_unified(
         bundle,
@@ -1017,4 +1073,5 @@ def submit_registration(
         on_response=on_response,
         captcha=captcha,
         captcha_attempts=captcha_attempts,
+        verify=verify,
     )

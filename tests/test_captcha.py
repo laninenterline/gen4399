@@ -321,3 +321,61 @@ class TestPackageExports(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAutoCaptchaSolver(unittest.TestCase):
+    """auto_captcha_solver：有 OCR 用 OCR，没有就退回人工输入。"""
+
+    def test_falls_back_to_prompt_without_ocr(self):
+        from gen4399._captcha import auto_captcha_solver
+
+        sentinel = object()
+        with mock.patch("gen4399._captcha.shutil.which", return_value=None), \
+             mock.patch(
+                 "gen4399._captcha.prompt_captcha_solver", return_value=sentinel
+             ) as prompt:
+            self.assertIs(auto_captcha_solver(), sentinel)
+        prompt.assert_called_once()
+
+    def test_raises_without_ocr_and_no_fallback(self):
+        from gen4399._captcha import CaptchaSolverError, auto_captcha_solver
+
+        with mock.patch("gen4399._captcha.shutil.which", return_value=None):
+            with self.assertRaises(CaptchaSolverError):
+                auto_captcha_solver(prompt_fallback=False)
+
+    def test_uses_ocr_command_when_available(self):
+        from gen4399._captcha import auto_captcha_solver
+
+        seen = {}
+
+        def fake_run(cmd, input=None, shell=None, capture_output=None,
+                     timeout=None, check=None):
+            seen["cmd"] = cmd
+            seen["input"] = input
+            return mock.Mock(returncode=0, stdout=b"XY99\n", stderr=b"")
+
+        with mock.patch("gen4399._captcha.shutil.which", return_value="/usr/bin/tesseract"), \
+             mock.patch("gen4399._captcha.subprocess.run", side_effect=fake_run):
+            solver = auto_captcha_solver()
+            self.assertEqual(solver(b"\x89PNGdata"), "XY99")
+        self.assertIn("tesseract", seen["cmd"])
+        self.assertEqual(seen["input"], b"\x89PNGdata")
+
+    def test_make_solver_auto(self):
+        from gen4399._captcha import make_solver
+
+        sentinel = object()
+        with mock.patch(
+            "gen4399._captcha.auto_captcha_solver", return_value=sentinel
+        ) as factory:
+            self.assertIs(make_solver(auto=True), sentinel)
+        factory.assert_called_once_with()
+
+    def test_make_solver_command_wins_over_auto(self):
+        from gen4399._captcha import make_solver
+
+        with mock.patch("gen4399._captcha.auto_captcha_solver") as factory:
+            solver = make_solver(command="echo hi", auto=True)
+        factory.assert_not_called()
+        self.assertTrue(callable(solver))

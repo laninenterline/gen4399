@@ -301,9 +301,10 @@ class TestWebCaptchaFlow(WebCaptchaTestBase):
         )
         self.assertEqual(second_payload["sfz"], self.bundle.idcard)
 
-        # GET 顺序：checkUser → 验证码图 → verifyCode（带 code 参数）
+        # GET 顺序：checkUser → 验证码图 → verifyCode（带 code 参数）→ 成功后复核
         urls = self.session.get_calls
-        self.assertEqual(len(urls), 3)
+        self.assertEqual(len(urls), 4)
+        self.assertTrue(urls[3].startswith("https://u.4399.com"))
         self.assertTrue(urls[0].startswith(WEB_CHECK_USER_API))
         self.assertTrue(urls[1].startswith(WEB_CAPTCHA_API))
         self.assertTrue(urls[2].startswith(WEB_VERIFY_CODE_API))

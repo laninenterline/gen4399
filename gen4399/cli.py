@@ -185,6 +185,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="注册等级 level，默认 4")
     p.add_argument("--captcha-prompt", action="store_true",
                    help="遇到图形验证码时保存图片并人工输入（web 路径）")
+    p.add_argument("--captcha-auto", action="store_true",
+                   help="自动选识别方式：有 OCR 用 OCR，否则人工输入")
     p.add_argument("--captcha-cmd", default=None, metavar="CMD",
                    help="用外部命令识别验证码（PNG stdin，stdout 第一行）")
     p.add_argument("--captcha-dir", default=None, metavar="DIR",
@@ -581,6 +583,7 @@ def _cmd_submit(args) -> int:
             prompt=bool(getattr(args, "captcha_prompt", False)),
             command=getattr(args, "captcha_cmd", None),
             directory=getattr(args, "captcha_dir", None),
+            auto=bool(getattr(args, "captcha_auto", False)),
         )
         captcha_attempts = int(getattr(args, "captcha_attempts", 3))
     except (TypeError, ValueError, OSError) as exc:
@@ -659,10 +662,16 @@ def _cmd_submit(args) -> int:
                 if result.kind == "captcha" and not (
                     getattr(args, "captcha_prompt", False)
                     or getattr(args, "captcha_cmd", None)
+                    or getattr(args, "captcha_auto", False)
                 ):
                     print(
                         "  提示: 加 --captcha-prompt（人工输入）或 "
                         "--captcha-cmd '<OCR 命令>' 可自动过图形验证码"
+                    )
+                if result.kind == "throttled":
+                    print(
+                        "  提示: 4399 注册接口限流，等几分钟再跑；"
+                        "批量提交请用 --min-interval 拉开间隔"
                     )
     if args.output:
         payload = results[0].to_dict() if len(results) == 1 else [
@@ -956,6 +965,10 @@ def _add_captcha_opts(sp: argparse.ArgumentParser) -> None:
     sp.add_argument(
         "--captcha-prompt", action="store_true",
         help="遇到图形验证码时保存图片并人工输入（web 路径）",
+    )
+    sp.add_argument(
+        "--captcha-auto", action="store_true",
+        help="自动选识别方式：本机有 OCR（tesseract）就用，否则退回人工输入",
     )
     sp.add_argument(
         "--captcha-cmd", default=None, metavar="CMD",

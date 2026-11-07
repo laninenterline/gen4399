@@ -152,7 +152,7 @@ class TestSubmitCaptchaWiring(unittest.TestCase):
             ])
         self.assertEqual(code, 0)
         factory.assert_called_once_with(
-            prompt=True, command=None, directory="/tmp/caps"
+            prompt=True, command=None, directory="/tmp/caps", auto=False
         )
         kwargs = self.submit.call_args.kwargs
         self.assertIs(kwargs["captcha"], self.solver)
@@ -168,7 +168,7 @@ class TestSubmitCaptchaWiring(unittest.TestCase):
             ])
         self.assertEqual(code, 0)
         factory.assert_called_once_with(
-            prompt=False, command="echo hi", directory=None
+            prompt=False, command="echo hi", directory=None, auto=False
         )
         self.assertIs(self.submit.call_args.kwargs["captcha"], self.solver)
 
@@ -183,7 +183,7 @@ class TestSubmitCaptchaWiring(unittest.TestCase):
             ])
         self.assertEqual(code, 0)
         factory.assert_called_once_with(
-            prompt=True, command=None, directory=None
+            prompt=True, command=None, directory=None, auto=False
         )
         kwargs = self.submit.call_args.kwargs
         self.assertIs(kwargs["captcha"], self.solver)

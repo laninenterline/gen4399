@@ -8,9 +8,11 @@
   - `check_username()` / `is_username_available()` —— 查询用户名是否可注册
 - 表单：两条注册路径的字段定义 + 提交前本地整表校验（不联网）
 - 编排：`prepare_registration()` 一键准备好「可照着填 / 可直接提交」的注册数据
-- 提交（2.1.0 / 2.2.0 / 2.3.0 / 2.4.0）：`submit_registration()` / `gen4399 submit`
+- 提交（2.1.0 / 2.2.0 / 2.3.0 / 2.4.0 / 2.5.0）：`submit_registration()` / `gen4399 submit`
   真实提交到 4399 ——**库不会自动提交**（CLI 默认 dry-run）；支持 `web` 与 `unified`
   两条路径，**两条路径均已实测建号成功（2026-11-08）**
+- 结果与运维（2.5.0）：`SubmitResult.verified` 注册后自动复核账号；`kind="throttled"`
+  识别 4399 注册接口限流；`--captcha-auto` 自动用本机 OCR，没有就退回人工输入
 - unified 修复（2.4.0）：剔除 13 个会让服务端返回空白「4399提示」页的隐藏域后，
   unified 路径跑通，并默认**提交实名**（`realname`/`idcard` 走 AES 加密）
 - 图形验证码（2.3.0）：web 路径遇到 `code=200` 时按「取图 → 识别 → verifyCode →
@@ -448,10 +450,13 @@ submit_registration(
 | `field_names` | `tuple[str, ...]` | 提交的字段名（不含值；web 首次提交不含 `chk_code`） |
 | `dry_run` | `bool` | 是否只是 dry-run（未发注册 POST） |
 | `captcha_attempts` | `int` | 2.3.0：实际执行的图形验证码轮数（`0` 表示没遇到/不需要验证码） |
+| `verified` | `bool \| None` | 2.5.0：注册成功后是否用同会话访问 `u.4399.com` 复核到该账号（`None` = 无法判断） |
 | `elapsed` | `float` | 整个调用的耗时（秒） |
 
 - `SubmitResult.to_dict()` 返回可 JSON 序列化的脱敏字典（`--json` 用的就是它，
-  含 `captcha_attempts`）。
+  含 `captcha_attempts` 与 `verified`）。
+- `kind` 新增 `throttled`：服务端返回 `202` + 「请稍后再试~」时表示注册接口限流，
+  肯定没建号，等几分钟再跑（别连续重试）。
 - `SubmitError`：参数/路径不合法。网络失败抛 `RemoteError` 子类
   （`RemoteTimeoutError` / `RemoteHTTPError` / `RemoteParseError`）；
   `captcha` 回调/外部识别命令失败抛 `CaptchaSolverError`（`Gen4399Error` 子类）。
@@ -506,6 +511,7 @@ gen4399 submit --profile-file ids.txt --yes    # 真实提交
 | `--captcha-prompt` | 每轮把验证码存成 PNG 并提示**人工输入** |
 | `--captcha-cmd CMD` | 调外部命令识别：PNG 从 stdin 传入，stdout 第一行作为结果（命令经 shell 执行，不要拼接不可信输入） |
 | `--captcha-dir DIR` | 把每轮验证码图片保存到该目录（0600，便于人工查看/留存）；**单独给不会识别**，需配合前两者 |
+| `--captcha-auto` | 自动选识别方式：本机有 OCR（`tesseract`）就用，否则退回人工输入 |
 | `--captcha-attempts N` | 最多重试轮数，默认 3；必须 ≥ 1 |
 
 - legacy 模式同样可用（legacy 的 `--form-path` 默认是 `web`），验证码参数相同：

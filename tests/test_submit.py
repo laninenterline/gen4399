@@ -61,7 +61,8 @@ UNIFIED_SUCCESS_HTML = (
     "</body></html>"
 )
 CAPTCHA_HTML = "<html><body>请输入验证码</body></html>"
-UNKNOWN_HTML = "<html><body>系统繁忙，请稍后再试</body></html>"
+UNKNOWN_HTML = "<html><body>系统繁忙</body></html>"
+THROTTLE_HTML = "<html><body>请稍后再试~</body></html>"
 
 
 class FakeSession:
@@ -305,6 +306,79 @@ class TestPayloadBuilding(SubmitTestBase):
                          ("password", "passwordveri", "realname", "idcard"))
 
 
+class TestVerifyAccount(unittest.TestCase):
+    """注册成功后的账号复核（尽力而为）。"""
+
+    class Session:
+        def __init__(self, response=None, error=None):
+            self._response = response
+            self._error = error
+            self.calls = []
+
+        def get(self, url):
+            self.calls.append(url)
+            if self._error is not None:
+                raise self._error
+            return self._response
+
+    def test_username_on_page(self):
+        from gen4399.submit import _verify_account
+
+        session = self.Session(response=response("<html>欢迎 abc12345</html>"))
+        self.assertTrue(_verify_account(session, "abc12345"))
+        self.assertTrue(session.calls[0].startswith("https://u.4399.com"))
+
+    def test_login_page_means_not_verified(self):
+        from gen4399.submit import _verify_account
+
+        session = self.Session(response=response("<html>请登录后查看</html>"))
+        self.assertFalse(_verify_account(session, "abc12345"))
+
+    def test_network_error_is_inconclusive(self):
+        from gen4399.submit import _verify_account
+
+        session = self.Session(error=RemoteError("boom"))
+        self.assertIsNone(_verify_account(session, "abc12345"))
+
+    def test_empty_body_is_inconclusive(self):
+        from gen4399.submit import _verify_account
+
+        self.assertIsNone(_verify_account(self.Session(response=response("")), "abc12345"))
+
+    def test_unknown_page_is_inconclusive(self):
+        from gen4399.submit import _verify_account
+
+        session = self.Session(response=response("<html>4399 首页</html>"))
+        self.assertIsNone(_verify_account(session, "abc12345"))
+
+
+class TestVerifyWiring(SubmitTestBase):
+    def test_success_runs_verification(self):
+        FakeSession.post_response = response(SUCCESS_HTML)
+        with mock.patch(
+            "gen4399.submit._verify_account", return_value=True
+        ) as verify:
+            result = submit_registration(self.bundle)
+        self.assertTrue(result.ok)
+        self.assertTrue(result.verified)
+        verify.assert_called_once()
+
+    def test_verify_false_skips(self):
+        FakeSession.post_response = response(SUCCESS_HTML)
+        with mock.patch("gen4399.submit._verify_account") as verify:
+            result = submit_registration(self.bundle, verify=False)
+        self.assertIsNone(result.verified)
+        verify.assert_not_called()
+
+    def test_rejected_does_not_verify(self):
+        FakeSession.post_response = response(REJECT_HTML)
+        with mock.patch("gen4399.submit._verify_account") as verify:
+            result = submit_registration(self.bundle)
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.verified)
+        verify.assert_not_called()
+
+
 class TestClassify(SubmitTestBase):
     def test_rejected_message(self):
         FakeSession.post_response = response(REJECT_HTML)
@@ -384,6 +458,14 @@ class TestClassify(SubmitTestBase):
         self.assertFalse(result.ok)
         self.assertIn("无法确定", result.message)
         self.assertIn("系统繁忙", result.message)
+
+    def test_throttled(self):
+        FakeSession.post_response = response(THROTTLE_HTML, status=202)
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.kind, "throttled")
+        self.assertFalse(result.ok)
+        self.assertIn("限流", result.message)
+        self.assertIn("--min-interval", result.message)
 
     def test_elapsed_and_fields(self):
         FakeSession.post_response = response(SUCCESS_HTML)

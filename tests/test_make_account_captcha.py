@@ -129,7 +129,7 @@ class TestCaptchaWiring(unittest.TestCase):
         code, _, _ = run([])
         self.assertEqual(code, 0)
         self.make_solver.assert_called_once_with(
-            prompt=False, command=None, directory=None
+            prompt=False, command=None, directory=None, auto=False
         )
         kwargs = self.submit.call_args.kwargs
         self.assertIsNone(kwargs["captcha"])
@@ -144,7 +144,7 @@ class TestCaptchaWiring(unittest.TestCase):
         ])
         self.assertEqual(code, 0)
         self.make_solver.assert_called_once_with(
-            prompt=True, command=None, directory="/tmp/caps"
+            prompt=True, command=None, directory="/tmp/caps", auto=False
         )
         kwargs = self.submit.call_args.kwargs
         self.assertIs(kwargs["captcha"], self.solver)
@@ -155,7 +155,7 @@ class TestCaptchaWiring(unittest.TestCase):
         code, _, _ = run(["--captcha-cmd", "echo hi"])
         self.assertEqual(code, 0)
         self.make_solver.assert_called_once_with(
-            prompt=False, command="echo hi", directory=None
+            prompt=False, command="echo hi", directory=None, auto=False
         )
         kwargs = self.submit.call_args.kwargs
         self.assertIs(kwargs["captcha"], self.solver)

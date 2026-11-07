@@ -96,6 +96,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="GET 重试次数（注册 POST 永远单次）")
     p.add_argument("--captcha-prompt", action="store_true",
                    help="遇到图形验证码时保存图片并人工输入（web 路径）")
+    p.add_argument("--captcha-auto", action="store_true",
+                   help="自动选识别方式：有 OCR 用 OCR，否则人工输入")
     p.add_argument("--captcha-cmd", default=None, metavar="CMD",
                    help="用外部命令识别验证码：PNG 从 stdin 传入，stdout 第一行作为结果")
     p.add_argument("--captcha-dir", default=None, metavar="DIR",
@@ -324,6 +326,7 @@ def main(argv: list[str] | None = None) -> int:
             prompt=args.captcha_prompt,
             command=args.captcha_cmd,
             directory=args.captcha_dir,
+            auto=args.captcha_auto,
         )
     except (Gen4399Error, TypeError, ValueError, OSError) as exc:
         print(f"错误：{exc}", file=sys.stderr)

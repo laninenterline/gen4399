@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,7 @@ from .core import Gen4399Error
 __all__ = [
     "CaptchaSolver",
     "CaptchaSolverError",
+    "auto_captcha_solver",
     "command_captcha_solver",
     "prompt_captcha_solver",
     "save_captcha_images",
@@ -131,15 +133,62 @@ def command_captcha_solver(
     return solver
 
 
+#: 常见 OCR 命令（能找到可执行文件就用它，PNG 走 stdin、结果走 stdout）
+_OCR_COMMANDS: tuple[tuple[str, str], ...] = (
+    (
+        "tesseract",
+        "tesseract stdin stdout -l eng --psm 8 "
+        "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+    ),
+)
+
+
+def _find_ocr_command() -> str | None:
+    """返回本机可用的 OCR 命令（找不到返回 ``None``）。"""
+    for binary, command in _OCR_COMMANDS:
+        if shutil.which(binary):
+            return command
+    return None
+
+
+def auto_captcha_solver(
+    *,
+    prompt_fallback: bool = True,
+    timeout: float = 30.0,
+) -> CaptchaSolver:
+    """自动选一个识别方式：本机有 OCR 就用 OCR，否则退回人工输入。
+
+    找不到 OCR 且 ``prompt_fallback=False`` 时抛 :class:`CaptchaSolverError`。
+
+    注意：这是**调用方侧**的便利封装——本库仍然不内置验证码破解，只是把
+    「有 tesseract 就自动用」这件事替你做掉。
+    """
+    command = _find_ocr_command()
+    if command is not None:
+        return command_captcha_solver(command, timeout=timeout)
+    if prompt_fallback:
+        return prompt_captcha_solver()
+    raise CaptchaSolverError(
+        "本机没有可用的 OCR 命令（未找到 tesseract）；"
+        "请改用 --captcha-prompt 人工输入，或用 --captcha-cmd 指定识别命令"
+    )
+
+
 def make_solver(
     *,
     prompt: bool = False,
     command: str | None = None,
     directory: str | os.PathLike[str] | None = None,
+    auto: bool = False,
 ) -> CaptchaSolver | None:
-    """按 CLI 参数组合出 solver；都不给时返回 ``None``（不识别验证码）。"""
+    """按 CLI 参数组合出 solver；都不给时返回 ``None``（不识别验证码）。
+
+    优先级：``command`` > ``auto``（有 OCR 用 OCR，否则人工）> ``prompt``。
+    """
     if command:
         solver: CaptchaSolver = command_captcha_solver(command)
+    elif auto:
+        solver = auto_captcha_solver()
     elif prompt:
         return prompt_captcha_solver(directory=directory)
     else:

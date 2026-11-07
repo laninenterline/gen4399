@@ -2,6 +2,29 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.5.0] - 2026-11-08
+
+### 新增
+
+- **注册后自动复核**：`submit_registration(..., verify=True)`（默认开）在成功后会
+  用同一会话（带 `Pauth` 等 Cookie）GET `https://u.4399.com/`，页面里出现用户名
+  即 `SubmitResult.verified=True`；明确落到未登录页返回 `False`；网络失败/页面结构
+  不符返回 `None`（不下结论）。复核是尽力而为，任何异常都不会影响提交结果。
+- **限流识别**：服务端返回 `202` + 「请稍后再试~」时，`SubmitResult.kind="throttled"`
+  （`ok=False`），message 提示等几分钟再试、批量时用 `--min-interval`。这种响应
+  可以确定**没有建号**，因此 `make_account.py` 不会写 `accounts.json`。
+- **`auto_captcha_solver()` / `--captcha-auto`**：自动挑识别方式——本机装了
+  `tesseract` 就用它（PNG 走 stdin、结果走 stdout），否则退回人工输入；
+  `--captcha-cmd` 仍可指定任意识别命令。库依旧不内置验证码破解。
+
+### 变更
+
+- `SubmitResult` 增加 `verified` 字段（`to_dict()` 同步输出）。
+- `SubmitKind` 增加 `throttled`；CLI 遇到限流会在结果下多打一行重试提示。
+- `gen4399._captcha.make_solver()` 增加 `auto=` 参数，优先级
+  `command > auto > prompt`。
+- `__version__ = "2.5.0"`。
+
 ## [2.4.0] - 2026-11-08
 
 ### 新增
