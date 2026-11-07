@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Sequence
 
 from . import __version__
-from ._rules import RULES_CHECKED_AT, RULES_VERSION
+from ._rules import RULES_CHECKED_AT, RULES_SOURCES, RULES_VERSION
 from ._width import pad
 from .registration import prepare_registration
 from .forms import (
@@ -716,9 +716,246 @@ def _cmd_generate(args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# 2.0 子命令（旧 flag 模式仍保留兼容）
+# ---------------------------------------------------------------------------
+
+_SUBCOMMANDS = {
+    "generate", "check", "account", "fetch", "available",
+    "form", "prepare", "profile", "rules", "version",
+}
+
+_LEGACY_DEFAULTS: dict | None = None
+
+
+def _legacy_defaults() -> dict:
+    global _LEGACY_DEFAULTS
+    if _LEGACY_DEFAULTS is None:
+        _LEGACY_DEFAULTS = vars(build_parser().parse_args([]))
+    return dict(_LEGACY_DEFAULTS)
+
+
+def _add_remote_opts(sp: argparse.ArgumentParser) -> None:
+    sp.add_argument("--timeout", type=float, default=None, metavar="SECONDS")
+    sp.add_argument("--retries", type=int, default=None, metavar="N")
+    sp.add_argument("--retry-delay", type=float, default=None, metavar="SECONDS")
+    sp.add_argument("--max-total-timeout", type=float, default=None,
+                    metavar="SECONDS")
+    sp.add_argument("--min-interval", type=float, default=0.0, metavar="SECONDS")
+
+
+def _add_io_opts(sp: argparse.ArgumentParser) -> None:
+    sp.add_argument("--json", action="store_true")
+    sp.add_argument("--output", metavar="DIR", default=None)
+
+
+def _add_identity_opts(sp: argparse.ArgumentParser) -> None:
+    sp.add_argument("--profile-file", metavar="FILE", default=None,
+                    help="每行「姓名|身份证号[|QQ]」，'-' 表示 stdin")
+    sp.add_argument("--realname", default=None, metavar="NAME")
+    sp.add_argument("--idcard", default=None, metavar="ID")
+    sp.add_argument("--qq", default=None, metavar="QQ")
+
+
+def _add_generate_opts(sp: argparse.ArgumentParser) -> None:
+    sp.add_argument("--kind", choices=["password", "username"],
+                    default="password")
+    sp.add_argument("-n", "--length", type=int, default=None)
+    sp.add_argument("--password-length", type=int, default=None)
+    sp.add_argument("--username-length", type=int, default=None)
+    sp.add_argument("-c", "--count", type=int, default=1)
+    sp.add_argument("-p", "--prefix", default="")
+    sp.add_argument("-s", "--suffix", default="")
+    sp.add_argument("--verify", action="store_true")
+    sp.add_argument("--entropy", action="store_true")
+    _add_io_opts(sp)
+    _add_remote_opts(sp)
+
+
+def build_subcommand_parser() -> argparse.ArgumentParser:
+    """构造 2.0 子命令解析器（``gen4399 generate`` 等）。"""
+    p = argparse.ArgumentParser(
+        prog="gen4399",
+        description="生成 / 校验符合 4399 注册规则的密码与账号名（子命令模式）",
+    )
+    p.add_argument("-V", "--version", action="version",
+                   version=f"gen4399 {__version__}")
+    p.add_argument("-v", "--verbose", action="store_true", default=False)
+    sub = p.add_subparsers(dest="command", required=True)
+    defaults = _legacy_defaults()
+
+    def new(name: str, help_text: str) -> argparse.ArgumentParser:
+        sp = sub.add_parser(name, help=help_text)
+        sp.set_defaults(**defaults)
+        return sp
+
+    g = new("generate", "生成密码或用户名")
+    _add_generate_opts(g)
+
+    c = new("check", "校验密码或用户名")
+    c.add_argument("kind", choices=["password", "username"])
+    c.add_argument("value")
+    c.add_argument("--json", action="store_true")
+
+    a = new("account", "生成一套/多套账号名+密码")
+    a.add_argument("-c", "--count", type=int, default=1)
+    a.add_argument("-p", "--prefix", default="")
+    a.add_argument("-s", "--suffix", default="")
+    a.add_argument("--password-length", type=int, default=None)
+    a.add_argument("--username-length", type=int, default=None)
+    a.add_argument("--no-verify", action="store_true")
+    a.add_argument("--offline", action="store_true")
+    _add_io_opts(a)
+    _add_remote_opts(a)
+
+    f = new("fetch", "从官方接口取分配账号")
+    f.add_argument("count", nargs="?", type=int, default=1)
+    f.add_argument("-p", "--prefix", default="")
+    f.add_argument("-s", "--suffix", default="")
+    f.add_argument("--verify", action="store_true")
+    f.add_argument("--offline", action="store_true")
+    _add_io_opts(f)
+    _add_remote_opts(f)
+
+    v = new("available", "查询用户名是否可注册")
+    v.add_argument("name")
+    v.add_argument("--offline", action="store_true")
+    _add_io_opts(v)
+    _add_remote_opts(v)
+
+    form = sub.add_parser("form", help="表单字段/校验/填表清单")
+    form.set_defaults(**defaults)
+    fsub = form.add_subparsers(dest="form_command", required=True)
+
+    ff = fsub.add_parser("fields", help="打印表单字段")
+    ff.set_defaults(**defaults)
+    ff.add_argument("path", nargs="?", default="web",
+                    choices=["web", "unified"])
+    ff.add_argument("--json", action="store_true")
+
+    fc = fsub.add_parser("check", help="本地校验表单")
+    fc.set_defaults(**defaults)
+    fc.add_argument("username")
+    fc.add_argument("password")
+    fc.add_argument("--form-path", choices=["web", "unified"], default="web")
+    fc.add_argument("--json", action="store_true")
+    _add_identity_opts(fc)
+
+    fb = fsub.add_parser("build", help="生成填表清单")
+    fb.set_defaults(**defaults)
+    fb.add_argument("username")
+    fb.add_argument("password")
+    fb.add_argument("--form-path", choices=["web", "unified"], default="web")
+    fb.add_argument("--show-pii", action="store_true")
+    _add_identity_opts(fb)
+    _add_io_opts(fb)
+
+    pr = new("prepare", "一键准备注册数据")
+    pr.add_argument("--form-path", choices=["web", "unified"], default="web")
+    pr.add_argument("-p", "--prefix", default="")
+    pr.add_argument("-s", "--suffix", default="")
+    pr.add_argument("--password-length", type=int, default=None)
+    pr.add_argument("--username-length", type=int, default=None)
+    pr.add_argument("--no-verify", action="store_true")
+    pr.add_argument("--offline", action="store_true")
+    pr.add_argument("--show-pii", action="store_true")
+    _add_identity_opts(pr)
+    _add_io_opts(pr)
+    _add_remote_opts(pr)
+
+    pf = new("profile", "身份文件操作")
+    pfsub = pf.add_subparsers(dest="profile_command", required=True)
+    pfcheck = pfsub.add_parser("check", help="校验身份文件")
+    pfcheck.set_defaults(**defaults)
+    pfcheck.add_argument("--profile-file", metavar="FILE", required=True)
+    pfcheck.add_argument("--json", action="store_true")
+
+    new("rules", "打印内置规则版本")
+    new("version", "打印版本")
+
+    return p
+
+
+def _cmd_profile_check(args) -> int:
+    try:
+        profiles = load_profiles(args.profile_file)
+    except (Gen4399Error, TypeError, ValueError, OSError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        _emit_json([
+            {
+                "realname": p.realname,
+                "idcard": p.masked_idcard(),
+                "qq": p.qq,
+            }
+            for p in profiles
+        ])
+        return 0
+    print(f"OK: {len(profiles)} 条身份信息全部合法")
+    for profile in profiles:
+        print(f"  - {profile.masked()}")
+    return 0
+
+
+def _cmd_rules(_args) -> int:
+    print(f"4399 rules {RULES_VERSION}（核对于 {RULES_CHECKED_AT}）")
+    for url in RULES_SOURCES:
+        print(f"  - {url}")
+    return 0
+
+
+def _normalize_subcommand(args) -> None:
+    """把子命令参数映射到旧 handler 使用的字段。"""
+    cmd = args.command
+    if cmd == "generate":
+        args.username = args.kind == "username"
+    elif cmd == "check":
+        if args.kind == "password":
+            args.check = args.value
+            args.check_username = None
+        else:
+            args.check_username = args.value
+            args.check = None
+    elif cmd == "account":
+        args.account = True
+    elif cmd == "fetch":
+        args.fetch_username = args.count
+    elif cmd == "available":
+        args.check_available = args.name
+    elif cmd == "form":
+        sub = args.form_command
+        if sub == "fields":
+            args.form_fields = args.path
+        elif sub == "check":
+            args.check_form = [args.username, args.password]
+        elif sub == "build":
+            args.build_form = [args.username, args.password]
+    elif cmd == "prepare":
+        args.prepare = True
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """CLI 主函数。返回退出码：0 成功，1 校验失败，2 参数/远程错误。"""
-    args = build_parser().parse_args(argv)
+    """CLI 主函数。返回退出码：0 成功，1 校验失败，2 参数/远程错误。
+
+    两种调用方式：
+
+    * 旧 flag 模式：``gen4399 -n 20 -c 5``（保持兼容）
+    * 2.0 子命令：``gen4399 generate -n 20`` / ``gen4399 check password ...``
+    """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in _SUBCOMMANDS:
+        args = build_subcommand_parser().parse_args(argv)
+        if args.command == "version":
+            print(f"gen4399 {__version__}")
+            return 0
+        if args.command == "rules":
+            return _cmd_rules(args)
+        if args.command == "profile":
+            return _cmd_profile_check(args)
+        _normalize_subcommand(args)
+    else:
+        args = build_parser().parse_args(argv)
     if args.verbose:
         logging.basicConfig(
             level=logging.DEBUG,

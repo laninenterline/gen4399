@@ -492,6 +492,79 @@ class TestRemoteCommands(unittest.TestCase):
         self.assertIn("接口异常", err)
 
 
+class TestSubcommands(unittest.TestCase):
+    def test_generate_json(self):
+        code, out, _ = run(["generate", "-n", "8", "-c", "2", "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual(data["kind"], "password")
+        self.assertEqual(len(data["items"]), 2)
+
+    def test_generate_username_json(self):
+        code, out, _ = run(["generate", "--kind", "username", "-n", "10",
+                            "--json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["kind"], "username")
+
+    def test_check_password_bad(self):
+        code, _, err = run(["check", "password", "123456"])
+        self.assertEqual(code, 1)
+        self.assertIn("all_digits", err)
+
+    def test_check_username_ok(self):
+        code, out, _ = run(["check", "username", "abc12345"])
+        self.assertEqual(code, 0)
+        self.assertIn("OK", out)
+
+    def test_account_batch(self):
+        code, out, _ = run(["account", "--offline", "-c", "2"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.count("username: "), 2)
+
+    def test_form_fields(self):
+        code, out, _ = run(["form", "fields", "web"])
+        self.assertEqual(code, 0)
+        self.assertIn("login_name", out)
+
+    def test_form_build(self):
+        code, out, _ = run([
+            "form", "build", "abc12345", "Abc123456",
+            "--realname", "张三", "--idcard", VALID_ID,
+        ])
+        self.assertEqual(code, 0)
+        self.assertIn("login_name", out)
+        self.assertNotIn(VALID_ID, out)
+
+    def test_prepare(self):
+        code, out, _ = run([
+            "prepare", "--offline",
+            "--realname", "张三", "--idcard", VALID_ID,
+        ])
+        self.assertEqual(code, 0)
+        self.assertIn("login_name", out)
+
+    def test_profile_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ids.txt"
+            path.write_text("张三|" + VALID_ID + "\n", encoding="utf-8")
+            code, out, _ = run(["profile", "check", "--profile-file",
+                                str(path), "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual(len(data), 1)
+        self.assertNotIn(VALID_ID, out)
+
+    def test_rules(self):
+        code, out, _ = run(["rules"])
+        self.assertEqual(code, 0)
+        self.assertIn("rules", out)
+
+    def test_version(self):
+        code, out, _ = run(["version"])
+        self.assertEqual(code, 0)
+        self.assertIn("gen4399", out)
+
+
 class TestMisc(unittest.TestCase):
     def test_version(self):
         with self.assertRaises(SystemExit) as ctx:
