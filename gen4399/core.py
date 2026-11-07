@@ -28,6 +28,7 @@ import secrets
 import string
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Literal
 
 __all__ = [
     "CHARSET",
@@ -39,6 +40,7 @@ __all__ = [
     "USERNAME_MAX_LENGTH",
     "DEFAULT_USERNAME_LENGTH",
     "Violation",
+    "ViolationCode",
     "Gen4399Error",
     "InvalidLengthError",
     "InvalidFixedPartError",
@@ -116,6 +118,16 @@ class GenerationError(Gen4399Error):
     """
 
 
+#: ``Violation.code`` 的合法取值
+ViolationCode = Literal[
+    "length",
+    "charset",
+    "all_digits",
+    "all_lower",
+    "all_upper",
+]
+
+
 @dataclass(frozen=True)
 class Violation:
     """一条密码规则违规记录。
@@ -132,7 +144,7 @@ class Violation:
         ``all_upper``  纯大写字母
     """
 
-    code: str
+    code: ViolationCode
     message: str
 
     def __str__(self) -> str:  # pragma: no cover - 简单代理
@@ -286,6 +298,10 @@ def entropy_bits(
     Returns:
         ``(length - prefix_length - suffix_length) * log2(charset_size)``
 
+    Note:
+        这是"独立均匀随机"下的理论熵，**不校验 6~20 的 4399 长度范围**
+        （CLI 的 ``--entropy`` 会额外校验），方便用来评估任意长度的随机串。
+
     Raises:
         InvalidLengthError: 固定部分长度超过了总长度。
     """
@@ -355,6 +371,12 @@ def generate(
 
     Returns:
         符合规则的密码字符串，形如 ``prefix + 随机部分 + suffix``。
+
+    Note:
+        实现采用"随机生成 + 拒绝不满足类别约束的串"的拒绝采样。
+        被拒绝的只有纯数字 / 纯小写 / 纯大写这三种极少数情况，
+        对分布的影响可以忽略；固定部分占满长度时会退化为低概率命中，
+        因此保留 ``max_attempts`` 保护。
 
     Raises:
         InvalidLengthError: length 越界，或前缀+后缀占满全部长度。

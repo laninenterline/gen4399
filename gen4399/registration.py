@@ -17,6 +17,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
+from ._width import pad
 from .core import (
     DEFAULT_LENGTH,
     DEFAULT_USERNAME_LENGTH,
@@ -139,11 +140,11 @@ class RegistrationBundle:
         lines = [
             f"{form.title}  ({form.path})",
             f"页面: {self.url}",
-            f"{'参数名':<18}{'标签':<12}值",
+            pad("参数名", 18) + pad("标签", 12) + "值",
             "-" * 70,
         ]
         for name, value in rows.items():
-            lines.append(f"{name:<18}{labels.get(name, ''):<12}{value}")
+            lines.append(pad(name, 18) + pad(labels.get(name, ""), 12) + value)
         if self.warnings:
             lines.append("")
             for w in self.warnings:

@@ -18,7 +18,11 @@ from __future__ import annotations
 
 import os
 import re
+import sys
+import warnings
 from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Literal
 
 from .core import (
     Gen4399Error,
@@ -28,6 +32,8 @@ from .core import (
 
 __all__ = [
     "FormField",
+    "FieldKind",
+    "ProfileLoadErrors",
     "RegistrationForm",
     "FormCheckResult",
     "WEB_USERNAME_FORM",
@@ -50,6 +56,12 @@ __all__ = [
 # 表单字段定义
 # ---------------------------------------------------------------------------
 
+#: ``FormField.kind`` 的合法取值
+FieldKind = Literal["text", "password", "checkbox", "hidden"]
+
+#: ``load_profiles(errors=...)`` 的合法取值
+ProfileLoadErrors = Literal["raise", "skip"]
+
 
 @dataclass(frozen=True)
 class FormField:
@@ -67,7 +79,7 @@ class FormField:
     name: str
     label: str
     required: bool = False
-    kind: str = "text"
+    kind: FieldKind = "text"
     maxlength: int | None = None
     note: str = ""
 
@@ -144,11 +156,11 @@ UNIFIED_FORM = RegistrationForm(
     ),
 )
 
-#: 路径 -> 表单定义
-FORMS = {
+#: 路径 -> 表单定义（只读，防止运行时被意外改写）
+FORMS = MappingProxyType({
     WEB_USERNAME_FORM.path: WEB_USERNAME_FORM,
     UNIFIED_FORM.path: UNIFIED_FORM,
-}
+})
 
 
 def get_form(path: str = "web") -> RegistrationForm:
@@ -536,39 +548,128 @@ def parse_profile_line(
     return profile
 
 
+#: 可能的表头关键词（用于自动跳过首行表头）
+_HEADER_REALNAME = {"姓名", "name", "realname", "真实姓名"}
+_HEADER_IDCARD = {"身份证号", "身份证", "idcard", "id", "idnumber"}
+
+
+def _looks_like_header(text: str) -> bool:
+    """判断一行是否像表头（如 ``姓名|身份证号``）。"""
+    parts = [part.strip().lower() for part in _PROFILE_SEPARATORS.split(text)]
+    if len(parts) < 2:
+        return False
+    return parts[0] in _HEADER_REALNAME and parts[1] in _HEADER_IDCARD
+
+
+def _warn_loose_permissions(path: str) -> None:
+    """身份文件权限过宽时给出提醒（仅在 POSIX 上有意义）。"""
+    try:
+        mode = os.stat(path).st_mode
+    except OSError:  # pragma: no cover - stat 失败交给 open 报错
+        return
+    if mode & 0o077:
+        warnings.warn(
+            f"身份文件 {path} 权限为 {oct(mode & 0o777)}，"
+            "包含身份证号等敏感信息，建议执行 chmod 600",
+            UserWarning,
+            stacklevel=3,
+        )
+
+
 def load_profiles(
-    path: str | os.PathLike[str], *, encoding: str = "utf-8-sig"
+    path: "str | os.PathLike[str]",
+    *,
+    encoding: str = "utf-8-sig",
+    errors: ProfileLoadErrors = "raise",
+    dedupe: bool = True,
+    skip_header: bool | None = None,
 ) -> list[RegistrationProfile]:
     """从 txt 文件读取一批身份信息。
 
     - 每行一个身份：``真实姓名|身份证号`` 或 ``真实姓名|身份证号|QQ``
     - 空行与 ``#`` 开头的注释行会被跳过
+    - 首行如果像表头（如 ``姓名|身份证号``）会自动跳过
     - 支持 UTF-8 BOM（默认 ``utf-8-sig``）和全角竖线 ``｜``
-    - 任一行不合法就整体报错（错误信息带行号）
+    - ``path="-"`` 时从标准输入读取
+    - 默认按身份证号去重；默认任一行不合法即整体报错（错误信息带行号）
 
     Args:
-        path: 文本文件路径。
+        path: 文本文件路径，或 ``"-"`` 表示 stdin。
         encoding: 文件编码，默认 ``utf-8-sig``（兼容带 BOM 的 UTF-8）。
+        errors: ``"raise"``（默认，遇错即抛）或 ``"skip"``（跳过坏行并警告）。
+        dedupe: 是否按身份证号去重（默认 True）。
+        skip_header: 是否跳过首个数据行；``None``（默认）表示自动识别表头，
+            ``True`` 强制跳过，``False`` 不跳过。
 
     Returns:
         校验通过的身份信息列表，顺序与文件一致。
 
     Raises:
         FileNotFoundError: 文件不存在。
-        InvalidProfileError: 某行格式/内容不合法，或文件里没有有效行。
+        InvalidProfileError: 某行格式/内容不合法（``errors="raise"``），
+            或文件里没有有效行。
+        ValueError: ``errors`` 取值非法。
 
     Examples:
         >>> profiles = load_profiles("ids.txt")      # doctest: +SKIP
         >>> profiles[0].realname                     # doctest: +SKIP
         '张三'
+        >>> load_profiles("-")[0].realname           # doctest: +SKIP
+        '张三'
     """
+    if errors not in ("raise", "skip"):
+        raise ValueError("errors 只能是 'raise' 或 'skip'")
+    if skip_header is None:
+        auto_header = True
+    else:
+        auto_header = False
+
+    if path == "-":
+        source = sys.stdin
+        close = False
+    else:
+        _warn_loose_permissions(os.fspath(path))
+        source = open(path, "r", encoding=encoding)
+        close = True
+
     profiles: list[RegistrationProfile] = []
-    with open(path, "r", encoding=encoding) as fh:
-        for lineno, line in enumerate(fh, 1):
+    seen: set[str] = set()
+    first_data_line = True
+    try:
+        for lineno, line in enumerate(source, 1):
             text = line.strip()
             if not text or text.startswith("#"):
                 continue
-            profiles.append(parse_profile_line(line, line_number=lineno))
+
+            if first_data_line:
+                first_data_line = False
+                header = _looks_like_header(text)
+                if skip_header is True or (auto_header and header):
+                    continue
+
+            try:
+                profile = parse_profile_line(line, line_number=lineno)
+            except InvalidProfileError as exc:
+                if errors == "skip":
+                    warnings.warn(f"跳过身份信息：{exc}", UserWarning, stacklevel=2)
+                    continue
+                raise
+
+            if dedupe:
+                key = profile.idcard.strip().upper()
+                if key in seen:
+                    warnings.warn(
+                        f"第 {lineno} 行身份证号与前面重复，已跳过",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    continue
+                seen.add(key)
+            profiles.append(profile)
+    finally:
+        if close:
+            source.close()
+
     if not profiles:
         raise InvalidProfileError(
             f"文件 {path!s} 中没有找到有效身份信息（{_PROFILE_FORMAT_HINT}）"

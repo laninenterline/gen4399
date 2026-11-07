@@ -41,6 +41,8 @@
 
 from .forms import (
     FORMS,
+    FieldKind,
+    ProfileLoadErrors,
     InvalidProfileError,
     RegistrationProfile,
     build_registration_fields,
@@ -98,6 +100,7 @@ from .core import (
     InvalidPrefixError,
     InvalidSuffixError,
     Violation,
+    ViolationCode,
     entropy_bits,
     generate,
     generate_many,
@@ -121,6 +124,7 @@ __all__ = [
     "USERNAME_MAX_LENGTH",
     "DEFAULT_USERNAME_LENGTH",
     "Violation",
+    "ViolationCode",
     "Gen4399Error",
     "InvalidLengthError",
     "InvalidFixedPartError",
@@ -148,6 +152,8 @@ __all__ = [
     "RemoteParseError",
     "UsernameAvailability",
     "FormField",
+    "FieldKind",
+    "ProfileLoadErrors",
     "RegistrationForm",
     "FormCheckResult",
     "WEB_USERNAME_FORM",

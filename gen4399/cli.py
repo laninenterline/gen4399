@@ -27,6 +27,7 @@ import sys
 from typing import Sequence
 
 from . import __version__
+from ._width import pad
 from .registration import prepare_registration
 from .forms import (
     RegistrationProfile,
@@ -218,13 +219,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{form.title}  ({form.path})")
         print(f"页面: {form.url}")
         print(f"提交: POST {form.submit_url}")
-        print(f"{'参数名':<18}{'标签':<12}{'必填':<5}{'类型':<9}{'上限':<5}说明")
+        print(
+            pad("参数名", 18) + pad("标签", 12) + pad("必填", 5)
+            + pad("类型", 9) + pad("上限", 5) + "说明"
+        )
         print("-" * 78)
         for f in form.fields:
             print(
-                f"{f.name:<18}{f.label:<12}"
-                f"{'是' if f.required else '否':<5}{f.kind:<9}"
-                f"{f.maxlength or '-':<5}{f.note}"
+                pad(f.name, 18) + pad(f.label, 12)
+                + pad("是" if f.required else "否", 5)
+                + pad(f.kind, 9) + pad(str(f.maxlength or "-"), 5) + f.note
             )
         return 0
 
@@ -311,7 +315,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"# 身份 {idx}/{len(profiles)}")
             print(f"{form.title}  ({form.path})")
             print(f"页面: {form.url}")
-            print(f"{'参数名':<18}{'标签':<12}值")
+            print(pad("参数名", 18) + pad("标签", 12) + "值")
             print("-" * 70)
             for name, value in fields.items():
                 shown = value
@@ -324,7 +328,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     shown = (
                         value[:2] + "*" * max(0, len(value) - 2) if value else value
                     )
-                print(f"{name:<18}{labels.get(name, ''):<12}{shown}")
+                print(pad(name, 18) + pad(labels.get(name, ""), 12) + shown)
         print("\n# 提示：身份证/密码/QQ 默认打码，需要明文请加 --show-pii",
               file=sys.stderr)
         print("# 提示：本命令只生成清单，不会提交注册", file=sys.stderr)

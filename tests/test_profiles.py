@@ -1,7 +1,10 @@
 """身份信息文件（姓名|身份证号[|QQ]）解析与加载测试。"""
 
+import io
+import sys
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 
 from gen4399 import load_profiles, parse_profile_line
@@ -114,6 +117,90 @@ class TestLoadProfiles(unittest.TestCase):
     def test_missing_file_raises(self):
         with self.assertRaises(FileNotFoundError):
             load_profiles("/no/such/file/ids.txt")
+
+    def test_header_is_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(
+                tmp, "姓名|身份证号\n张三|" + VALID_ID + "\n"
+            )
+            profiles = load_profiles(path)
+        self.assertEqual(len(profiles), 1)
+        self.assertEqual(profiles[0].realname, "张三")
+
+    def test_skip_header_true_forces_skip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(
+                tmp, "张三|" + VALID_ID + "\n李四|" + VALID_ID_2 + "\n"
+            )
+            profiles = load_profiles(path, skip_header=True)
+        self.assertEqual([p.realname for p in profiles], ["李四"])
+
+    def test_skip_header_false_keeps_first_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(
+                tmp, "姓名|身份证号\n张三|" + VALID_ID + "\n"
+            )
+            with self.assertRaises(InvalidProfileError):
+                load_profiles(path, skip_header=False)
+
+    def test_dedupe_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(
+                tmp,
+                "张三|" + VALID_ID + "\n李四|" + VALID_ID + "\n",
+            )
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                profiles = load_profiles(path)
+        self.assertEqual(len(profiles), 1)
+        self.assertTrue(any("重复" in str(w.message) for w in caught))
+
+    def test_dedupe_can_be_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(
+                tmp,
+                "张三|" + VALID_ID + "\n李四|" + VALID_ID + "\n",
+            )
+            with warnings.catch_warnings(record=True):
+                warnings.simplefilter("ignore")
+                profiles = load_profiles(path, dedupe=False)
+        self.assertEqual(len(profiles), 2)
+
+    def test_errors_skip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(
+                tmp,
+                "张三|" + VALID_ID + "\n坏行\n李四|" + VALID_ID_2 + "\n",
+            )
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                profiles = load_profiles(path, errors="skip")
+        self.assertEqual([p.realname for p in profiles], ["张三", "李四"])
+        self.assertTrue(any("跳过" in str(w.message) for w in caught))
+
+    def test_errors_value(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "张三|" + VALID_ID + "\n")
+            with self.assertRaises(ValueError):
+                load_profiles(path, errors="ignore")  # type: ignore[arg-type]
+
+    def test_stdin(self):
+        old = sys.stdin
+        sys.stdin = io.StringIO("张三|" + VALID_ID + "\n")
+        try:
+            profiles = load_profiles("-")
+        finally:
+            sys.stdin = old
+        self.assertEqual(profiles[0].realname, "张三")
+
+    def test_loose_permissions_warn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "张三|" + VALID_ID + "\n")
+            path.chmod(0o644)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                load_profiles(path)
+        self.assertTrue(any("chmod 600" in str(w.message) for w in caught))
 
 
 if __name__ == "__main__":

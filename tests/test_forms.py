@@ -25,6 +25,10 @@ class TestFormDefinitions(unittest.TestCase):
     def test_paths(self):
         self.assertEqual(set(FORMS), {"web", "unified"})
 
+    def test_forms_is_read_only(self):
+        with self.assertRaises(TypeError):
+            FORMS["web"] = None  # type: ignore[index]
+
     def test_get_form(self):
         self.assertIs(get_form("web"), WEB_USERNAME_FORM)
         self.assertIs(get_form("unified"), UNIFIED_FORM)
