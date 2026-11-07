@@ -45,11 +45,11 @@ from gen4399 import (  # noqa: E402
     DEFAULT_TIMEOUT,
     Gen4399Error,
     RegistrationProfile,
-    load_profiles,
     make_solver,
     prepare_registration,
     submit_registration,
 )
+from gen4399.identity import load_profiles_auto  # noqa: E402
 from gen4399.remote import RetryPolicy  # noqa: E402
 from gen4399.submit import SubmitResult  # noqa: E402
 
@@ -127,24 +127,9 @@ def _load_profile(
     errors = "raise" if strict else "skip"
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        try:
-            if encoding:
-                profiles = load_profiles(path, encoding=encoding, errors=errors)
-            else:
-                try:
-                    profiles = load_profiles(
-                        path, encoding="utf-8-sig", errors=errors
-                    )
-                except UnicodeDecodeError:
-                    print(
-                        "# 提示：身份文件不是 UTF-8，已按 GB18030 读取",
-                        file=sys.stderr,
-                    )
-                    profiles = load_profiles(
-                        path, encoding="gb18030", errors=errors
-                    )
-        except UnicodeDecodeError:
-            raise
+        profiles = load_profiles_auto(
+            path, encoding=encoding, errors=errors, out=sys.stderr
+        )
 
     skipped = [
         str(item.message) for item in caught if "跳过" in str(item.message)

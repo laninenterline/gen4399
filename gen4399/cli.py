@@ -44,12 +44,12 @@ from ._width import pad
 from .registration import prepare_registration
 from .submit import submit_registration
 from ._captcha import make_solver as _make_captcha_solver
+from .identity import load_profiles_auto
 from .forms import (
     RegistrationProfile,
     build_registration_fields,
     check_registration_form,
     get_form,
-    load_profiles,
 )
 from .remote import (
     DEFAULT_APP_ID,
@@ -282,19 +282,7 @@ def _default_profile_file() -> Path:
 
 def _load_profiles_auto(path, encoding: str | None):
     """读取身份文件；未显式指定编码时先 UTF-8-SIG，失败回退 GB18030。"""
-    if encoding:
-        return load_profiles(path, encoding=encoding)
-    try:
-        return load_profiles(path, encoding="utf-8-sig")
-    except UnicodeDecodeError:
-        if str(path) == "-":
-            raise
-        profiles = load_profiles(path, encoding="gb18030")
-        print(
-            "# 提示：身份文件不是 UTF-8，已按 GB18030 读取",
-            file=sys.stderr,
-        )
-        return profiles
+    return load_profiles_auto(path, encoding=encoding, out=sys.stderr)
 
 
 def _load_identity_profiles(args):

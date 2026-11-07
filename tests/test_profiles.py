@@ -212,3 +212,50 @@ class TestLoadProfiles(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLoadProfilesAuto(unittest.TestCase):
+    """load_profiles_auto：UTF-8-SIG → GB18030 自动回退。"""
+
+    def test_utf8_file(self):
+        import tempfile
+        from pathlib import Path
+
+        from gen4399.identity import load_profiles_auto
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ids.txt"
+            path.write_text("张三|460206194611192084\n", encoding="utf-8")
+            out = io.StringIO()
+            profiles = load_profiles_auto(path, out=out)
+        self.assertEqual(len(profiles), 1)
+        self.assertEqual(profiles[0].realname, "张三")
+        self.assertEqual(out.getvalue(), "")
+
+    def test_gb18030_fallback_prints_hint(self):
+        import tempfile
+        from pathlib import Path
+
+        from gen4399.identity import load_profiles_auto
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ids.txt"
+            path.write_bytes("李四|460206194611192084\n".encode("gb18030"))
+            out = io.StringIO()
+            profiles = load_profiles_auto(path, out=out)
+        self.assertEqual(len(profiles), 1)
+        self.assertIn("GB18030", out.getvalue())
+
+    def test_explicit_encoding_skips_fallback(self):
+        import tempfile
+        from pathlib import Path
+
+        from gen4399.identity import load_profiles_auto
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ids.txt"
+            path.write_bytes("王五|460206194611192084\n".encode("gb18030"))
+            out = io.StringIO()
+            profiles = load_profiles_auto(path, encoding="gb18030", out=out)
+        self.assertEqual(len(profiles), 1)
+        self.assertEqual(out.getvalue(), "")

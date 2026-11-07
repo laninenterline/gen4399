@@ -19,6 +19,9 @@
 
 ### 新增（API 分层）
 
+- `gen4399.identity.load_profiles_auto()`：UTF-8-SIG → GB18030 自动回退读身份文件
+  （CLI 与 `scripts/make_account.py` 原先各写一遍，现共用）。
+
 - 新增 `gen4399.constants`：规则版本、长度限制、端点 URL、`UNIFIED_DROP_FIELDS` /
   `UNIFIED_SEND_REALNAME` / `ENCRYPTED_FIELDS` 等常量的**完整**出口（顶层保持兼容）。
 - 新增 `gen4399.captcha`：`CaptchaSolver` / `CaptchaSolverError` / `prompt|command|auto_captcha_solver`

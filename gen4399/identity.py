@@ -293,6 +293,62 @@ def _warn_loose_permissions(path: str) -> None:
         )
 
 
+def load_profiles_auto(
+    path: "str | os.PathLike[str]",
+    *,
+    encoding: str | None = None,
+    errors: ProfileLoadErrors = "raise",
+    dedupe: bool = True,
+    skip_header: bool | None = None,
+    out: "object | None" = None,
+) -> list["RegistrationProfile"]:
+    """读身份文件：未指定编码时先按 UTF-8-SIG，失败自动回退 GB18030。
+
+    Args:
+        path: 身份文件路径（``"-"`` 表示 stdin，不回退编码）。
+        encoding: 显式编码；``None`` 表示自动（UTF-8-SIG → GB18030）。
+        errors: 传给 :func:`load_profiles` 的错误策略。
+        dedupe: 是否去重。
+        skip_header: 是否跳过表头行。
+        out: 回退编码时打印提示的流；``None`` 表示不打印。
+
+    Returns:
+        ``list[RegistrationProfile]``。
+    """
+    if encoding:
+        return load_profiles(
+            path,
+            encoding=encoding,
+            errors=errors,
+            dedupe=dedupe,
+            skip_header=skip_header,
+        )
+    try:
+        return load_profiles(
+            path,
+            encoding="utf-8-sig",
+            errors=errors,
+            dedupe=dedupe,
+            skip_header=skip_header,
+        )
+    except UnicodeDecodeError:
+        if str(path) == "-":
+            raise
+        profiles = load_profiles(
+            path,
+            encoding="gb18030",
+            errors=errors,
+            dedupe=dedupe,
+            skip_header=skip_header,
+        )
+        if out is not None:
+            print(
+                "# 提示：身份文件不是 UTF-8，已按 GB18030 读取",
+                file=out,  # type: ignore[arg-type]
+            )
+        return profiles
+
+
 def load_profiles(
     path: "str | os.PathLike[str]",
     *,
