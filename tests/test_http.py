@@ -38,7 +38,7 @@ class FakeResponse:
 
 class TestHttpGet(unittest.TestCase):
     def setUp(self):
-        self.patcher = mock.patch("gen4399.remote.urllib.request.urlopen")
+        self.patcher = mock.patch("gen4399.remote._http.urllib.request.urlopen")
         self.urlopen = self.patcher.start()
         self.addCleanup(self.patcher.stop)
 
@@ -97,7 +97,7 @@ class TestHttpGet(unittest.TestCase):
             urllib.error.URLError("temporary"),
             FakeResponse(b"0"),
         ]
-        with mock.patch("gen4399.remote.time.sleep") as sleep:
+        with mock.patch("gen4399.remote._http.time.sleep") as sleep:
             self.assertEqual(
                 _http_get("https://example.test/x", 5, retries=2), "0"
             )
@@ -108,7 +108,7 @@ class TestHttpGet(unittest.TestCase):
         self.urlopen.side_effect = urllib.error.HTTPError(
             "https://example.test/x", 403, "Forbidden", {}, None
         )
-        with mock.patch("gen4399.remote.time.sleep"):
+        with mock.patch("gen4399.remote._http.time.sleep"):
             with self.assertRaises(RemoteHTTPError):
                 _http_get("https://example.test/x", 5, retries=3)
         self.assertEqual(self.urlopen.call_count, 1)
@@ -118,7 +118,7 @@ class TestHttpGet(unittest.TestCase):
             FakeResponse(b"", status=503),
             FakeResponse(b"0"),
         ]
-        with mock.patch("gen4399.remote.time.sleep"):
+        with mock.patch("gen4399.remote._http.time.sleep"):
             self.assertEqual(
                 _http_get("https://example.test/x", 5, retries=2), "0"
             )
@@ -126,7 +126,7 @@ class TestHttpGet(unittest.TestCase):
 
     def test_retries_exhausted_raises_last_error(self):
         self.urlopen.side_effect = urllib.error.URLError("down")
-        with mock.patch("gen4399.remote.time.sleep"):
+        with mock.patch("gen4399.remote._http.time.sleep"):
             with self.assertRaises(RemoteError):
                 _http_get("https://example.test/x", 5, retries=2)
         self.assertEqual(self.urlopen.call_count, 2)
@@ -148,7 +148,7 @@ class TestHttpGet(unittest.TestCase):
             FakeResponse(b"", status=429, headers={"Retry-After": "2"}),
             FakeResponse(b"0"),
         ]
-        with mock.patch("gen4399.remote.time.sleep") as sleep:
+        with mock.patch("gen4399.remote._http.time.sleep") as sleep:
             self.assertEqual(_http_get("https://example.test/x", 5, retries=2), "0")
         sleep.assert_called_once()
         self.assertGreaterEqual(sleep.call_args.args[0], 2.0)

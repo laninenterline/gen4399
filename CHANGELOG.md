@@ -24,7 +24,8 @@
 - `docs/rules.md`、`SECURITY.md`、`CONTRIBUTING.md`、`.pre-commit-config.yaml`、
   property-based 测试（hypothesis，可选）。
 - `validate_fixed_part` 成为公开主名（`check_fixed_part` 保留别名）。
-- `gen4399/identity.py` 从 `forms.py` 拆出（身份对象/字段校验/txt 读取）。
+- `gen4399/identity.py` 从 `forms.py` 拆出（身份对象/字段校验/txt 读取）；
+  `gen4399/remote.py` 拆成 `remote/_http.py`（传输/重试）+ `remote/_api.py`（业务）。
 
 ### 变更（可能影响调用方）
 
