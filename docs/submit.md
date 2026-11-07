@@ -314,11 +314,15 @@ v=<毫秒时间戳>
 > 本库默认 `app_id="u4399"`、`level=4`，可用参数覆盖。
 > 这些只是**拉表单**的 query 参数；真正提交哪些字段由 2.2/2.3 决定。
 
-> **Content-Type 必须与浏览器一致**（实测 2026-11-08）：表单 POST 用
-> `application/x-www-form-urlencoded`，**不要带 `; charset=UTF-8`**。
-> 多带 charset 时 4399 会返回 `202` + 「请稍后再试~」——看着像限流，其实是请求头
-> 不合浏览器；去掉后同一套字段立刻恢复正常。另：unified 的 POST 还要求
-> `Referer` 是 regFrame 自身、并带 `Origin` / `Sec-Fetch-*`（本库已自动补齐）。
+> **请求头与浏览器对齐**（2026-11-08）：表单 POST 用
+> `application/x-www-form-urlencoded`（不带 `; charset=UTF-8`）；unified 的 POST
+> 用 `Referer` = regFrame 自身，并带 `Origin: https://ptlogin.4399.com` 与
+> `Sec-Fetch-*`。本库已按此发送。
+>
+> **关于 `202` + 「请稍后再试~」**：实测它是**间歇性**的——同一套参数连发 6 次，
+> 5 次返回验证码页、1 次返回 202；换 charset/换 GET 头都不改变这个比例。
+> 所以它更像服务端的概率性限流/风控，而不是某个固定协议字段写错。
+> 遇到时按 `kind="throttled"` 处理（等几分钟重试），不要连续重试放大风控。
 
 会话要点：真正把 GET 与 POST 串起来的是 Cookie（`USESSIONID`）。
 表单里的 `sessionId` 通常为空，实际会话靠 Cookie 识别。因此

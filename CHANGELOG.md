@@ -30,13 +30,16 @@
   一节说明「核心三个名字 + 按域取细节」。
 - 顶层补导出 `WEB_CHECK_USER_API`。
 
-### 修复（协议）
+### 修复（协议对齐）
 
-- **表单 POST 的 `Content-Type` 不再带 `; charset=UTF-8`**：实测 2026-11-08，
-  多带 charset 时 4399 返回 `202` + 「请稍后再试~」，与限流文案相同（容易误判）；
-  改回浏览器同款 `application/x-www-form-urlencoded` 后同一请求恢复正常。
+- **表单 POST 的 `Content-Type` 改为浏览器同款**：`application/x-www-form-urlencoded`
+  （不再带 `; charset=UTF-8`）。
 - **unified 的 POST 补齐浏览器头**：`Referer` 改为 regFrame 自身，并带
-  `Origin: https://ptlogin.4399.com` 与 `Sec-Fetch-*`。
+  `Origin: https://ptlogin.4399.com` 与 `Sec-Fetch-*`（新增
+  `RemoteSession.extra_headers`）。
+- 说明：这两项是按「与浏览器逐字对齐」做的纠正，**并不解决 `202` 伪限流**——
+  受控实验（同参数 6 连发）显示 `202` 是间歇性的（5 次验证码页 / 1 次 202），
+  换 charset 与换 GET 头都不改变比例。`kind="throttled"` 仍按限流处理。
 
 ### 重构（内部，无 API 变化）
 
