@@ -43,6 +43,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from ._aes import encrypt_aes
+from ._captcha import CaptchaSolver as CaptchaSolverType
 from ._des import encode_4399
 from .core import Gen4399Error
 from .registration import RegistrationBundle
@@ -75,9 +76,9 @@ SubmitKind = Literal[
 #: 注册 POST 响应回调（诊断用；收到原始 ``HttpResponse``，不改变提交行为）
 ResponseHook = Callable[["_http.HttpResponse"], None]
 
-#: 图形验证码识别回调：入参是验证码图片原始字节（PNG），返回识别出的文本。
-#: 由调用方实现（人工输入 / 外部 OCR 服务），本库不内置破解。
-CaptchaSolver = Callable[[bytes], str]
+#: 图形验证码识别回调（唯一定义在 :mod:`gen4399._captcha`：
+#: 入参是验证码图片原始字节，返回识别出的文本）。
+CaptchaSolver = CaptchaSolverType
 
 #: ``sec=1`` 时需要加密的字段
 ENCRYPTED_FIELDS = ("password", "passwordveri", "realname", "idcard")
@@ -241,7 +242,9 @@ class SubmitResult:
             f"SubmitResult(kind={self.kind!r}, ok={self.ok!r}, "
             f"username={self.username!r}, path={self.path!r}, "
             f"app_id={self.app_id!r}, http_status={self.http_status!r}, "
-            f"dry_run={self.dry_run!r})"
+            f"dry_run={self.dry_run!r}, "
+            f"captcha_attempts={self.captcha_attempts!r}, "
+            f"verified={self.verified!r})"
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -264,6 +267,75 @@ class SubmitResult:
             "verified": self.verified,
             "elapsed": round(self.elapsed, 3),
         }
+
+
+def _present_login_cookies(session: "_http.RemoteSession") -> tuple[str, ...]:
+    """当前会话里出现过的登录 Cookie **名字**（不含值）。"""
+    return tuple(
+        name for name in _LOGIN_COOKIE_NAMES if name in session.cookies
+    )
+
+
+def _dry_run_result(
+    bundle: RegistrationBundle,
+    *,
+    app_id: str,
+    endpoint: str,
+    encrypted: tuple[str, ...],
+    field_names: tuple[str, ...],
+    started: float,
+    message: str,
+) -> SubmitResult:
+    """构造 dry-run 结果（未发注册 POST）。"""
+    return SubmitResult(
+        ok=False,
+        kind="dry_run",
+        message=message,
+        username=bundle.username,
+        path=bundle.path,
+        app_id=app_id,
+        endpoint=endpoint,
+        encrypted_fields=encrypted,
+        field_names=field_names,
+        dry_run=True,
+        elapsed=time.monotonic() - started,
+    )
+
+
+def _final_result(
+    bundle: RegistrationBundle,
+    *,
+    kind: SubmitKind,
+    ok: bool,
+    message: str,
+    app_id: str,
+    endpoint: str,
+    response: "_http.HttpResponse",
+    encrypted: tuple[str, ...],
+    field_names: tuple[str, ...],
+    login_cookies: tuple[str, ...],
+    captcha_attempts: int,
+    verified: bool | None,
+    started: float,
+) -> SubmitResult:
+    """两条路径共用的终态结果构造（统一脱敏与字段映射）。"""
+    return SubmitResult(
+        ok=ok,
+        kind=kind,
+        message=_redact_text(message, bundle),
+        username=bundle.username,
+        path=bundle.path,
+        app_id=app_id,
+        endpoint=endpoint,
+        http_status=response.status,
+        final_url=_safe_url(response.url),
+        encrypted_fields=encrypted,
+        login_cookies=login_cookies,
+        field_names=field_names,
+        captcha_attempts=captcha_attempts,
+        verified=verified,
+        elapsed=time.monotonic() - started,
+    )
 
 
 def _safe_url(url: str | None) -> str | None:
@@ -703,18 +775,14 @@ def _submit_unified(
     field_names = tuple(payload)
 
     if dry_run:
-        return SubmitResult(
-            ok=False,
-            kind="dry_run",
-            message="dry-run：未发送 POST（需要显式 dry_run=False / --yes）",
-            username=bundle.username,
-            path=bundle.path,
+        return _dry_run_result(
+            bundle,
             app_id=app_id,
             endpoint=_safe_url(action) or "",
-            encrypted_fields=encrypted,
+            encrypted=encrypted,
             field_names=field_names,
-            dry_run=True,
-            elapsed=time.monotonic() - started,
+            started=started,
+            message="dry-run：未发送 POST（需要显式 dry_run=False / --yes）",
         )
 
     def _post(
@@ -728,7 +796,7 @@ def _submit_unified(
             name
             for name in _LOGIN_COOKIE_NAMES
             if name in session.cookies and name not in before
-        )
+        )  # 与 _present_login_cookies 的区别：只看本次新增
         return resp, new_login
 
     def _classify(resp, new_login):
@@ -770,25 +838,20 @@ def _submit_unified(
             message = f"图形验证码 {rounds} 轮仍未通过（最后提示：{message}）"
 
     verified = _verify_account(session, bundle.username) if (ok and verify) else None
-    present_login = tuple(
-        name for name in _LOGIN_COOKIE_NAMES if name in session.cookies
-    )
-    return SubmitResult(
-        ok=ok,
+    return _final_result(
+        bundle,
         kind=kind,
-        message=_redact_text(message, bundle),
-        username=bundle.username,
-        path=bundle.path,
+        ok=ok,
+        message=message,
         app_id=app_id,
         endpoint=_safe_url(action) or "",
-        http_status=response.status,
-        final_url=_safe_url(response.url),
-        encrypted_fields=encrypted,
-        login_cookies=present_login,
+        response=response,
+        encrypted=encrypted,
         field_names=field_names,
+        login_cookies=_present_login_cookies(session),
         captcha_attempts=rounds,
         verified=verified,
-        elapsed=time.monotonic() - started,
+        started=started,
     )
 
 
@@ -905,23 +968,21 @@ def _submit_web(
     最多 ``captcha_attempts`` 轮。
     """
     session = _http.RemoteSession(timeout=timeout, policy=retry_policy)
+    # web 流程全程用注册页做 Referer（与浏览器一致，协议保真）
+    session.referer = "https://web.4399.com/user/reg.php"
     encrypt_code = _web_encrypt_code(session, bundle.username)
     payload, encrypted = _build_web_payload(bundle, encrypt_code)
     field_names = tuple(payload)
 
     if dry_run:
-        return SubmitResult(
-            ok=False,
-            kind="dry_run",
-            message="dry-run：未发送 web 注册 POST（需要显式 dry_run=False / --yes）",
-            username=bundle.username,
-            path=bundle.path,
+        return _dry_run_result(
+            bundle,
             app_id="",
             endpoint=WEB_REG_API,
-            encrypted_fields=encrypted,
+            encrypted=encrypted,
             field_names=field_names,
-            dry_run=True,
-            elapsed=time.monotonic() - started,
+            started=started,
+            message="dry-run：未发送 web 注册 POST（需要显式 dry_run=False / --yes）",
         )
 
     def login_cookies_since(before: set[str]) -> tuple[str, ...]:
@@ -969,26 +1030,20 @@ def _submit_web(
             message = f"图形验证码 {rounds} 轮仍未通过（最后提示：{message}）"
 
     verified = _verify_account(session, bundle.username) if (ok and verify) else None
-    present_login = tuple(
-        name for name in _LOGIN_COOKIE_NAMES if name in session.cookies
-    )
-    message = _redact_text(message, bundle)
-    return SubmitResult(
-        ok=ok,
+    return _final_result(
+        bundle,
         kind=kind,
+        ok=ok,
         message=message,
-        username=bundle.username,
-        path=bundle.path,
         app_id="",
         endpoint=WEB_REG_API,
-        http_status=response.status,
-        final_url=_safe_url(response.url),
-        encrypted_fields=encrypted,
-        login_cookies=present_login,
+        response=response,
+        encrypted=encrypted,
         field_names=field_names,
+        login_cookies=_present_login_cookies(session),
         captcha_attempts=rounds,
         verified=verified,
-        elapsed=time.monotonic() - started,
+        started=started,
     )
 
 

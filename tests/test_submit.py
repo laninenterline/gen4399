@@ -149,6 +149,11 @@ class TestSubmitResult(unittest.TestCase):
         self.assertIn("SubmitResult", text)
         self.assertNotIn("secret", text)
 
+    def test_repr_includes_new_fields(self):
+        text = repr(self.make(captcha_attempts=2, verified=True))
+        self.assertIn("captcha_attempts=2", text)
+        self.assertIn("verified=True", text)
+
     def test_to_dict_is_json_safe(self):
         data = self.make().to_dict()
         self.assertEqual(data["kind"], "success")
