@@ -22,6 +22,8 @@ pip install -e ".[dev]"     # 开发：pytest / coverage / ruff / mypy
 
 或者不安装，直接在本目录下 `import gen4399`。
 
+> 2.0 起要求 **Python >= 3.10**。
+
 ## 快速开始
 
 ```python
@@ -248,6 +250,51 @@ python -m gen4399 --check-form abc12345 Abc123456 --profile-file ids.txt
 
 ## CLI
 
+2.0 提供两种用法，旧 flag 模式完全兼容：
+
+```bash
+# 2.0 子命令（推荐）
+gen4399 generate -n 20 -c 5
+gen4399 check password "Abc12345"
+gen4399 account --offline -c 3
+gen4399 form fields web
+gen4399 prepare --profile-file ids.txt --json
+gen4399 profile check --profile-file ids.txt
+gen4399 rules
+
+# 旧 flag 模式（与 1.x 兼容）
+gen4399 -n 20 -c 5
+gen4399 --check "Abc12345"
+```
+
+### 子命令
+
+| 子命令 | 作用 |
+|---|---|
+| `generate` | 生成密码/用户名（`--kind password\|username`） |
+| `check` | 校验（`check password VALUE` / `check username NAME`） |
+| `account` | 生成账号+密码，`-c N` 批量 |
+| `fetch` | 取服务端分配账号 |
+| `available` | 查询用户名可注册性 |
+| `form fields/check/build` | 表单字段 / 本地校验 / 填表清单 |
+| `prepare` | 一键准备注册数据 |
+| `profile check` | 校验身份 txt |
+| `rules` / `version` | 规则版本 / 版本 |
+
+### 全局增强
+
+| 参数 | 说明 |
+|---|---|
+| `--json` | 机器可读输出 |
+| `--offline` | 跳过在线查重（对必须联网的命令报错） |
+| `--output DIR` | 结果写成 JSON 文件（0600，敏感值默认打码） |
+| `--password-length` / `--username-length` | 明确区分两种长度 |
+| `--retries` / `--retry-delay` / `--max-total-timeout` | 远程重试与总预算 |
+| `--min-interval` | 批量远程调用之间的间隔（秒） |
+| `--show-pii` | 显示明文身份证/密码/QQ（会打印警告） |
+| `--rules-version` | 打印内置规则快照版本 |
+| `-v/--verbose` | 重试等调试日志（不含 PII） |
+
 ```bash
 python -m gen4399                            # 生成 1 个 16 位密码
 python -m gen4399 -n 20 -c 5
@@ -279,6 +326,29 @@ python -m gen4399 --timeout 3 --check-available "abc12345"
 - 远程命令失败统一退出码 **2**（不会再抛 traceback），校验失败退出码 **1**。
 - 安装后也可直接用 `gen4399` 命令。
 
+## 安全与合规
+
+- 本库**只准备数据、不提交注册**；最后一步请自行在浏览器完成。
+- 请只使用**本人**真实身份信息；使用他人身份可能违法，也违反 4399 用户协议。
+- 身份文件建议 `chmod 600`（库会警告过宽权限）；`--show-pii`/`--output --show-pii`
+  会输出明文，注意屏幕共享与日志。
+- 远程接口有频率限制：遵守 `--min-interval`、不要高频轰炸；库重试已带抖动与封顶。
+- 日志/错误信息不含密码与完整身份证号，`repr()` 默认打码。
+
+## FAQ
+
+**Q：为什么密码不能预校验？**
+4399 没有密码校验接口，只有注册提交时才校验；本库只能保证通过公开规则。
+
+**Q：`fetch` 为什么经常返回空 / 报频率限制？**
+`regFrame.do` 会限流。调大 `--retry-delay`、加 `--min-interval`，或改用本地生成。
+
+**Q：规则会变吗？**
+会。`python scripts/verify_rules.py` 做冒烟检查；见 [docs/rules.md](docs/rules.md)。
+
+**Q：能自动提交注册吗？**
+不能，本库刻意不提供；请手动提交并遵守服务条款。
+
 ## 规则来源
 
 - 4399 前端 `validation.js` 的 `CheakPWD()` / `CheakUsername()` / `CheckRealname()` / `__checkIdcard()`
@@ -297,6 +367,9 @@ python -m pytest                 # 测试
 python -m pytest --cov=gen4399   # 覆盖率（阈值 90%）
 ruff check .                     # lint
 python -m pytest --doctest-modules gen4399 -q   # 文档示例
+mypy gen4399                                     # 类型检查（观察项）
+python scripts/verify_rules.py                   # 4399 规则冒烟检查
+python -m build && python -m twine check dist/*  # 打包检查
 ```
 
 版本历史见 [CHANGELOG.md](CHANGELOG.md)，许可证为 [MIT](LICENSE)。

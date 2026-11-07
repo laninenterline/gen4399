@@ -118,7 +118,7 @@ from .core import (
     validate_username,
 )
 
-__version__ = "1.10.0"
+__version__ = "2.0.0"
 
 __all__ = [
     "RULES_VERSION",
@@ -136,7 +136,6 @@ __all__ = [
     "ViolationCode",
     "Gen4399Error",
     "validate_fixed_part",
-    "check_fixed_part",
     "InvalidLengthError",
     "InvalidFixedPartError",
     "InvalidPrefixError",

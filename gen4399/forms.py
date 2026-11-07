@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal
 
-from .core import Gen4399Error, validate, validate_username
+from .core import validate, validate_username
 from .identity import (
     InvalidProfileError,
     RegistrationProfile,

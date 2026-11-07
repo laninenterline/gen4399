@@ -2,6 +2,39 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.0.0] - 2026-11-07
+
+### 新增
+
+- **2.0 子命令 CLI**：`generate` / `check` / `account` / `fetch` / `available` /
+  `form` / `prepare` / `profile check` / `rules` / `version`；旧 flag 模式保留兼容。
+- 全局增强：`--json`、`--offline`、`--output DIR`（0600 文件）、
+  `--password-length`、`--retries` / `--retry-delay` / `--max-total-timeout`、
+  `--min-interval`、`-v/--verbose`。
+- `RetryPolicy`：指数退避 + 抖动 + 单次封顶 + 总 deadline + 优先 `Retry-After`；
+  远程错误对象带 `url` / `status` / `retry_after`。
+- `check_username(validate_input=True)` 本地预校验，明显非法名称不再发请求。
+- `fetch_suggested_usernames(with_availability=True)` 返回可用性对象。
+- `Account.to_dict()/save()`、`RegistrationBundle.to_dict()/save()`；
+  落盘默认 0600 且打码。
+- `generate*` / `generate_username*` 支持 `charset=` 自定义字符集。
+- 身份文件增强：stdin（`--profile-file -`）、表头自动跳过、默认去重、
+  `errors="skip"`、权限过宽警告、行号错误。
+- `--rules-version` + `gen4399/_rules.py` + `scripts/verify_rules.py` 规则冒烟检查。
+- `docs/rules.md`、`SECURITY.md`、`CONTRIBUTING.md`、`.pre-commit-config.yaml`、
+  property-based 测试（hypothesis，可选）。
+- `validate_fixed_part` 成为公开主名（`check_fixed_part` 保留别名）。
+- `gen4399/identity.py` 从 `forms.py` 拆出（身份对象/字段校验/txt 读取）。
+
+### 变更（可能影响调用方）
+
+- **Python 最低版本 3.10**（3.8/3.9 已 EOL）。
+- CLI 的 `-n` 继续兼容旧语义，但推荐改用 `--password-length` / `--username-length`。
+- CLI `--show-pii` 会额外打印明文警告。
+- 远程默认重试策略改为 `RetryPolicy`（fetch 外层 4 次、HTTP 层 2 次、带总超时能力）。
+- 身份文件默认按身份证去重（可用 `dedupe=False` 关闭）。
+- 测试/覆盖率门槛 90%；CI 增加 mypy（观察项）与 build/twine 检查。
+
 ## [1.10.0] - 2026-11-07
 
 ### 新增

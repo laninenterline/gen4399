@@ -23,7 +23,6 @@ from gen4399.remote import (
     generate_account,
     generate_available_username,
     is_username_available,
-    RetryPolicy,
 )
 
 HTML_WITH_NAME = '''
