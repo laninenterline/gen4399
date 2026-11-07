@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Sequence
 
 from . import __version__
+from ._rules import RULES_CHECKED_AT, RULES_VERSION
 from ._width import pad
 from .registration import prepare_registration
 from .forms import (
@@ -180,6 +181,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="输出重试等调试日志")
     p.add_argument("-V", "--version", action="version",
                    version=f"gen4399 {__version__}")
+    p.add_argument("--rules-version", action="version",
+                   version=f"4399 rules {RULES_VERSION}（核对于 {RULES_CHECKED_AT}）")
     return p
 
 

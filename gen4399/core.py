@@ -47,6 +47,7 @@ __all__ = [
     "InvalidPrefixError",
     "InvalidSuffixError",
     "GenerationError",
+    "validate_fixed_part",
     "check_fixed_part",
     "validate",
     "is_valid",
@@ -161,7 +162,7 @@ def _check_length_int(length: object) -> None:
         raise TypeError(f"length 必须是 int，收到 {type(length).__name__}")
 
 
-def check_fixed_part(value: object, name: str) -> None:
+def validate_fixed_part(value: object, name: str) -> None:
     """校验 prefix / suffix 只含 ASCII 字母数字。
 
     Args:
@@ -184,8 +185,32 @@ def check_fixed_part(value: object, name: str) -> None:
         )
 
 
-#: 兼容旧名字（1.8.x 内部使用）；新代码请用 :func:`check_fixed_part`。
-_check_fixed_part = check_fixed_part
+#: 兼容旧名字（1.8.x 内部使用）；新代码请用 :func:`validate_fixed_part`。
+_check_fixed_part = validate_fixed_part
+
+#: 兼容 1.9.x 的旧公开名；新代码请用 :func:`validate_fixed_part`。
+check_fixed_part = validate_fixed_part
+
+
+def _check_charset(
+    charset: str, *, kind: str, require_digit_and_letter: bool
+) -> None:
+    """校验自定义字符集（内部函数）。"""
+    if not isinstance(charset, str):
+        raise TypeError(f"charset 必须是 str，收到 {type(charset).__name__}")
+    if not charset:
+        raise ValueError("charset 不能为空")
+    extra = set(charset) - set(CHARSET)
+    if extra:
+        sample = "".join(sorted(extra))[:10]
+        raise ValueError(f"{kind}字符集只能包含 ASCII 字母和数字，发现：{sample!r}")
+    if require_digit_and_letter:
+        has_digit = any(ch.isdigit() for ch in charset)
+        has_letter = any(ch.isalpha() for ch in charset)
+        if not (has_digit and has_letter):
+            raise ValueError(
+                f"{kind}字符集必须同时包含字母和数字，否则无法满足 4399 规则"
+            )
 
 
 def validate(password: str) -> list[Violation]:
@@ -335,8 +360,8 @@ def _validate_params(
 ) -> int:
     """内部参数校验，返回随机部分的长度。"""
     _check_length_int(length)
-    check_fixed_part(prefix, "prefix")
-    check_fixed_part(suffix, "suffix")
+    validate_fixed_part(prefix, "prefix")
+    validate_fixed_part(suffix, "suffix")
     if not isinstance(max_attempts, int) or isinstance(max_attempts, bool):
         raise TypeError("max_attempts 必须是 int")
     if max_attempts < 1:
@@ -360,6 +385,7 @@ def generate(
     prefix: str = "",
     suffix: str = "",
     max_attempts: int = 10_000,
+    charset: str = CHARSET,
 ) -> str:
     """生成一个符合 4399 注册规则的随机密码。
 
@@ -368,6 +394,8 @@ def generate(
         prefix: 固定前缀（只允许字母和数字），计入总长度。
         suffix: 固定后缀（只允许字母和数字），计入总长度。
         max_attempts: 最大重试次数，避免极端情况下死循环。
+        charset: 自定义字符集（必须是 ASCII 字母数字的集合，且同时含字母和数字），
+            默认 :data:`CHARSET`（大小写字母+数字）。
 
     Returns:
         符合规则的密码字符串，形如 ``prefix + 随机部分 + suffix``。
@@ -396,10 +424,11 @@ def generate(
         True
     """
     random_len = _validate_params(length, prefix, suffix, max_attempts)
+    _check_charset(charset, kind="密码", require_digit_and_letter=True)
     for _ in range(max_attempts):
         candidate = (
             prefix
-            + "".join(secrets.choice(CHARSET) for _ in range(random_len))
+            + "".join(secrets.choice(charset) for _ in range(random_len))
             + suffix
         )
         if not validate(candidate):
@@ -460,6 +489,7 @@ def generate_many(
     suffix: str = "",
     max_attempts: int = 10_000,
     unique: bool = False,
+    charset: str = CHARSET,
 ) -> list[str]:
     """批量生成合规密码。
 
@@ -467,6 +497,7 @@ def generate_many(
         count: 生成个数，必须 >= 1。
         length / prefix / suffix / max_attempts: 同 :func:`generate`。
         unique: 为 ``True`` 时保证结果互不相同（默认 ``False``，只保证概率上不同）。
+        charset: 自定义字符集，同 :func:`generate`。
 
     Returns:
         密码列表。
@@ -490,6 +521,7 @@ def generate_many(
         raise ValueError("count 必须 >= 1")
     # 先校验一次参数，避免生成到一半才抛错
     _validate_params(length, prefix, suffix, max_attempts)
+    _check_charset(charset, kind="密码", require_digit_and_letter=True)
     return _generate_batch(
         count,
         unique=unique,
@@ -498,6 +530,7 @@ def generate_many(
             prefix=prefix,
             suffix=suffix,
             max_attempts=max_attempts,
+            charset=charset,
         ),
         label="密码",
     )
@@ -509,6 +542,7 @@ def generate_username(
     prefix: str = "",
     suffix: str = "",
     max_attempts: int = 10_000,
+    charset: str = USERNAME_CHARSET,
 ) -> str:
     """生成一个符合 4399 注册规则的随机用户名（账号名）。
 
@@ -520,6 +554,8 @@ def generate_username(
         prefix: 固定前缀（只允许字母和数字），计入总长度。
         suffix: 固定后缀（只允许字母和数字），计入总长度。
         max_attempts: 最大重试次数。
+        charset: 自定义字符集（ASCII 字母数字子集），默认
+            :data:`USERNAME_CHARSET`（小写字母+数字）。
 
     Returns:
         符合规则的用户名，形如 ``prefix + 随机部分 + suffix``。
@@ -548,10 +584,11 @@ def generate_username(
         max_len=USERNAME_MAX_LENGTH,
         label="用户名长度",
     )
+    _check_charset(charset, kind="用户名", require_digit_and_letter=False)
     for _ in range(max_attempts):
         candidate = (
             prefix
-            + "".join(secrets.choice(USERNAME_CHARSET) for _ in range(random_len))
+            + "".join(secrets.choice(charset) for _ in range(random_len))
             + suffix
         )
         if not validate_username(candidate):
@@ -569,6 +606,7 @@ def generate_usernames(
     suffix: str = "",
     max_attempts: int = 10_000,
     unique: bool = False,
+    charset: str = USERNAME_CHARSET,
 ) -> list[str]:
     """批量生成符合 4399 注册规则的随机用户名。
 
@@ -576,6 +614,7 @@ def generate_usernames(
         count: 生成个数，必须 >= 1。
         length / prefix / suffix / max_attempts: 同 :func:`generate_username`。
         unique: 为 ``True`` 时保证结果互不相同。
+        charset: 自定义字符集，同 :func:`generate_username`。
 
     Returns:
         用户名列表。
@@ -607,6 +646,7 @@ def generate_usernames(
         max_len=USERNAME_MAX_LENGTH,
         label="用户名长度",
     )
+    _check_charset(charset, kind="用户名", require_digit_and_letter=False)
     return _generate_batch(
         count,
         unique=unique,
@@ -615,6 +655,7 @@ def generate_usernames(
             prefix=prefix,
             suffix=suffix,
             max_attempts=max_attempts,
+            charset=charset,
         ),
         label="用户名",
     )

@@ -39,6 +39,11 @@
     validate("123456")              # [Violation(code='all_digits', ...)]
 """
 
+from ._rules import (
+    RULES_CHECKED_AT,
+    RULES_SOURCES,
+    RULES_VERSION,
+)
 from .forms import (
     FORMS,
     FieldKind,
@@ -85,7 +90,6 @@ from .remote import (
 )
 from .core import (
     CHARSET,
-    check_fixed_part,
     DEFAULT_LENGTH,
     DEFAULT_USERNAME_LENGTH,
     MAX_LENGTH,
@@ -101,7 +105,9 @@ from .core import (
     InvalidSuffixError,
     Violation,
     ViolationCode,
+    check_fixed_part,
     entropy_bits,
+    validate_fixed_part,
     generate,
     generate_many,
     generate_username,
@@ -115,6 +121,9 @@ from .core import (
 __version__ = "1.10.0"
 
 __all__ = [
+    "RULES_VERSION",
+    "RULES_CHECKED_AT",
+    "RULES_SOURCES",
     "CHARSET",
     "MIN_LENGTH",
     "MAX_LENGTH",
@@ -126,6 +135,8 @@ __all__ = [
     "Violation",
     "ViolationCode",
     "Gen4399Error",
+    "validate_fixed_part",
+    "check_fixed_part",
     "InvalidLengthError",
     "InvalidFixedPartError",
     "InvalidPrefixError",

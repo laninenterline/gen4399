@@ -6,6 +6,7 @@ import unittest
 from unittest import mock
 
 from gen4399 import (
+    CHARSET,
     DEFAULT_LENGTH,
     DEFAULT_USERNAME_LENGTH,
     MAX_LENGTH,
@@ -20,6 +21,7 @@ from gen4399 import (
     InvalidSuffixError,
     Violation,
     check_fixed_part,
+    validate_fixed_part,
     entropy_bits,
     generate,
     generate_many,
@@ -121,6 +123,14 @@ class TestGenerate(unittest.TestCase):
             self.assertEqual(validate(pw), [])
 
 
+class TestFixedPartAlias(unittest.TestCase):
+    def test_validate_fixed_part_is_public(self):
+        import gen4399.core as core
+
+        self.assertIs(core.validate_fixed_part, core.check_fixed_part)
+        validate_fixed_part("abc123", "prefix")
+
+
 class TestGenerateMany(unittest.TestCase):
     def test_count(self):
         self.assertEqual(len(generate_many(7)), 7)
@@ -209,6 +219,32 @@ class TestCheckFixedPart(unittest.TestCase):
         import gen4399.core as core
 
         self.assertIs(core._check_fixed_part, core.check_fixed_part)
+
+
+class TestCharset(unittest.TestCase):
+    def test_password_custom_charset(self):
+        for pw in generate_many(20, charset="abc123"):
+            self.assertEqual(validate(pw), [])
+            self.assertTrue(set(pw) <= set("abc123"))
+
+    def test_password_charset_requires_letter_and_digit(self):
+        for bad in ("123456789", "abcdefgh", "a_b1", ""):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    generate(charset=bad)
+
+    def test_password_charset_type(self):
+        with self.assertRaises(TypeError):
+            generate(charset=123)  # type: ignore[arg-type]
+
+    def test_username_mixed_case_charset(self):
+        name = generate_username(length=12, charset=CHARSET)
+        self.assertEqual(validate_username(name), [])
+        self.assertTrue(set(name) <= set(CHARSET))
+
+    def test_username_invalid_charset(self):
+        with self.assertRaises(ValueError):
+            generate_username(charset="ab_12")
 
 
 class TestUniqueBatch(unittest.TestCase):

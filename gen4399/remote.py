@@ -43,7 +43,7 @@ from .core import (
     DEFAULT_USERNAME_LENGTH,
     Gen4399Error,
     InvalidLengthError,
-    check_fixed_part,
+    validate_fixed_part,
     generate,
     generate_username,
     validate_username,
@@ -408,8 +408,8 @@ def _parse_suggested_username(html: str) -> str:
 
 def _apply_fixed_parts(name: str, prefix: str, suffix: str) -> str:
     """把自定义前后缀套到服务端分配的用户名上，并校验最终结果。"""
-    check_fixed_part(prefix, "prefix")
-    check_fixed_part(suffix, "suffix")
+    validate_fixed_part(prefix, "prefix")
+    validate_fixed_part(suffix, "suffix")
     candidate = prefix + name + suffix
     violations = validate_username(candidate)
     if not violations:
@@ -483,8 +483,8 @@ def fetch_suggested_username(
         raise ValueError("max_total_seconds 必须 > 0 或为 None")
 
     # 先校验本地参数：前缀/后缀非法时立即报错，不要白跑一次网络请求
-    check_fixed_part(prefix, "prefix")
-    check_fixed_part(suffix, "suffix")
+    validate_fixed_part(prefix, "prefix")
+    validate_fixed_part(suffix, "suffix")
 
     params = {
         "regMode": "reg_normal",
