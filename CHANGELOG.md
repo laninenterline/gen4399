@@ -25,7 +25,8 @@
     选择第 N 条有效身份；编码自动 UTF-8-SIG → GB18030 回退。
   - 新增诊断能力：`submit_registration(..., on_response=...)` 回调；脚本
     `--diagnose` 保存 4399 注册响应（status/URL/可见文本/常见原因 + 脱敏 HTML，
-    0600）。不改变提交/判定行为，不绕过验证码/风控。
+    0600），并识别 4399「4399提示」风控/JS 验证页（oauthValidation/fingerprint2）。
+    不改变提交/判定行为，不绕过验证码/风控。
 - 文档：`docs/submit.md` 增加 web 协议/字段/DES/判定/PII 对比章节；
   README、`docs/rules.md`、`docs/project-overview.md`、SECURITY 同步。
 

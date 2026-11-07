@@ -204,7 +204,19 @@ def _diagnose_response(response, bundle, output: str | None) -> None:
     matched = [hint for keyword, hint in hints if keyword in text]
     for hint in matched:
         print(f"  [诊断] 可能原因: {hint}", file=sys.stderr)
-    if not matched:
+    risk_page = (
+        "oauthValidation" in body
+        or "fingerprint2" in body
+        or 'id="info_page"' in body
+        or ("4399提示" in text and "4399用户中心" in text)
+    )
+    if risk_page:
+        print(
+            "  [诊断] 这是 4399 的风控/JS 验证提示页（依赖浏览器执行 JS/指纹），"
+            "纯 HTTP 提交无法完成注册；请改用官方浏览器/手机号注册。",
+            file=sys.stderr,
+        )
+    if not matched and not risk_page:
         print("  [诊断] 未匹配到已知关键词，请查看保存的响应内容", file=sys.stderr)
 
     path = Path(output) if output else Path(

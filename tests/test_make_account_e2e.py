@@ -159,6 +159,17 @@ class MakeAccountE2E(unittest.TestCase):
         )
         self.assertNotIn(saved[0]["password"], content)
 
+    def test_diagnose_detects_js_risk_page(self):
+        FakeSession.unified_post_body = (
+            '<html><head><title>4399用户中心</title>'
+            '<script src="//ptlogin.3304399.net/resource/oauthValidation.js">'
+            "</script></head><body id=\"info_page\"><h2>4399提示</h2>"
+            "</body></html>"
+        )
+        code, _, err = run(["--yes", "--offline", "--diagnose"])
+        self.assertEqual(code, 1)
+        self.assertIn("风控/JS 验证提示页", err)
+
     def test_diagnose_custom_response_file(self):
         code, _, err = run([
             "--yes", "--offline", "--diagnose", "--response-file", "resp.html",

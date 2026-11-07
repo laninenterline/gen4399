@@ -68,7 +68,7 @@ lead-workspace/
 │   ├── _rules.py      35 行  # 规则快照版本/来源/关键字
 │   ├── _width.py      50 行  # CJK 终端显示宽度（表格对齐）
 │   └── py.typed              # 类型标记（随包分发）
-├── tests/            15 个文件，4,979 行，518 个用例 + 457 subtests（含 test_aes/test_des/test_submit/test_submit_http/test_make_account*）
+├── tests/            15 个文件，4,990 行，519 个用例 + 457 subtests（含 test_aes/test_des/test_submit/test_submit_http/test_make_account*）
 ├── scripts/verify_rules.py   # 规则页面关键词冒烟检查（GET + 子串匹配）
 ├── scripts/make_account.py   # 便捷脚本：每次运行准备并（--yes 时）提交一个账号，追加 accounts.json（0600）；无效身份行默认跳过（--index/--strict）；--diagnose 保存脱敏响应
 ├── docs/rules.md             # 规则快照、复核流程、改规则清单、提交协议摘要
@@ -302,7 +302,7 @@ check_username(name)
 
 | 门禁 | 命令 | 实测结果 | 判定 |
 |---|---|---|---|
-| 全量测试 | `pytest -q` | **518 passed, 1 skipped, 457 subtests passed, ~2.0s** | ✅ |
+| 全量测试 | `pytest -q` | **519 passed, 1 skipped, 457 subtests passed, ~1.9s** | ✅ |
 | 覆盖率 | `coverage run --branch -m pytest` + `report` | **TOTAL 94%**（2240 stmts / 91 miss / 844 branch / 73 brpart），阈值 90 满足 | ✅ |
 | doctest | `pytest --doctest-modules gen4399 -q` | **11 passed, 5 skipped**（skip 均为源码 `# doctest: +SKIP` 的网络/IO 示例） | ✅ |
 | ruff | `ruff check .` | 本机未安装（离线不可装） | ⏭️ NOT-RUN |
@@ -413,7 +413,7 @@ check_username(name)
 
 ```bash
 pip install -e ".[dev]"          # 安装（运行时零依赖）
-python -m pytest                 # 518 项测试
+python -m pytest                 # 519 项测试
 python -m pytest --doctest-modules gen4399 -q
 python -m coverage run --branch -m pytest -q && python -m coverage report
 ```
@@ -451,7 +451,7 @@ python -m gen4399 rules                          # 规则版本与来源
 **优点**：
 - 领域边界清晰、目标克制（默认只准备、提交必须显式开启），规则来源与维护流程有记录；
 - 分层干净、单向依赖、`__init__` 门面 + 72 个导出、`py.typed`，API 文档与 doctest 齐全；
-- 工程配套成熟：零运行时依赖（新增提交层仍只用标准库）、518 测试、94% 覆盖、CI 7 道门禁、MIT、语义化版本、CHANGELOG、SECURITY/CONTRIBUTING、pre-commit；
+- 工程配套成熟：零运行时依赖（新增提交层仍只用标准库）、519 测试、94% 覆盖、CI 7 道门禁、MIT、语义化版本、CHANGELOG、SECURITY/CONTRIBUTING、pre-commit；
 - 远程层做了真实工程化：重试策略对象、抖动、Retry-After、总预算、结构化错误、HTML 解析健壮性、结构化可用性结果，以及 CookieJar 会话 + 单次 POST；
 - 提交层在安全上保守：默认不自动提交（CLI 默认 dry-run）、注册 POST 不自动重试、结果对象脱敏、只发往 4399 官方端点，并把「成功响应未实测」「web PII 弱于 unified」写进文档；
 - PII 安全意识整体在线（repr 打码、0600、权限警告、日志去 query）。

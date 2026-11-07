@@ -430,8 +430,9 @@ python scripts/make_account.py --yes --diagnose --response-file resp.html
   请妥善保管）；`unknown` 请先登录 `https://u.4399.com/` 确认，不要立刻重跑。
 - **诊断**：`--diagnose` 会在注册 POST 后把响应打印到 stderr（状态码/最终 URL/
   可见文本/常见原因），并保存一份**脱敏后**的响应 HTML（默认 0600 的
-  `registration-response-<时间戳>.html`）；它不改变提交/判定行为，也不绕过
-  验证码/风控。dry-run 没有 POST，因此没有可诊断的响应。
+  `registration-response-<时间戳>.html`）；它能识别 4399 的「4399提示」风控/JS
+  验证页（`oauthValidation.js` / `fingerprint2`），提示纯 HTTP 无法完成注册。
+  它不改变提交/判定行为，也不绕过验证码/风控。dry-run 没有 POST，因此没有可诊断的响应。
 - 退出码：0 成功/dry-run；1 被拒/验证码/未知；2 参数/网络/配置错误。
 - 脚本不会循环、不会重试注册 POST；每次运行都是一个独立的新账号准备流程。
 
