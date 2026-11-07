@@ -46,6 +46,7 @@ from gen4399 import (  # noqa: E402
     Gen4399Error,
     RegistrationProfile,
     load_profiles,
+    make_solver,
     prepare_registration,
     submit_registration,
 )
@@ -93,6 +94,14 @@ def _build_parser() -> argparse.ArgumentParser:
                    help=f"单次请求超时秒数，默认 {DEFAULT_TIMEOUT:g}")
     p.add_argument("--retries", type=int, default=None,
                    help="GET 重试次数（注册 POST 永远单次）")
+    p.add_argument("--captcha-prompt", action="store_true",
+                   help="遇到图形验证码时保存图片并人工输入（web 路径）")
+    p.add_argument("--captcha-cmd", default=None, metavar="CMD",
+                   help="用外部命令识别验证码：PNG 从 stdin 传入，stdout 第一行作为结果")
+    p.add_argument("--captcha-dir", default=None, metavar="DIR",
+                   help="把验证码图片保存到该目录（便于人工查看/留存）")
+    p.add_argument("--captcha-attempts", type=int, default=3, metavar="N",
+                   help="验证码最多重试轮数，默认 3")
     p.add_argument("--output", default="accounts.json", metavar="FILE",
                    help="账号保存文件，默认 ./accounts.json（0600）")
     p.add_argument("--json", action="store_true", help="以 JSON 输出本次结果")
@@ -311,6 +320,11 @@ def main(argv: list[str] | None = None) -> int:
             index=args.index,
             strict=args.strict,
         )
+        captcha = make_solver(
+            prompt=args.captcha_prompt,
+            command=args.captcha_cmd,
+            directory=args.captcha_dir,
+        )
     except (Gen4399Error, TypeError, ValueError, OSError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 2
@@ -352,6 +366,8 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=not args.yes,
             retry_policy=policy,
             on_response=_capture_response if args.diagnose else None,
+            captcha=captcha,
+            captcha_attempts=args.captcha_attempts,
         )
     except (Gen4399Error, TypeError, ValueError, OSError) as exc:
         print(f"错误：{exc}", file=sys.stderr)

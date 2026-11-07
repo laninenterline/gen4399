@@ -11,6 +11,8 @@
   调用 `submit_registration()`（CLI 加 `--yes`；CLI 默认 dry-run）。
 - **支持 `web` / `unified` 两条路径**（2.2.0 起）：`unified` 提交 `POST /ptlogin/register.do`，
   `web` 提交 `POST /user/?_c=reg`（web.4399.com）。两者都需显式调用 / `--yes`。
+  2.3.0 起 `web` 路径支持图形验证码流程（`captcha=` 回调 / `--captcha-prompt` /
+  `--captcha-cmd`）：验证码图片由 4399 下发、由调用方自行识别，本库不做自动破解。
 - **只应使用本人的真实身份信息**：使用他人身份证号可能违法，也可能违反 4399 用户协议。
 - 身份信息默认只在内存中使用；只有显式调用 `load_profiles` / 传 `--profile-file` 才会读取文件。
   只有显式真实提交时，姓名/身份证等字段才会发往 4399 官方端点，不经过任何第三方服务器：
@@ -41,10 +43,12 @@
 5. **先 dry-run**：库不会自动提交、CLI 默认 dry-run；先跑一次 dry-run 检查端点/字段/
    加密开关（`unified` 看 `sec`，`web` 看 `encryptCode`/DES 字段），确认后再加 `--yes`。
 6. **POST 不自动重试**：超时后服务端可能已建号；请先尝试登录确认，不要立即重跑。
-7. **成功判定是推断**：4399 两条路径的成功响应均未经实测（`register.do` 与 web
-   `_c=reg`），`success` 为启发式；请以登录 `https://u.4399.com/` 为准，
-   `unknown` 不代表失败。
-8. 本库不绕过验证码/风控；出现 `captcha` 时需人工处理。
+7. **成功判定**：`web` 路径的成功响应已实测（`{"state":true,"code":300,...}` +
+   `Pauth`/`Pauths` 等登录 Cookie），但仍建议以登录 `https://u.4399.com/` 为准；
+   `unified` 路径实测只返回空白「提示」页（风控空壳，无法判定），`unknown` 不代表失败。
+8. **不绕过风控**：本库不破解图形验证码——`captcha` 回调由调用方实现
+   （人工输入或外部 OCR）；识别不出时如实返回 `kind=captcha`。同一身份证在
+   4399 只能绑定一个账号。
 
 ## 建议
 

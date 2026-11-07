@@ -681,6 +681,30 @@ class TestSubmitCommand(unittest.TestCase):
         self.assertIn("FAIL[rejected]", out)
         self.assertIn("用户名已被注册", out)
 
+    def test_show_pii_prints_password_after_success(self):
+        self.prepare.return_value = mock.Mock(password="SecretPass123")
+        self.submit.return_value = _submit_result(
+            ok=True, kind="success", message="注册成功", dry_run=False
+        )
+        code, out, _ = run(
+            ["submit", "--offline", "--yes", "--show-pii",
+             *self._identity_args()]
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("密码: SecretPass123", out)
+        self.assertIn("--show-pii", out)
+
+    def test_password_hidden_without_show_pii(self):
+        self.prepare.return_value = mock.Mock(password="SecretPass123")
+        self.submit.return_value = _submit_result(
+            ok=True, kind="success", message="注册成功", dry_run=False
+        )
+        code, out, _ = run(
+            ["submit", "--offline", "--yes", *self._identity_args()]
+        )
+        self.assertEqual(code, 0)
+        self.assertNotIn("SecretPass123", out)
+
     def test_unknown_exit_1(self):
         self.submit.return_value = _submit_result(
             ok=False, kind="unknown", message="无法确定", dry_run=False

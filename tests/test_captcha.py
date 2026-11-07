@@ -1,0 +1,323 @@
+"""gen4399._captcha 的单元测试：人工输入 / 外部命令 / 图片落盘。
+
+全部离线：外部命令测试用当前解释器 ``python3 -c`` 回显 stdin，
+不依赖真实 OCR 工具或网络。``prompt_captcha_solver`` 用 ``input_fn``
+打桩，不会阻塞在终端输入上。
+"""
+
+import io
+import shlex
+import stat
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from gen4399 import _captcha
+from gen4399._captcha import (
+    CaptchaSolverError,
+    command_captcha_solver,
+    make_solver,
+    prompt_captcha_solver,
+    save_captcha_images,
+)
+from gen4399.core import Gen4399Error
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR-test-image"
+
+#: 当前解释器（Termux 下 ``python3`` 存在，但用 sys.executable 最稳）
+_PYTHON = shlex.quote(sys.executable)
+
+
+def py_command(code: str) -> str:
+    """构造 ``python3 -c <code>`` 的 shell 命令行（shell=True 用）。"""
+    return f"{_PYTHON} -c {shlex.quote(code)}"
+
+
+def mode_of(path: Path) -> int:
+    """取文件权限位（例如 ``0o600``）。"""
+    return stat.S_IMODE(path.stat().st_mode)
+
+
+def fake_clock(*stamps: float) -> mock.Mock:
+    """可预测的 ``time`` 替身：固定 strftime，毫秒后缀按顺序取值。"""
+    clock = mock.Mock()
+    clock.strftime.return_value = "20260101-120000"
+    clock.time.side_effect = list(stamps)
+    return clock
+
+
+class TestPromptCaptchaSolver(unittest.TestCase):
+    """人工识别：图片必须落盘（0600），提示语透传给 input_fn。"""
+
+    def test_writes_image_and_returns_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prompts = []
+            out = io.StringIO()
+
+            def input_fn(prompt):
+                prompts.append(prompt)
+                return "a8b9"
+
+            solver = prompt_captcha_solver(
+                directory=tmp,
+                prompt_text="看图输入：",
+                input_fn=input_fn,
+                out=out,
+            )
+            self.assertEqual(solver(PNG_BYTES), "a8b9")
+            self.assertEqual(prompts, ["看图输入："])
+
+            files = list(Path(tmp).glob("captcha-*.png"))
+            self.assertEqual(len(files), 1)
+            self.assertEqual(files[0].read_bytes(), PNG_BYTES)
+            self.assertIn(str(files[0]), out.getvalue())
+            self.assertIn("图片已保存", out.getvalue())
+
+    def test_default_prompt_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prompts = []
+            solver = prompt_captcha_solver(
+                directory=tmp,
+                input_fn=lambda prompt: prompts.append(prompt) or "",
+                out=io.StringIO(),
+            )
+            solver(b"img")
+            self.assertEqual(prompts, ["请输入验证码："])
+
+    def test_creates_missing_directories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "a" / "b"
+            solver = prompt_captcha_solver(
+                directory=target,
+                input_fn=lambda _prompt: "x",
+                out=io.StringIO(),
+            )
+            solver(PNG_BYTES)
+            files = list(target.glob("captcha-*.png"))
+            self.assertEqual(len(files), 1)
+
+    def test_saved_file_is_0600(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            solver = prompt_captcha_solver(
+                directory=tmp,
+                input_fn=lambda _prompt: "x",
+                out=io.StringIO(),
+            )
+            solver(PNG_BYTES)
+            files = list(Path(tmp).glob("captcha-*.png"))
+            self.assertEqual(mode_of(files[0]), 0o600)
+
+    def test_default_directory_uses_mkdtemp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = io.StringIO()
+            with mock.patch(
+                "gen4399._captcha.tempfile.mkdtemp", return_value=tmp
+            ) as mkdtemp:
+                solver = prompt_captcha_solver(
+                    input_fn=lambda _prompt: "code", out=out
+                )
+                self.assertEqual(solver(b"img"), "code")
+            mkdtemp.assert_called_once_with(prefix="gen4399-captcha-")
+            files = list(Path(tmp).glob("captcha-*.png"))
+            self.assertEqual(len(files), 1)
+            self.assertIn(str(files[0]), out.getvalue())
+
+    def test_strips_nothing_from_input(self):
+        """输入原样返回（去空白由 submit 层负责）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            solver = prompt_captcha_solver(
+                directory=tmp,
+                input_fn=lambda _prompt: "  ab  ",
+                out=io.StringIO(),
+            )
+            self.assertEqual(solver(b"img"), "  ab  ")
+
+
+class TestSaveCaptchaImages(unittest.TestCase):
+    """给任意 solver 套一层「先存图」：不改变返回值，调用次数一致。"""
+
+    def test_wraps_solver_and_saves_each_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            seen = []
+
+            def inner(image):
+                seen.append(image)
+                return "code-1"
+
+            with mock.patch("gen4399._captcha.time", fake_clock(0.5, 1.25)):
+                wrapped = save_captcha_images(inner, tmp)
+                self.assertEqual(wrapped(b"img-1"), "code-1")
+                self.assertEqual(wrapped(b"img-2"), "code-1")
+
+            self.assertEqual(seen, [b"img-1", b"img-2"])
+            files = sorted(Path(tmp).glob("captcha-*.png"))
+            by_name = {f.name: f.read_bytes() for f in files}
+            self.assertEqual(
+                by_name,
+                {
+                    "captcha-20260101-120000-500.png": b"img-1",
+                    "captcha-20260101-120000-250.png": b"img-2",
+                },
+            )
+            for path in files:
+                self.assertEqual(mode_of(path), 0o600)
+
+    def test_creates_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "nested" / "dir"
+            wrapped = save_captcha_images(lambda _image: "x", target)
+            self.assertEqual(wrapped(b"img"), "x")
+            self.assertEqual(len(list(target.glob("captcha-*.png"))), 1)
+
+
+class TestCommandCaptchaSolver(unittest.TestCase):
+    """外部命令识别：PNG 走 stdin，stdout 第一行是结果。"""
+
+    def test_reads_png_from_stdin_and_returns_first_line(self):
+        code = (
+            "import sys; d = sys.stdin.buffer.read(); "
+            "sys.stdout.write(d.hex() + chr(10) + 'ignored line')"
+        )
+        solver = command_captcha_solver(py_command(code))
+        self.assertEqual(solver(PNG_BYTES), PNG_BYTES.hex())
+
+    def test_stderr_ignored_and_unicode_kept(self):
+        code = (
+            "import sys; sys.stdin.buffer.read(); "
+            "sys.stderr.write('warn text' + chr(10)); "
+            "sys.stdout.write('验证码 42')"
+        )
+        solver = command_captcha_solver(py_command(code))
+        self.assertEqual(solver(b"x"), "验证码 42")
+
+    def test_stdout_is_stripped(self):
+        code = (
+            "import sys; sys.stdin.buffer.read(); "
+            "sys.stdout.write(chr(10) + '  ab12  ' + chr(10))"
+        )
+        solver = command_captcha_solver(py_command(code))
+        self.assertEqual(solver(b"x"), "ab12")
+
+    def test_empty_stdout_returns_empty_string(self):
+        solver = command_captcha_solver(
+            py_command("import sys; sys.stdin.buffer.read()")
+        )
+        self.assertEqual(solver(b"x"), "")
+
+    def test_whitespace_only_stdout_returns_empty_string(self):
+        code = (
+            "import sys; sys.stdin.buffer.read(); "
+            "sys.stdout.write('    ' + chr(10) + '  ')"
+        )
+        solver = command_captcha_solver(py_command(code))
+        self.assertEqual(solver(b"x"), "")
+
+    def test_nonzero_exit_raises_solver_error(self):
+        code = (
+            "import sys; sys.stderr.write('ocr broken'); sys.exit(3)"
+        )
+        solver = command_captcha_solver(py_command(code))
+        with self.assertRaises(CaptchaSolverError) as ctx:
+            solver(b"x")
+        message = str(ctx.exception)
+        self.assertIn("退出码 3", message)
+        self.assertIn("ocr broken", message)
+
+    def test_timeout_raises_solver_error(self):
+        solver = command_captcha_solver(
+            py_command("import time; time.sleep(5)"), timeout=0.2
+        )
+        with self.assertRaises(CaptchaSolverError) as ctx:
+            solver(b"x")
+        message = str(ctx.exception)
+        self.assertIn("超时", message)
+        self.assertIn("0.2s", message)
+
+    def test_error_is_gen4399_error(self):
+        self.assertTrue(issubclass(CaptchaSolverError, Gen4399Error))
+        error = CaptchaSolverError("boom")
+        self.assertIsInstance(error, Gen4399Error)
+        self.assertEqual(str(error), "boom")
+
+
+class TestMakeSolver(unittest.TestCase):
+    """make_solver 的三种组合：都不给 / prompt / command（command 优先）。"""
+
+    def test_none_returns_none(self):
+        self.assertIsNone(make_solver())
+        self.assertIsNone(
+            make_solver(prompt=False, command=None, directory="/tmp/unused")
+        )
+
+    def test_prompt_only(self):
+        sentinel = object()
+        with mock.patch(
+            "gen4399._captcha.prompt_captcha_solver", return_value=sentinel
+        ) as factory:
+            solver = make_solver(prompt=True)
+        self.assertIs(solver, sentinel)
+        factory.assert_called_once_with(directory=None)
+
+    def test_prompt_with_directory(self):
+        sentinel = object()
+        with mock.patch(
+            "gen4399._captcha.prompt_captcha_solver", return_value=sentinel
+        ) as factory:
+            solver = make_solver(prompt=True, directory="/tmp/caps")
+        self.assertIs(solver, sentinel)
+        factory.assert_called_once_with(directory="/tmp/caps")
+
+    def test_command_only(self):
+        solver = make_solver(command="echo from-command")
+        self.assertTrue(callable(solver))
+        self.assertEqual(solver(b"png"), "from-command")
+
+    def test_command_wins_over_prompt(self):
+        with mock.patch(
+            "gen4399._captcha.prompt_captcha_solver"
+        ) as factory:
+            solver = make_solver(prompt=True, command="echo combo")
+        factory.assert_not_called()
+        self.assertEqual(solver(b"png"), "combo")
+
+    def test_command_with_directory_saves_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            solver = make_solver(command="echo saved", directory=tmp)
+            self.assertEqual(solver(PNG_BYTES), "saved")
+            files = list(Path(tmp).glob("captcha-*.png"))
+            self.assertEqual(len(files), 1)
+            self.assertEqual(files[0].read_bytes(), PNG_BYTES)
+            self.assertEqual(mode_of(files[0]), 0o600)
+
+    def test_prompt_with_directory_does_not_double_wrap(self):
+        """prompt solver 自己已经落盘，make_solver 不应再套 save 层。"""
+        sentinel = object()
+        with mock.patch(
+            "gen4399._captcha.prompt_captcha_solver", return_value=sentinel
+        ) as factory, mock.patch(
+            "gen4399._captcha.save_captcha_images"
+        ) as save:
+            solver = make_solver(prompt=True, directory="/tmp/caps")
+        self.assertIs(solver, sentinel)
+        save.assert_not_called()
+        factory.assert_called_once_with(directory="/tmp/caps")
+
+
+class TestPackageExports(unittest.TestCase):
+    """_captcha 的公开符号已从 gen4399 包顶层导出。"""
+
+    def test_top_level_exports(self):
+        import gen4399
+
+        self.assertIs(gen4399.CaptchaSolverError, CaptchaSolverError)
+        self.assertIs(gen4399.prompt_captcha_solver, prompt_captcha_solver)
+        self.assertIs(gen4399.command_captcha_solver, command_captcha_solver)
+        self.assertIs(gen4399.save_captcha_images, save_captcha_images)
+        self.assertIs(gen4399.make_solver, make_solver)
+        self.assertIs(_captcha.CaptchaSolverError, CaptchaSolverError)
+
+
+if __name__ == "__main__":
+    unittest.main()

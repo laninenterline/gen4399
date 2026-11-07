@@ -11,6 +11,10 @@
       GET  /user/?_c=login&_a=checkUser   # 取 encryptCode
       POST /user/?_c=reg                  # DES 加密密码 + JSONP 响应
         └─ 解析 {state, code, msg, validateState}
+      code=200（风控要图形验证码）时：
+        GET  /util/?_c=code&t=reg         # 验证码图片（绑定 WEBSESSION）
+        GET  /user/?_c=reg&_a=verifyCode  # 校验验证码 → {state:true}
+        POST /user/?_c=reg + chk_code     # 带验证码重提交
 
 本库提供显式提交能力，但**不会自动提交**：必须由调用方显式调用
 :func:`submit_registration`；API 默认 ``dry_run=False``（**调用即提交**），
@@ -21,8 +25,8 @@
 * 两个路径的 POST **都永不自动重试**，避免超时后重复注册。
 * 请仅使用本人的真实身份信息，并自行确认符合 4399 用户协议；
   不要批量注册他人账号。
-* 成功判定是启发式的（4399 的成功响应未创建真实账号实测过），
-  结果请以登录 ``https://u.4399.com/`` 为准。
+* 图形验证码需要调用方提供 :data:`CaptchaSolver`（人工识别或外部 OCR）；
+  本库不做验证码自动破解。
 """
 
 from __future__ import annotations
@@ -51,6 +55,7 @@ from .remote import (
 from .remote import _http
 
 __all__ = [
+    "CaptchaSolver",
     "SubmitKind",
     "ResponseHook",
     "SubmitError",
@@ -64,17 +69,30 @@ SubmitKind = Literal["success", "rejected", "captcha", "unknown", "dry_run"]
 #: 注册 POST 响应回调（诊断用；收到原始 ``HttpResponse``，不改变提交行为）
 ResponseHook = Callable[["_http.HttpResponse"], None]
 
+#: 图形验证码识别回调：入参是验证码图片原始字节（PNG），返回识别出的文本。
+#: 由调用方实现（人工输入 / 外部 OCR 服务），本库不内置破解。
+CaptchaSolver = Callable[[bytes], str]
+
 #: ``sec=1`` 时需要加密的字段
 ENCRYPTED_FIELDS = ("password", "passwordveri", "realname", "idcard")
 
 #: 登录成功后 4399 会下发的 Cookie 名（只看名字，不看值）
-_LOGIN_COOKIE_NAMES = ("Pauth", "Uauth", "Xauth", "user_4399", "ck_accname")
+_LOGIN_COOKIE_NAMES = (
+    "Pauth", "Pauths", "Uauth", "Xauth", "Puser", "Pnick",
+    "user_4399", "ck_accname",
+)
 
 #: web 路径注册提交接口（POST；浏览器用 JSONP GET，服务端同样接受 POST）
 WEB_REG_API = "https://web.4399.com/user/?_c=reg"
 
 #: web 路径取密码加密 key 的接口
 WEB_CHECK_USER_API = "https://web.4399.com/user/?_c=login&_a=checkUser"
+
+#: web 路径图形验证码图片（绑定当前会话的 ``WEBSESSION`` Cookie）
+WEB_CAPTCHA_API = "https://web.4399.com/util/?_c=code&t=reg"
+
+#: web 路径校验图形验证码（JSONP，``state=true`` 表示通过）
+WEB_VERIFY_CODE_API = "https://web.4399.com/user/?_c=reg&_a=verifyCode"
 
 #: web 路径需要 DES 加密的字段
 _WEB_ENCRYPTED_FIELDS = ("login_password", "relogin_pwd")
@@ -100,6 +118,11 @@ _SUCCESS_RE = re.compile(
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 _SCRIPT_RE = re.compile(r"<(script|style)\b.*?</\1>", re.I | re.S)
+
+#: 4399 的「提示」页外壳（``<body id="info_page">``）。实测 unified 路径在风控
+#: 触发时返回这种空壳页：没有 ``#Msg``、没有登录 Cookie，内容由 JS/App 渲染，
+#: 服务端不给出任何可判定的结果。
+_INFO_PAGE_RE = re.compile(r"""<body[^>]*\bid\s*=\s*["']info_page["']""", re.I)
 
 
 class SubmitError(Gen4399Error):
@@ -145,6 +168,7 @@ class SubmitResult:
     login_cookies: tuple[str, ...] = ()
     field_names: tuple[str, ...] = ()
     dry_run: bool = False
+    captcha_attempts: int = 0
     elapsed: float = 0.0
 
     def __bool__(self) -> bool:  # 让 `if result:` 直接表示是否成功
@@ -174,6 +198,7 @@ class SubmitResult:
             "login_cookies": list(self.login_cookies),
             "field_names": list(self.field_names),
             "dry_run": self.dry_run,
+            "captcha_attempts": self.captcha_attempts,
             "elapsed": round(self.elapsed, 3),
         }
 
@@ -301,10 +326,14 @@ def _classify_response(
 ) -> tuple[SubmitKind, bool, str]:
     """把 POST 响应分类成 ``(kind, ok, message)``（启发式）。
 
-    4399 的成功响应没有实测样本，因此判定顺序为：成功标记 →
-    错误文案 → 登录 Cookie → 验证码 → 跳转离开 ptlogin → unknown。
-    成功标记先于错误文案，是因为真实失败页只含 ``isAutoRegSuccess=false``，
-    而成功页可能出现「注册成功，正在跳转」之类的 ``Msg`` 文案。
+    判定顺序：成功标记 → 错误文案 → 登录 Cookie → 验证码 → 跳转离开 ptlogin
+    → info_page 风控空壳页 → unknown。成功标记先于错误文案，是因为真实失败页
+    只含 ``isAutoRegSuccess=false``，而成功页可能出现「注册成功，正在跳转」
+    之类的 ``Msg`` 文案。
+
+    Note:
+        web 路径的成功响应已实测（``state=true`` + ``Pauth`` 等 Cookie），
+        unified 路径仍拿不到可判定的响应（风控空壳页）。
     """
     if _SUCCESS_RE.search(body):
         return "success", True, "注册成功（页面返回 isAutoRegSuccess=true）"
@@ -329,6 +358,15 @@ def _classify_response(
     request_host = (urllib.parse.urlsplit(request_url).hostname or "").lower()
     if final_host and final_host != request_host and 200 <= status < 400:
         return "success", True, f"注册成功（已从 ptlogin 跳转到 {final_host}）"
+
+    if _INFO_PAGE_RE.search(body):
+        return (
+            "unknown",
+            False,
+            "4399 返回空白「提示」页（info_page 外壳，无 #Msg、无登录 Cookie）："
+            "属于风控/需 JS 校验的分支，无法判定注册结果。请登录 "
+            "https://u.4399.com/ 确认，或改用 web 路径（支持图形验证码流程）",
+        )
 
     excerpt = _page_excerpt(body)
     detail = f"；页面摘要：{excerpt}" if excerpt else ""
@@ -420,13 +458,16 @@ def _classify_web_response(
 
     code = payload.get("code")
     message = str(payload.get("msg") or payload.get("message") or "").strip()
-    if code in (200, 360):
+    if code == 200:
         detail = f"：{message}" if message else ""
         return (
             "captcha",
             False,
-            "服务端要求图形/手机验证码，需人工处理" + detail,
+            "服务端要求图形验证码（code=200），需提供 captcha 识别回调" + detail,
         )
+    if code == 360:
+        detail = f"：{message}" if message else ""
+        return "captcha", False, "手机验证码错误（code=360），需人工处理" + detail
     if message:
         return "rejected", False, message
     if login_cookies:
@@ -452,6 +493,8 @@ def _validate_args(
     app_id: str,
     level: int,
     timeout: float,
+    captcha: CaptchaSolver | None = None,
+    captcha_attempts: int = 3,
 ) -> None:
     if not isinstance(bundle, RegistrationBundle):
         raise TypeError("bundle 必须是 RegistrationBundle")
@@ -467,6 +510,14 @@ def _validate_args(
         raise TypeError("timeout 必须是数字")
     if timeout <= 0:
         raise ValueError("timeout 必须 > 0")
+    if captcha is not None and not callable(captcha):
+        raise TypeError("captcha 必须是可调用对象（图片字节 -> 文本）或 None")
+    if (
+        not isinstance(captcha_attempts, int)
+        or isinstance(captcha_attempts, bool)
+        or captcha_attempts < 1
+    ):
+        raise ValueError("captcha_attempts 必须是 >= 1 的 int")
 
 
 def _submit_unified(
@@ -539,6 +590,100 @@ def _submit_unified(
     )
 
 
+def _web_post_reg(
+    session: "_http.RemoteSession",
+    payload: dict[str, str],
+    on_response: ResponseHook | None,
+) -> "_http.HttpResponse":
+    """发送一次 web 注册 POST（**单次**，不自动重试）。"""
+    endpoint = f"{WEB_REG_API}&jsoncallback={_jsonp_callback('gen4399reg')}"
+    response = session.post(endpoint, payload)
+    if on_response is not None:
+        on_response(response)
+    return response
+
+
+def _web_step(
+    response: "_http.HttpResponse",
+    bundle: RegistrationBundle,
+    login_cookies: tuple[str, ...],
+) -> tuple[SubmitKind, bool, str, bool]:
+    """解析一次 web 注册响应。
+
+    Returns:
+        ``(kind, ok, message, needs_image_captcha)``。
+        ``needs_image_captcha`` 为 True 表示服务端返回 ``code=200``，
+        需要用图形验证码重提交（不是 360 手机验证码）。
+    """
+    body = _redact_text(response.body, bundle)
+    try:
+        data = _parse_jsonp(body)
+    except RemoteParseError:
+        excerpt = _page_excerpt(body)
+        message = (
+            "web 提交响应无法解析（POST 已发送，结果未知），"
+            "请登录 https://u.4399.com/ 确认"
+        )
+        if excerpt:
+            message += f"；页面摘要：{excerpt}"
+        return "unknown", False, message, False
+
+    kind, ok, message = _classify_web_response(
+        payload=data,
+        status=response.status,
+        body=body,
+        request_url=WEB_REG_API,
+        final_url=response.url,
+        login_cookies=login_cookies,
+    )
+    needs_captcha = (not ok) and data.get("code") == 200
+    return kind, ok, message, needs_captcha
+
+
+def _fetch_web_captcha(session: "_http.RemoteSession") -> bytes:
+    """拉一张 web 图形验证码图片（PNG 原始字节，绑定当前会话）。"""
+    url = f"{WEB_CAPTCHA_API}&_={int(time.time() * 1000)}"
+    response = session.get(url)
+    image = response.raw or response.body.encode("utf-8", errors="replace")
+    if not image:
+        raise RemoteParseError("验证码接口没有返回图片数据")
+    return image
+
+
+def _verify_web_captcha(
+    session: "_http.RemoteSession", code: str
+) -> tuple[bool, str]:
+    """调 ``verifyCode`` 校验图形验证码。
+
+    Returns:
+        ``(passed, reason)``；``reason`` 仅在未通过时有意义。
+    """
+    query = urllib.parse.urlencode({
+        "jsoncallback": _jsonp_callback("gen4399vc"),
+        "code": code,
+        "_": str(int(time.time() * 1000)),
+    })
+    response = session.get(f"{WEB_VERIFY_CODE_API}&{query}")
+    body = response.body.strip()
+    try:
+        data = _parse_jsonp(body)
+    except RemoteParseError:
+        return False, _page_excerpt(body, limit=60) or "校验响应无法解析"
+    if data.get("state"):
+        return True, ""
+    message = str(data.get("msg") or "").strip()
+    return False, message or "验证码错误"
+
+
+def _solve_web_captcha(
+    session: "_http.RemoteSession", solver: CaptchaSolver
+) -> str:
+    """拉图 → 调用调用方的识别回调 → 返回去掉首尾空白的验证码文本。"""
+    image = _fetch_web_captcha(session)
+    raw_code = solver(image)
+    return str(raw_code or "").strip()
+
+
 def _submit_web(
     bundle: RegistrationBundle,
     *,
@@ -547,8 +692,15 @@ def _submit_web(
     retry_policy: RetryPolicy | None,
     started: float,
     on_response: ResponseHook | None = None,
+    captcha: CaptchaSolver | None = None,
+    captcha_attempts: int = 3,
 ) -> SubmitResult:
-    """web 路径：checkUser 取 key -> DES 加密密码 -> POST /user/?_c=reg。"""
+    """web 路径：checkUser 取 key → DES 加密密码 → POST /user/?_c=reg。
+
+    服务端返回 ``code=200``（风控要求图形验证码）时，若提供了 ``captcha``
+    回调，则走「拉图 → 识别 → verifyCode 校验 → 带 ``chk_code`` 重提交」，
+    最多 ``captcha_attempts`` 轮。
+    """
     session = _http.RemoteSession(timeout=timeout, policy=retry_policy)
     encrypt_code = _web_encrypt_code(session, bundle.username)
     payload, encrypted = _build_web_payload(bundle, encrypt_code)
@@ -569,41 +721,53 @@ def _submit_web(
             elapsed=time.monotonic() - started,
         )
 
+    def login_cookies_since(before: set[str]) -> tuple[str, ...]:
+        after = set(session.cookies)
+        return tuple(
+            name
+            for name in _LOGIN_COOKIE_NAMES
+            if name in after and name not in before
+        )
+
     before = set(session.cookies)
-    callback = _jsonp_callback("gen4399reg")
-    endpoint = f"{WEB_REG_API}&jsoncallback={callback}"
-    response = session.post(endpoint, payload)
-    if on_response is not None:
-        on_response(response)
-    after = set(session.cookies)
-    login_cookies = tuple(
-        name for name in _LOGIN_COOKIE_NAMES if name in after and name not in before
-    )
-    present_login = tuple(
-        name for name in _LOGIN_COOKIE_NAMES if name in after
+    response = _web_post_reg(session, payload, on_response)
+    kind, ok, message, needs_captcha = _web_step(
+        response, bundle, login_cookies_since(before)
     )
 
-    body = _redact_text(response.body, bundle)
-    try:
-        data = _parse_jsonp(body)
-    except RemoteParseError:
-        kind, ok = "unknown", False
-        excerpt = _page_excerpt(body)
+    rounds = 0
+    if needs_captcha and captcha is None:
         message = (
-            "web 提交响应无法解析（POST 已发送，结果未知），"
-            "请登录 https://u.4399.com/ 确认"
+            "服务端要求图形验证码（code=200）：请通过 captcha= 传入识别回调"
+            "（人工输入或外部 OCR）后重试"
         )
-        if excerpt:
-            message += f"；页面摘要：{excerpt}"
-    else:
-        kind, ok, message = _classify_web_response(
-            payload=data,
-            status=response.status,
-            body=body,
-            request_url=endpoint,
-            final_url=response.url,
-            login_cookies=login_cookies,
+    while needs_captcha and captcha is not None and rounds < captcha_attempts:
+        rounds += 1
+        code = _solve_web_captcha(session, captcha)
+        if not code:
+            continue
+        passed, reason = _verify_web_captcha(session, code)
+        if not passed:
+            message = f"验证码未通过（{reason}），已重新取图重试"
+            continue
+        before = set(session.cookies)
+        retry_payload = dict(payload)
+        retry_payload["chk_code"] = code
+        response = _web_post_reg(session, retry_payload, on_response)
+        kind, ok, message, needs_captcha = _web_step(
+            response, bundle, login_cookies_since(before)
         )
+        if ok:
+            message = f"web 注册成功（第 {rounds} 轮验证码后通过；{message}）"
+
+    if not ok and needs_captcha:
+        kind = "captcha"
+        if rounds:
+            message = f"图形验证码 {rounds} 轮仍未通过（最后提示：{message}）"
+
+    present_login = tuple(
+        name for name in _LOGIN_COOKIE_NAMES if name in session.cookies
+    )
     message = _redact_text(message, bundle)
     return SubmitResult(
         ok=ok,
@@ -618,6 +782,7 @@ def _submit_web(
         encrypted_fields=encrypted,
         login_cookies=present_login,
         field_names=field_names,
+        captcha_attempts=rounds,
         elapsed=time.monotonic() - started,
     )
 
@@ -631,13 +796,17 @@ def submit_registration(
     dry_run: bool = False,
     retry_policy: RetryPolicy | None = None,
     on_response: ResponseHook | None = None,
+    captcha: CaptchaSolver | None = None,
+    captcha_attempts: int = 3,
 ) -> SubmitResult:
     """把准备好的注册数据真正提交到 4399（支持 ``web`` / ``unified``）。
 
     ==========  =====================================================
     ``web``     ``GET user/?_c=login&_a=checkUser`` 取 encryptCode →
                 ``encode_4399``（DES）加密密码 → ``POST user/?_c=reg``
-                （JSONP 响应，按 ``state/code/msg`` 判定）
+                （JSONP 响应，按 ``state/code/msg`` 判定）；返回
+                ``code=200`` 时用 ``captcha`` 识别图形验证码后带
+                ``chk_code`` 重提交
     ``unified`` ``GET regFrame.do`` 取隐藏域/会话 → ``sec=1`` 时 AES
                 加密敏感字段 → ``POST register.do``
     ==========  =====================================================
@@ -652,6 +821,10 @@ def submit_registration(
         retry_policy: 只作用于 GET；注册 POST 永远单次尝试。
         on_response: 可选的注册 POST 响应回调（``HttpResponse``），用于诊断；
             不改变提交/判定行为。回调抛出的异常会向上传播（此时 POST 已发出）。
+        captcha: 图形验证码识别回调（入参 PNG 字节，返回识别文本）。只在
+            web 路径服务端返回 ``code=200`` 时调用；不传则直接返回
+            ``kind="captcha"``。本库不内置破解，需调用方接入人工/OCR。
+        captcha_attempts: 验证码最多重试轮数（含重新取图），必须 >= 1。
 
     Returns:
         :class:`SubmitResult`；``.kind == "success"`` 表示（可判定为）成功。
@@ -669,7 +842,7 @@ def submit_registration(
         >>> r.kind                                       # doctest: +SKIP
         'dry_run'
     """
-    _validate_args(bundle, app_id, level, timeout)
+    _validate_args(bundle, app_id, level, timeout, captcha, captcha_attempts)
     started = time.monotonic()
     if bundle.path == "web":
         return _submit_web(
@@ -679,6 +852,8 @@ def submit_registration(
             retry_policy=retry_policy,
             started=started,
             on_response=on_response,
+            captcha=captcha,
+            captcha_attempts=captcha_attempts,
         )
     return _submit_unified(
         bundle,

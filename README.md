@@ -8,14 +8,19 @@
   - `check_username()` / `is_username_available()` —— 查询用户名是否可注册
 - 表单：两条注册路径的字段定义 + 提交前本地整表校验（不联网）
 - 编排：`prepare_registration()` 一键准备好「可照着填 / 可直接提交」的注册数据
-- 提交（2.1.0 / 2.2.0）：`submit_registration()` / `gen4399 submit` 真实提交到 4399
+- 提交（2.1.0 / 2.2.0 / 2.3.0）：`submit_registration()` / `gen4399 submit` 真实提交到 4399
   ——**库不会自动提交**（CLI 默认 dry-run）；支持 `web` 与 `unified` 两条路径
+- 图形验证码（2.3.0）：web 路径遇到 `code=200` 时按「取图 → 识别 → verifyCode →
+  带 `chk_code` 重提交」处理，**识别必须由调用方提供 `captcha` 回调**（人工 / OCR），
+  库不内置破解
 - 身份信息：可从 `姓名|身份证号[|QQ]` 格式的 txt 批量读取
 
 > **默认不提交注册**：`prepare_registration()` 只准备数据，不会自动提交；
 > 真实提交必须显式调用 `submit_registration()`，命令行必须显式加 `--yes`。
-> 2.2.0 起 `web` / `unified` 两条路径都可提交。请只使用你本人的真实身份信息，
-> 并遵守 4399 的用户协议。
+> 2.2.0 起 `web` / `unified` 两条路径都可提交；2.3.0 起 web 路径支持图形验证码
+> （调用方提供回调）。请只使用你本人的真实身份信息，并遵守 4399 的用户协议。
+> **已用于实名绑定的身份证再次注册会被服务端拒绝**（实测返回 `姓名身份证不匹配`）；
+> 本库无法仅凭响应区分「已绑定」与「实名不通过」，请只使用本人未绑定过 4399 的身份证。
 
 ## 安装
 
@@ -72,11 +77,13 @@ from gen4399 import submit_registration
 r = submit_registration(bundle, dry_run=True)   # 只拉必要数据 + 组装/加密，不发注册 POST
 r.kind                                          # 'dry_run'
 r = submit_registration(bundle, dry_run=False)  # 真实提交（web / unified；仅限本人身份）
+# 2.3.0：web 路径若要求图形验证码，传 captcha=回调（PNG 字节 -> 识别文本）
+# r = submit_registration(bundle, dry_run=False, captcha=my_solver, captcha_attempts=3)
 if r:                                           # SubmitResult.__bool__ == r.ok
-    print("（启发式）判定成功：", r.message)
+    print("判定成功：", r.message, "验证码轮次：", r.captcha_attempts)
 ```
 
-> 详细字段、结果判定、CLI 退出码与合规要求见 [提交注册（web / unified，2.2.0）](#提交注册web--unified220)。
+> 详细字段、结果判定、CLI 退出码与合规要求见 [提交注册（web / unified，2.3.0）](#提交注册web--unified230)。
 
 ## 远程接口（调用 4399 官方 API）
 
@@ -136,13 +143,13 @@ repr(acc)                                 # 密码打码，可安全写日志
 >
 > 账号名可以「预探测」（官方 `isExist.do`）；**密码无法预探测**——
 > 4399 没有密码校验接口，只有注册提交时才校验（2.1.0 起可显式提交，见
-> [提交注册（web / unified，2.2.0）](#提交注册web--unified220)）。
+> [提交注册（web / unified，2.3.0）](#提交注册web--unified230)）。
 > 密码侧只能保证通过公开规则（本库 `validate()` 在本地保证）。
 
 ## 注册表单（字段定义 + 本地校验）
 
 覆盖两条注册路径：2.2.0 起 `web` / `unified` 都可**显式提交**
-（见[提交注册](#提交注册web--unified220)一节）。本地校验本身不联网、不提交：
+（见[提交注册](#提交注册web--unified230)一节）。本地校验本身不联网、不提交：
 
 ```python
 from gen4399 import get_form, check_registration_form
@@ -167,7 +174,7 @@ res.messages()  # ['idcard: 身份证号校验码不正确，请核对']
 
 | 路径 | 页面 | 提交地址 | 本库能否提交 |
 |---|---|---|---|
-| `web` | https://web.4399.com/user/reg.php | `POST /user/?_c=reg` | ✅ 2.2.0 起 `submit_registration()`（CLI 需 `--yes`，默认 dry-run） |
+| `web` | https://web.4399.com/user/reg.php | `POST /user/?_c=reg` | ✅ 2.2.0 起 `submit_registration()`（CLI 需 `--yes`，默认 dry-run）；2.3.0 起支持图形验证码回调 |
 | `unified` | https://u.4399.com/register.html | `POST /ptlogin/register.do` | ✅ 2.1.0 起（CLI 需 `--yes`，默认 dry-run） |
 
 单独校验字段也可用：`validate_realname()` / `validate_idcard()` / `validate_qq()`
@@ -280,21 +287,49 @@ python -m gen4399 --check-form abc12345 Abc123456 --profile-file ids.txt
 > GBK 文件）；也可用 `--profile-encoding` 显式指定。`sfz.txt` / `accounts.json`
 > 已加入 `.gitignore`，避免身份/账号误提交。
 
-## 提交注册（web / unified，2.2.0）
+## 提交注册（web / unified，2.3.0）
 
 2.1.0 起支持 `unified`（ptlogin）路径提交，2.2.0 起也支持 `web`
-（web.4399.com 用户中心）路径。两者都是显式操作：库不会自动提交；
-**CLI 默认 dry-run**（必须加 `--yes` 才发送注册请求）；API 调用
-`submit_registration()` 即视为提交（默认 `dry_run=False`），
-**推荐先传 `dry_run=True` 演练**，确认无误后再真实提交。
+（web.4399.com 用户中心）路径，2.3.0 起 web 路径支持**图形验证码**流程。
+三者都是显式操作：库不会自动提交；**CLI 默认 dry-run**（必须加 `--yes`
+才发送注册请求）；API 调用 `submit_registration()` 即视为提交
+（默认 `dry_run=False`），**推荐先传 `dry_run=True` 演练**，确认无误后再真实提交。
 
 | 路径 | 提交流程 | 敏感字段处理 |
 |---|---|---|
-| `web` | `GET user/?_c=login&_a=checkUser` 取 `encryptCode` → `POST user/?_c=reg`（JSONP 响应） | 密码用页面同款 `encode_4399()`（DES/3DES）；`true_name`/`sfz` 明文在 HTTPS 请求体中 |
+| `web` | `GET user/?_c=login&_a=checkUser` 取 `encryptCode` → `POST user/?_c=reg`（JSONP 响应）；若返回 `code=200`：取验证码图 → `verifyCode` 校验 → 带 `chk_code` 重提交 | 密码用页面同款 `encode_4399()`（DES/3DES）；`true_name`/`sfz` 明文在 HTTPS 请求体中 |
 | `unified` | `GET regFrame.do` 取隐藏域/会话 → `POST register.do` | `sec=1` 时 AES-256-CBC 加密 `password/passwordveri/realname/idcard` |
 
-> 协议细节（端点、字段表、AES/DES 参数、结果判定、未验证项）见
+> 协议细节（端点、字段表、AES/DES 参数、图形验证码、结果判定、已知限制）见
 > [docs/submit.md](docs/submit.md)。
+>
+> **图形验证码必须由调用方提供识别回调**（`captcha=Callable[[bytes], str]`，
+> 入参是验证码 PNG 原始字节）：本库**不内置破解**，也不内置 OCR；可用人工输入、
+> 外部 OCR 命令，或自己接入识别服务。
+>
+> **已用于实名绑定的身份证再次注册会被服务端拒绝**（实测 `msg="姓名身份证不匹配"`、
+> `kind="rejected"`；该文案无法区分「已绑定」与「实名不通过」）。
+> 请只使用本人、且未绑定过 4399 的身份证。
+
+### web 图形验证码流程（2.3.0）
+
+首次 `POST /user/?_c=reg` 常返回 `{"state":false,"code":200,"msg":"注册异常，需校验验证码"}`。
+此时按下列顺序处理（全部在同一会话内，`WEBSESSION` Cookie 必须一致）：
+
+| 步骤 | 请求 | 作用 |
+|---|---|---|
+| 1 | `GET https://web.4399.com/util/?_c=code&t=reg` | 返回 `image/png`（150×45）；下发/绑定 `WEBSESSION` |
+| 2 | 本地调用 `captcha(image_bytes)` | 调用方识别，返回验证码文本 |
+| 3 | `GET https://web.4399.com/user/?_c=reg&_a=verifyCode&jsoncallback=<cb>&code=<code>` | JSONP `{"state":true}` 通过；`{"state":false}` 错误 |
+| 4 | `POST https://web.4399.com/user/?_c=reg&jsoncallback=<cb>`，body 额外带 `chk_code=<code>` | 成功：`{"state":true,"code":300,"msg":"","validateState":"2","toUrl":"/hall.html"}` + 登录 Cookie |
+
+- **未传 `captcha`**：返回 `kind="captcha"`，不重试（消息里提示传回调）。
+- **传了 `captcha`**：最多 `captcha_attempts` 轮（默认 3，必须 ≥ 1）；每轮重新取图，
+  识别结果为空串会跳过 `verifyCode`、直接进入下一轮；`verifyCode` 不通过也重新取图。
+  轮次记录在 `SubmitResult.captcha_attempts`。
+- `code=360` 表示**手机验证码**错误（与图形验证码不同），本库只归类为 `captcha`，
+  需人工处理。
+- 重提交的 payload 才带 `chk_code`，首次提交不含；`field_names` 记录的是首次字段名。
 
 ### API
 
@@ -302,6 +337,8 @@ python -m gen4399 --check-form abc12345 Abc123456 --profile-file ids.txt
 from gen4399 import (
     RegistrationProfile, prepare_registration,
     submit_registration, SubmitResult, SubmitError,
+    prompt_captcha_solver,          # 2.3.0：人工识别（保存图片 + 终端提示输入）
+    command_captcha_solver,         # 2.3.0：外部 OCR 命令（PNG stdin → stdout）
 )
 
 profile = RegistrationProfile("张三", "460206194611192084", qq="123456789")
@@ -317,13 +354,25 @@ result.endpoint          # 将要 POST 的地址
 result.encrypted_fields  # web: 2 个(DES)；unified: 4 个(AES)
 
 # 2) 真实提交（仅限本人真实身份，请先确认遵守 4399 用户协议）
-result = submit_registration(bundle, dry_run=False)
+#    web 路径若返回 code=200，会调用 captcha 识别图形验证码后带 chk_code 重提交
+solver = prompt_captcha_solver()          # 或 command_captcha_solver("your-ocr-cmd")
+result = submit_registration(
+    bundle, dry_run=False,
+    captcha=solver,                       # 不传则遇到图形验证码直接返回 kind="captcha"
+    captcha_attempts=3,                   # 最多 3 轮（默认），必须 >= 1
+)
 
 if result:               # SubmitResult.__bool__ 等价于 result.ok
-    print("（启发式）判定成功：", result.message)
+    print("判定成功：", result.message, "验证码轮次：", result.captcha_attempts)
 else:
     print("未成功：", result.kind, result.message)
 ```
+
+> `captcha` 回调的入参是验证码 PNG 的**原始字节**（`HttpResponse.raw`，2.3.0 新增），
+> 返回值是识别出的文本。`prompt_captcha_solver()` / `command_captcha_solver()` 只是
+> 现成的「人工输入 / 调外部命令」实现，**都不是验证码破解**：
+> 前者把图片存成 0600 的 PNG 后让你输入，后者把 PNG 交给外部命令（如 tesseract）。
+> 外部命令超时或非 0 退出会抛 `CaptchaSolverError`（`Gen4399Error` 子类）。
 
 函数签名：
 
@@ -336,6 +385,8 @@ submit_registration(
     dry_run: bool = False,
     retry_policy: RetryPolicy | None = None,
     on_response: ResponseHook | None = None,   # 诊断用：收到注册 POST 的 HttpResponse
+    captcha: CaptchaSolver | None = None,       # 2.3.0：PNG 字节 -> 验证码文本
+    captcha_attempts: int = 3,                  # 2.3.0：最多重试轮数（>= 1）
 ) -> SubmitResult
 ```
 
@@ -354,14 +405,17 @@ submit_registration(
 | `final_url` | `str \| None` | 跟随重定向后的最终地址（已去掉 query/fragment） |
 | `encrypted_fields` | `tuple[str, ...]` | 实际加密的字段名（web 2 个 DES；unified 4 个 AES） |
 | `login_cookies` | `tuple[str, ...]` | 提交后 CookieJar 中的登录 Cookie **名字**（不含值） |
-| `field_names` | `tuple[str, ...]` | 提交的字段名（不含值） |
+| `field_names` | `tuple[str, ...]` | 提交的字段名（不含值；web 首次提交不含 `chk_code`） |
 | `dry_run` | `bool` | 是否只是 dry-run（未发注册 POST） |
+| `captcha_attempts` | `int` | 2.3.0：实际执行的图形验证码轮数（`0` 表示没遇到/不需要验证码） |
 | `elapsed` | `float` | 整个调用的耗时（秒） |
 
-- `SubmitResult.to_dict()` 返回可 JSON 序列化的脱敏字典（`--json` 用的就是它）。
+- `SubmitResult.to_dict()` 返回可 JSON 序列化的脱敏字典（`--json` 用的就是它，
+  含 `captcha_attempts`）。
 - `SubmitError`：参数/路径不合法。网络失败抛 `RemoteError` 子类
-  （`RemoteTimeoutError` / `RemoteHTTPError` / `RemoteParseError`）。
-- `retry_policy` 只作用于 **GET**（unified 拉表单 / web 取 encryptCode）；
+  （`RemoteTimeoutError` / `RemoteHTTPError` / `RemoteParseError`）；
+  `captcha` 回调/外部识别命令失败抛 `CaptchaSolverError`（`Gen4399Error` 子类）。
+- `retry_policy` 只作用于 **GET**（unified 拉表单 / web 取 encryptCode / 取验证码图）；
   **注册 POST 永远单次尝试、不自动重试**（防止超时后重复注册）。
 
 ### CLI
@@ -376,6 +430,12 @@ gen4399 submit --form-path unified --realname 张三 --idcard 460206194611192084
 gen4399 submit --form-path web --realname 张三 --idcard 460206194611192084 --qq 123456789 --yes
 gen4399 submit --form-path unified --realname 张三 --idcard 460206194611192084 --yes
 
+# 2.3.0：web 图形验证码（人工输入 / 外部 OCR / 保存图片 / 轮数）
+gen4399 submit --form-path web --realname 张三 --idcard 460206194611192084 --yes \
+    --captcha-prompt --captcha-dir ./captcha
+gen4399 submit --form-path web --realname 张三 --idcard 460206194611192084 --yes \
+    --captcha-cmd "tesseract stdin stdout -l eng --psm 8" --captcha-attempts 5
+
 # 其它选项：JSON / 输出目录（--output 写 out/submit.json，0600）
 gen4399 submit --realname 张三 --idcard ... --timeout 10 --json --output out/
 
@@ -386,10 +446,27 @@ gen4399 submit --profile-file ids.txt --yes    # 真实提交
 
 - `--form-path` 可选 `web` / `unified`，**默认 `unified`**（推荐：PII 加密更完整）。
 - `--yes` 才发送注册 POST；不加 `--yes` 时只做 dry-run（仍会 GET 一次：
-  unified 拉 `regFrame.do`，web 取 `encryptCode`）。
+  unified 拉 `regFrame.do`，web 取 `encryptCode`；dry-run 不取验证码图）。
+- 不传任何验证码选项时，web 路径一旦遇到 `code=200` 就以 `kind="captcha"`
+  结束（退出码 1），并提示可加 `--captcha-prompt` / `--captcha-cmd`。
 - 多身份会依次提交；可用 `--min-interval` 控制间隔，`--json` / `--output` 汇总结果。
-- 退出码：**0** 成功或 dry-run；**1** 被拒 / 未知 / 需要验证码；**2** 参数、网络或配置错误。
-- legacy 模式同样可用（legacy 的 `--form-path` 默认是 `web`）：
+- 退出码：**0** 成功或 dry-run；**1** 被拒 / 未知 / 需要验证码（含验证码轮次用尽）；
+  **2** 参数、网络或配置错误（含验证码命令失败）。
+- 成功时输出会多一行「验证码轮次: N」（`captcha_attempts > 0` 时）。
+- **注册成功但没记下密码？** 默认只打用户名；加 `--show-pii` 会在成功后在终端打印
+  刚生成的密码（`--json` 仍脱敏）。要自动落盘保存账号请用 `scripts/make_account.py`
+  （成功即追加 `accounts.json`，0600）。
+
+2.3.0 图形验证码选项（仅 web 路径实际用到）：
+
+| 参数 | 说明 |
+|---|---|
+| `--captcha-prompt` | 每轮把验证码存成 PNG 并提示**人工输入** |
+| `--captcha-cmd CMD` | 调外部命令识别：PNG 从 stdin 传入，stdout 第一行作为结果（命令经 shell 执行，不要拼接不可信输入） |
+| `--captcha-dir DIR` | 把每轮验证码图片保存到该目录（0600，便于人工查看/留存）；**单独给不会识别**，需配合前两者 |
+| `--captcha-attempts N` | 最多重试轮数，默认 3；必须 ≥ 1 |
+
+- legacy 模式同样可用（legacy 的 `--form-path` 默认是 `web`），验证码参数相同：
 
 ```bash
 gen4399 --submit --yes --realname 张三 --idcard 460206194611192084
@@ -419,6 +496,11 @@ python scripts/make_account.py --json
 # 排查 unknown/rejected：保存 4399 的脱敏响应（status/URL/可见文本/常见原因）
 python scripts/make_account.py --yes --diagnose
 python scripts/make_account.py --yes --diagnose --response-file resp.html
+
+# 2.3.0：web 图形验证码（参数与 gen4399 submit 相同）
+python scripts/make_account.py --yes --form-path web --captcha-prompt
+python scripts/make_account.py --yes --form-path web \
+    --captcha-cmd "tesseract stdin stdout -l eng --psm 8" --captcha-attempts 5
 ```
 
 - 身份文件编码默认 UTF-8（失败自动回退 GB18030）；`sfz.txt` / `accounts.json`
@@ -426,6 +508,9 @@ python scripts/make_account.py --yes --diagnose --response-file resp.html
 - **无效行容错**：身份文件里若有格式/校验不通过的行，脚本默认**跳过**并打印行号
   （例如 `行号：2`），继续用第 1 条有效身份；`--strict` 改为遇错立即退出；
   多行文件可用 `--index N` 指定用第 N 条有效身份。
+- **图形验证码（2.3.0）**：脚本新增 `--captcha-prompt` / `--captcha-cmd` /
+  `--captcha-dir` / `--captcha-attempts`（同样仅 web 路径生效）；不传时遇到
+  `code=200` 直接返回 `captcha`、不会建号。
 - 成功或被判定为 `unknown` 时会追加到 `accounts.json`（默认 0600，含明文密码，
   请妥善保管）；`unknown` 请先登录 `https://u.4399.com/` 确认，不要立刻重跑。
 - **诊断**：`--diagnose` 会在注册 POST 后把响应打印到 stderr（状态码/最终 URL/
@@ -439,7 +524,7 @@ python scripts/make_account.py --yes --diagnose --response-file resp.html
 ### 流程简述
 
 ```
-web 路径（2.2.0）
+web 路径（2.2.0；2.3.0 增加图形验证码）
 GET  https://web.4399.com/user/?_c=login&_a=checkUser&user=<登录名>
   └─ JSONP {state,data}，data = encryptCode
         ↓
@@ -450,9 +535,22 @@ POST https://web.4399.com/user/?_c=reg&jsoncallback=<cb>
         qq, true_name, sfz, encrypt=1
         ↓
 解析 JSONP {state, code, msg, validateState}
-  state=true → success；code 200/360 → captcha；msg → rejected；否则 unknown
+  state=true → success；code=200 → 图形验证码；code=360 → 手机验证码；
+  msg → rejected；否则 unknown
+        ↓ code=200 且提供了 captcha 回调（最多 captcha_attempts 轮）
+GET  https://web.4399.com/util/?_c=code&t=reg&_=<ms>   # image/png，绑定 WEBSESSION
+        ↓
+captcha(image_bytes) → code（空串则跳过 verifyCode，换图进入下一轮）
+        ↓
+GET  https://web.4399.com/user/?_c=reg&_a=verifyCode&jsoncallback=<cb>&code=<code>
+  ├─ {"state":true}  → 通过
+  └─ {"state":false} → 错误：换图重试
+        ↓
+POST https://web.4399.com/user/?_c=reg&jsoncallback=<cb>（body 额外带 chk_code=<code>）
+  └─ {"state":true,"code":300,"msg":"","validateState":"2","toUrl":"/hall.html"}
+     + Cookie Puser/Pauth/Pauths/Pnick/ck_accname → success
 
-unified 路径（2.1.0）
+unified 路径（2.1.0；实测受限于风控提示页，见下）
 GET  https://ptlogin.4399.com/ptlogin/regFrame.do
   ├─ 下发 USESSIONID Cookie（会话）
   └─ 解析 <form action> + 全部 hidden 隐藏域 + sec
@@ -469,27 +567,44 @@ POST <form action>（即 /ptlogin/register.do）
 
 ### 限制与成功判定
 
-- **两条路径都支持**，但成功判定都是启发式的（4399 两条成功响应均未创建真实
-  账号实测过）：
-  - `web`：JSONP `state=true` → `success`；`code=200/360` → `captcha`；
+- **web 路径已实测建号成功（2026-11-08）**：完整走通了「`checkUser` 取 key →
+  DES 加密 → 首次 POST 返回 `code=200` → 取验证码图/识别 → `verifyCode` 通过 →
+  带 `chk_code` 重提交」，服务端返回
+  `{"state":true,"code":300,"msg":"","validateState":"2","toUrl":"/hall.html"}`
+  并下发 `Puser`/`Pauth`/`Pauths`/`Pnick`/`ck_accname` 登录 Cookie，账号真实创建成功。
+  `SubmitResult.captcha_attempts` 记录的就是实测的验证码轮次。
+- **unified 路径仍未实测，且当前实测受限**：`POST /ptlogin/register.do` 返回一个
+  空白「4399提示」页（`info_page` 壳：无 `<div id="Msg">`、无登录 Cookie），
+  属于风控/JS 校验页（`oauthValidation.js` / `fingerprint2`），**纯 HTTP 无法完成、
+  结果也无法从响应判定**（本库归为 `unknown`）。因此 unified 的 `success` 判定
+  仍只是代码推断的启发式。
+- 判定规则（web 已实测通过；分类逻辑仍按下列顺序）：
+  - `web`：`state=true` → `success`；`code=200` → `captcha`（图形验证码，
+    传了 `captcha` 回调则自动重试）；`code=360` → `captcha`（手机验证码）；
     `msg` → `rejected`；出现登录 Cookie → `success`；非 JSONP 响应 → `unknown`。
   - `unified`：`isAutoRegSuccess=true` → `success`；`<div id="Msg">` 有文案 →
     `rejected`；新增登录 Cookie 或跳离 ptlogin → `success`；含「验证码」→
     `captcha`；否则 `unknown`。
   **最终请以登录 `https://u.4399.com/` 为准**；`unknown` 不代表失败。
+- **实名绑定限制**：已用于实名绑定的身份证再次注册会被服务端拒绝，实测返回
+  `msg="姓名身份证不匹配"`（`kind="rejected"`）；姓名与身份证不一致时也是同一文案。
+  本库无法仅凭响应区分「已绑定」与「实名不通过」，请只使用本人未绑定过 4399 的身份证。
 - **`web` 路径的 PII 处理弱于 `unified`**：密码用 DES（页面协议要求，无现代
   机密性），`true_name`/`sfz` 以明文放在 HTTPS POST body（浏览器原流程是
   JSONP GET 放 query；本库改用 POST body 以降低 URL 日志泄露风险）。
   更在意 PII 时优先用 `unified`（AES 加密 4 个字段）。
 - **POST 不自动重试**：超时 / 5xx / 429 都直接抛错。若超时后不确定是否已建号，
   请先尝试登录确认，不要立即重跑 `--yes`。
-- 验证码/风控不绕过：`captcha` 时需人工处理。
+- 图形验证码**不绕过、不破解**：只按协议拉图 → 调调用方回调 → `verifyCode` 校验；
+  轮次用尽或未提供回调时返回 `captcha`，需人工处理（CLI 可用 `--captcha-prompt`）。
 - 结果对象不含明文密码、身份证或 Cookie 值；`final_url` 已去掉 query/fragment，
   服务端文案若回显密码/身份证/姓名会被替换为 `***`。
 
 ## CLI
 
-2.0 起提供两种用法，旧 flag 模式完全兼容；2.1.0 新增 `submit` 子命令，2.2.0 起支持 `web` 路径：
+2.0 起提供两种用法，旧 flag 模式完全兼容；2.1.0 新增 `submit` 子命令，2.2.0 起支持 `web` 路径，
+2.3.0 起 web 路径支持图形验证码（`--captcha-prompt` / `--captcha-cmd` / `--captcha-dir` /
+`--captcha-attempts`）：
 
 ```bash
 # 2.0 子命令（推荐）
@@ -521,7 +636,7 @@ gen4399 --submit --form-path unified --yes --realname 张三 --idcard ...
 | `available` | 查询用户名可注册性 |
 | `form fields/check/build` | 表单字段 / 本地校验 / 填表清单 |
 | `prepare` | 一键准备注册数据 |
-| `submit` | 准备并提交注册（默认 dry-run，需 `--yes`；仅 `unified`） |
+| `submit` | 准备并提交注册（默认 dry-run，需 `--yes`；`web` / `unified`；2.3.0 起 web 支持图形验证码选项） |
 | `profile check` | 校验身份 txt |
 | `rules` / `version` | 规则版本 / 版本 |
 
@@ -565,6 +680,7 @@ python -m gen4399 --timeout 3 --check-available "abc12345"
 python -m gen4399 submit --realname 张三 --idcard ...              # 2.1.0+：dry-run
 python -m gen4399 submit --realname 张三 --idcard ... --yes        # 2.1.0+：真实提交（默认 unified）
 python -m gen4399 submit --form-path web --realname 张三 --idcard ... --yes   # 2.2.0：web 真实提交
+python -m gen4399 submit --form-path web --realname 张三 --idcard ... --yes --captcha-prompt   # 2.3.0：人工过图形验证码
 ```
 
 - `-n` 是**密码**总长度（默认 16）；自动生成用户名长度用 `--username-length`（默认 12）。
@@ -578,8 +694,11 @@ python -m gen4399 submit --form-path web --realname 张三 --idcard ... --yes   
 
 - **默认不提交注册**：`prepare` / `form build` 只准备数据；真实提交必须显式
   `submit_registration(..., dry_run=False)` 或 `gen4399 submit --yes`；
-  2.2.0 起 `web` / `unified` 两条路径都支持。
-- 请只使用**本人**真实身份信息；使用他人身份可能违法，也违反 4399 用户协议。
+  2.2.0 起 `web` / `unified` 两条路径都支持；2.3.0 起 web 的图形验证码也必须由
+  调用方提供 `captcha` 回调（人工/OCR），**库不内置破解、不绕过风控**。
+- **实名限制**：已用于实名绑定的身份证再次注册会被服务端拒绝（实测 `姓名身份证不匹配`）；
+  姓名与身份证不一致同样会被拒。请只使用**本人**、未绑定过 4399 的真实身份信息；
+  使用他人身份可能违法，也违反 4399 用户协议。
   不要批量注册他人账号。
 - 真实提交只把字段发往 **4399 官方端点**（`ptlogin.4399.com` /
   `web.4399.com`），库不经过任何第三方服务器。`unified` 路径 `sec=1` 时先经
@@ -609,8 +728,16 @@ python -m gen4399 submit --form-path web --realname 张三 --idcard ... --yes   
 2.1.0 起可以，2.2.0 起 `web` / `unified` 两条路径都行，但必须**显式触发**：
 库不会自动提交；CLI 需加 `--yes`（默认 dry-run），API 需显式调用
 `submit_registration()`（默认 `dry_run=False`，建议先传 `dry_run=True`）。
-仅限本人真实身份、遵守 4399 用户协议。成功判定是启发式的（4399 两条路径的
-成功响应均未经实测），请以登录 `https://u.4399.com/` 为准。
+仅限本人真实身份、遵守 4399 用户协议。web 路径的成功响应已在 2026-11-08 实测
+建号成功（含图形验证码流程），但仍建议以登录 `https://u.4399.com/` 为准；
+unified 路径的成功响应仍未实测（当前会被 4399 的空白风控提示页挡住，无法判定）。
+
+**Q：web 路径要图形验证码怎么办？**
+传 `captcha` 回调：`submit_registration(..., captcha=solver, captcha_attempts=3)`，
+`solver(image_bytes) -> str` 由你实现（人工输入或外部 OCR）。CLI 用
+`--captcha-prompt` / `--captcha-cmd`；脚本 `make_account.py` 同样支持。
+不传回调时遇到 `code=200` 直接返回 `kind="captcha"`，不会建号。
+本库不提供验证码破解。
 
 **Q：dry-run 会联网吗？**
 会，但只发 GET、不发注册 POST、不建号：`unified` 路径 `GET regFrame.do` 拉表单；

@@ -43,6 +43,7 @@ from ._rules import RULES_CHECKED_AT, RULES_SOURCES, RULES_VERSION
 from ._width import pad
 from .registration import prepare_registration
 from .submit import submit_registration
+from ._captcha import make_solver as _make_captcha_solver
 from .forms import (
     RegistrationProfile,
     build_registration_fields,
@@ -182,6 +183,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="提交/查重使用的 appId，默认 u4399")
     p.add_argument("--level", type=int, default=4, metavar="N",
                    help="注册等级 level，默认 4")
+    p.add_argument("--captcha-prompt", action="store_true",
+                   help="遇到图形验证码时保存图片并人工输入（web 路径）")
+    p.add_argument("--captcha-cmd", default=None, metavar="CMD",
+                   help="用外部命令识别验证码（PNG stdin，stdout 第一行）")
+    p.add_argument("--captcha-dir", default=None, metavar="DIR",
+                   help="把验证码图片保存到该目录")
+    p.add_argument("--captcha-attempts", type=int, default=3, metavar="N",
+                   help="验证码最多重试轮数，默认 3")
     p.add_argument("--show-pii", action="store_true",
                    help="显示明文身份证号/密码/QQ（默认打码）")
     p.add_argument("--entropy", action="store_true",
@@ -567,8 +576,21 @@ def _cmd_submit(args) -> int:
             file=sys.stderr,
         )
 
+    try:
+        captcha = _make_captcha_solver(
+            prompt=bool(getattr(args, "captcha_prompt", False)),
+            command=getattr(args, "captcha_cmd", None),
+            directory=getattr(args, "captcha_dir", None),
+        )
+        captcha_attempts = int(getattr(args, "captcha_attempts", 3))
+    except (TypeError, ValueError, OSError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+
     results = []
     rc = 0
+    #: 只在 --show-pii 且注册成功时保留密码，用于「别把刚建好的号弄丢」
+    revealed: dict[str, str] = {}
     for profile in profiles:
         try:
             bundle = prepare_registration(
@@ -592,12 +614,16 @@ def _cmd_submit(args) -> int:
                 timeout=timeout,
                 dry_run=not confirmed,
                 retry_policy=policy,
+                captcha=captcha,
+                captcha_attempts=captcha_attempts,
             )
         except (Gen4399Error, TypeError, ValueError, OSError) as exc:
             print(f"错误：{exc}", file=sys.stderr)
             rc = 2
             continue
         results.append(result)
+        if result.ok and getattr(args, "show_pii", False):
+            revealed[result.username] = bundle.password
         if result.kind not in ("success", "dry_run"):
             rc = max(rc, 1)
         _sleep_between(args)
@@ -623,9 +649,21 @@ def _cmd_submit(args) -> int:
                 print("  加 --yes 才会真正提交注册")
             elif result.kind == "success":
                 print(f"OK: 注册成功 {result.username}")
+                if result.username in revealed:
+                    print(f"  密码: {revealed[result.username]}（--show-pii，请立即保存）")
                 print(f"  说明: {result.message}")
+                if result.captcha_attempts:
+                    print(f"  验证码轮次: {result.captcha_attempts}")
             else:
                 print(f"FAIL[{result.kind}]: {result.username} → {result.message}")
+                if result.kind == "captcha" and not (
+                    getattr(args, "captcha_prompt", False)
+                    or getattr(args, "captcha_cmd", None)
+                ):
+                    print(
+                        "  提示: 加 --captcha-prompt（人工输入）或 "
+                        "--captcha-cmd '<OCR 命令>' 可自动过图形验证码"
+                    )
     if args.output:
         payload = results[0].to_dict() if len(results) == 1 else [
             r.to_dict() for r in results
@@ -914,6 +952,25 @@ def _add_remote_opts(sp: argparse.ArgumentParser) -> None:
     sp.add_argument("--min-interval", type=float, default=0.0, metavar="SECONDS")
 
 
+def _add_captcha_opts(sp: argparse.ArgumentParser) -> None:
+    sp.add_argument(
+        "--captcha-prompt", action="store_true",
+        help="遇到图形验证码时保存图片并人工输入（web 路径）",
+    )
+    sp.add_argument(
+        "--captcha-cmd", default=None, metavar="CMD",
+        help="用外部命令识别验证码：PNG 从 stdin 传入，stdout 第一行作为结果",
+    )
+    sp.add_argument(
+        "--captcha-dir", default=None, metavar="DIR",
+        help="把验证码图片保存到该目录（便于人工查看/留存）",
+    )
+    sp.add_argument(
+        "--captcha-attempts", type=int, default=3, metavar="N",
+        help="验证码最多重试轮数，默认 3（web 路径）",
+    )
+
+
 def _add_io_opts(sp: argparse.ArgumentParser) -> None:
     sp.add_argument("--json", action="store_true")
     sp.add_argument("--output", metavar="DIR", default=None)
@@ -1041,9 +1098,12 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
     )
     subcmd.add_argument("--yes", action="store_true",
                         help="确认真正发送 POST；不加时只做 dry-run")
+    subcmd.add_argument("--show-pii", action="store_true",
+                        help="注册成功时在终端打印刚生成的密码（默认不打印）")
     _add_identity_opts(subcmd)
     _add_io_opts(subcmd)
     _add_remote_opts(subcmd)
+    _add_captcha_opts(subcmd)
     subcmd.set_defaults(submit=True, form_path="unified")
 
     pr = new("prepare", "一键准备注册数据")

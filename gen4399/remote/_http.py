@@ -367,12 +367,26 @@ class HttpResponse:
         url: 跟随重定向后的最终 URL。
         headers: 响应头（普通 dict）。
         body: 响应体文本（UTF-8 解码，非法字节替换为 ``U+FFFD``）。
+        raw: 响应体原始字节（图片等二进制响应只能用这个）。
     """
 
     status: int
     url: str
     headers: dict[str, str]
     body: str
+    raw: bytes = b""
+
+    @property
+    def is_binary(self) -> bool:
+        """``Content-Type`` 是否明显不是文本（例如图片验证码）。"""
+        ctype = self.headers.get("Content-Type", "").lower()
+        return not (
+            not ctype
+            or ctype.startswith("text/")
+            or "json" in ctype
+            or "javascript" in ctype
+            or "xml" in ctype
+        )
 
 
 @dataclass(frozen=True)
@@ -644,6 +658,7 @@ class RemoteSession:
             url=final_url,
             headers=resp_headers,
             body=raw.decode("utf-8", errors="replace"),
+            raw=raw,
         )
 
     def _request_with_retry(self, url: str) -> HttpResponse:

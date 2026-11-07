@@ -77,9 +77,20 @@ from .registration import (
     prepare_registration,
 )
 from .submit import (
+    CaptchaSolver,
     SubmitError,
     SubmitResult,
+    WEB_CAPTCHA_API,
+    WEB_REG_API,
+    WEB_VERIFY_CODE_API,
     submit_registration,
+)
+from ._captcha import (
+    CaptchaSolverError,
+    command_captcha_solver,
+    make_solver,
+    prompt_captcha_solver,
+    save_captcha_images,
 )
 from .remote import (
     DEFAULT_APP_ID,
@@ -130,7 +141,7 @@ from .core import (
     validate_username,
 )
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 __all__ = [
     "RULES_VERSION",
@@ -196,6 +207,15 @@ __all__ = [
     "prepare_registration",
     "SubmitResult",
     "SubmitError",
+    "CaptchaSolver",
+    "CaptchaSolverError",
+    "command_captcha_solver",
+    "prompt_captcha_solver",
+    "save_captcha_images",
+    "make_solver",
+    "WEB_CAPTCHA_API",
+    "WEB_REG_API",
+    "WEB_VERIFY_CODE_API",
     "submit_registration",
     "fetch_suggested_username",
     "fetch_suggested_usernames",

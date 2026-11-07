@@ -2,6 +2,74 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.3.0] - 2026-11-08
+
+### 新增
+
+- **web 路径图形验证码流程**（`web.4399.com` 用户中心，实测建号成功）：
+  - 首次 `POST /user/?_c=reg` 返回 `{"state":false,"code":200,"msg":"注册异常，需校验验证码"}`
+    时，按协议继续：`GET /util/?_c=code&t=reg` 取 `image/png`（绑定 `WEBSESSION`）→
+    调调用方识别 → `GET /user/?_c=reg&_a=verifyCode&code=<code>`
+    （`{"state":true}` 通过）→ `POST /user/?_c=reg` 额外带 `chk_code=<code>` 重提交。
+  - 成功响应：`{"state":true,"code":300,"msg":"","validateState":"2","toUrl":"/hall.html"}`，
+    并下发 `Puser`/`Pauth`/`Pauths`/`Pnick`/`ck_accname` 登录 Cookie。
+  - `submit_registration()` 新增 `captcha: Callable[[bytes], str] | None = None`
+    （入参为验证码 PNG 原始字节）与 `captcha_attempts: int = 3`（必须 >= 1，
+    每轮重新取图）；**库不内置验证码破解/OCR**，识别由调用方实现。
+  - `SubmitResult` 新增 `captcha_attempts`（实际轮次，`to_dict()` 同步输出）。
+  - 新增顶层常量 `WEB_CAPTCHA_API`、`WEB_VERIFY_CODE_API`（`WEB_REG_API` 一并导出）。
+  - 新增 `gen4399/_captcha.py`：`prompt_captcha_solver()`（保存图片 + 人工输入）、
+    `command_captcha_solver()`（PNG 走 stdin、结果走 stdout 的外部命令）、
+    `save_captcha_images()`（识别前落盘）、`make_solver()`、`CaptchaSolverError`
+    （命令超时/非 0 退出）。纯标准库，不新增运行时依赖。
+  - CLI `gen4399 submit`、legacy `--submit` 与 `scripts/make_account.py` 新增
+    `--captcha-prompt` / `--captcha-cmd CMD` / `--captcha-dir DIR` / `--captcha-attempts N`；
+    `--captcha-dir` 单独使用不会识别（只配合前两者落盘）。
+    不传验证码参数时，web 遇到 `code=200` 直接以 `kind="captcha"` 结束（退出码 1）；
+    外部识别命令失败退出码 2；成功输出多一行「验证码轮次: N」。
+- `gen4399 submit` 子命令新增 `--show-pii`：注册成功后在终端打印刚生成的密码
+  （默认不打印；`--json` 仍脱敏），避免「号建好了但没记下密码」。
+- 实测记录（2026-11-08）：web 路径完整走通图形验证码并**真实创建账号成功**；
+  `SubmitResult.captcha_attempts` 为真实轮次。
+
+### 修复
+
+- `HttpResponse` 新增 `raw: bytes`（响应体原始字节）与 `is_binary` 属性：
+  图形验证码是 `image/png`，此前只能拿到 UTF-8 解码后的 `body`，二进制内容会被替换成
+  `U+FFFD`，无法交给 OCR。图片类响应现在用 `response.raw`。
+- 健壮性：识别回调返回空串时跳过 `verifyCode`、直接换图重试（不把空验证码发去校验）；
+  该轮仍计入 `captcha_attempts`。
+
+### 文档
+
+- README 与 `docs/submit.md` 重写 web 路径章节：4 步验证码协议、字段表补 `chk_code`、
+  `verifyCode` 语义、`code=200`（图形验证码）与 `code=360`（手机验证码）区分、
+  脱敏实测样本、CLI/API 用法、`CaptchaSolverError` 与退出码。
+- 更新实测状态表述：「web 成功响应未实测」改为「web 已实测建号成功（2026-11-08）」；
+  `unified` 仍未实测，并新增已知限制：`POST register.do` 实测返回空白「4399提示」
+  `info_page`（无 `#Msg`、无登录 Cookie，`oauthValidation.js` / `fingerprint2` 风控页），
+  纯 HTTP 无法判定结果（归 `unknown`）。
+- 明确写出：图形验证码必须由调用方提供识别回调，库不内置破解；
+  已用于实名绑定的身份证再次注册会被服务端拒绝（实测 `msg="姓名身份证不匹配"`，
+  `kind="rejected"`；该文案无法区分「已绑定」与「实名不通过」，不据此断言一证一号）。
+- `docs/rules.md` 与 `docs/project-overview.md` 同步 2.3.0 增量。
+
+### 变更（可能影响调用方）
+
+- `__version__ = "2.3.0"`；仍为**零运行时依赖**（验证码辅助模块只用标准库）。
+- `SubmitResult` 新增字段 `captcha_attempts`（默认 `0`），位置在 `elapsed` 前；
+  用位置参数构造 `SubmitResult` 的调用方需注意。
+- `HttpResponse` 新增字段 `raw`（默认 `b""`）与只读属性 `is_binary`。
+- CLI `submit` 的成功输出新增一行「验证码轮次: N」（`captcha_attempts > 0` 时）。
+
+### 安全
+
+- 验证码识别回调完全由调用方提供（人工/外部 OCR），本库**不内置破解、不绕过风控**；
+  `--captcha-cmd` 经 `shell=True` 执行，命令串需自行保证可信。
+- `--captcha-prompt` / `--captcha-dir` 会把验证码图片写到磁盘（0600），注意清理。
+- 仅限本人真实身份（已绑定过 4399 的身份证再次注册会被拒）；注册 POST 仍**单次不重试**，
+  验证码重提交只在 `verifyCode` 通过后发生，最多 `captcha_attempts` 轮。
+
 ## [2.2.0] - 2026-11-07
 
 ### 新增

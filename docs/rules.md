@@ -40,10 +40,11 @@ python scripts/verify_rules.py
 5. 更新 `gen4399/_rules.py` 的 `RULES_VERSION` / `RULES_CHECKED_AT`；
 6. 补测试并更新本文件。
 
-## 提交协议（unified 2.1.0 / web 2.2.0）
+## 提交协议（unified 2.1.0 / web 2.2.0 / 图形验证码 2.3.0）
 
 > 来源：`~/4399recon/REPORT-full.md` / `protocol-username-register.json`
-> （2026-11-07 被动分析 + 少量无害探测；**未创建真实账号**）。
+> （2026-11-07 被动分析 + 少量无害探测，当时未创建真实账号）；
+> 2026-11-08 对 web 路径做了真实建号实测（1 个账号，完整走通图形验证码）。
 > 详细说明见 [docs/submit.md](submit.md)。
 
 ### 端点与前置
@@ -82,18 +83,23 @@ HTTP 200 重渲染 HTML，错误在
 `<div id="Msg" class="login_hor login_err_tip">...</div>`，同页含
 `isAutoRegSuccess=false`。实测样本：空用户名 → `用户名格式错误`。
 
-### 成功响应（未实测）
+### 成功响应（未实测；且实测被风控页挡住）
 
-`register.do` 的成功响应**没有实测样本**（研究过程未创建真实账号）。本库判定为启发式：
+`register.do` 的成功响应**没有实测样本**（2026-11-07 研究过程未创建真实账号）。
+2026-11-08 实测 `POST register.do` 返回一个空白「4399提示」页：`info_page` 壳，
+无 `<div id="Msg">`、无登录 Cookie，由 `oauthValidation.js` / `fingerprint2` 等
+风控/JS 校验脚本驱动，**纯 HTTP 无法完成，结果无法从响应判定**（归 `unknown`）。
+
+本库判定为启发式：
 
 1. `isAutoRegSuccess=true` → `success`（先于错误文案，避免成功页带「注册成功」Msg 被误判）；
 2. `Msg` 非空 → `rejected`；
 3. 新增登录 Cookie（`Pauth`/`Uauth`/`Xauth`/`user_4399`/`ck_accname`）→ `success`；
 4. 含「验证码」→ `captcha`；跳离 ptlogin → `success`；否则 `unknown`。
 
-最终以登录 `https://u.4399.com/` 为准。
+最终以登录 `https://u.4399.com/` 为准；`unknown` 不代表失败。
 
-### web 路径提交（2.2.0）
+### web 路径提交（2.2.0；图形验证码 2.3.0）
 
 注册页 `https://web.4399.com/user/reg.php` 的表单会被 JS 接管，流程与 ptlogin 不同：
 
@@ -111,11 +117,27 @@ HTTP 200 重渲染 HTML，错误在
 4. 响应 JSONP：`{state, code, msg, validateState}`。
    `state=true` → 成功（`validateState !== '2'` 时页面提示可能需激活/补充信息）；
    `code=200`（图形验证码）/`360`（手机验证码）→ `captcha`；否则 `msg` → `rejected`。
+5. 图形验证码（2.3.0）：`code=200` 时
+   `GET /util/?_c=code&t=reg` → `image/png`（150×45，响应 `Set-Cookie: WEBSESSION=…`，
+   必须同会话）→ 调用方 `captcha` 回调识别（**库不内置破解**）→
+   `GET /user/?_c=reg&_a=verifyCode&code=<code>`，`{"state":true}` 通过、`{"state":false}` 错误
+   → 带 `chk_code=<code>` 重提交 `POST /user/?_c=reg`；最多 `captcha_attempts` 轮
+   （默认 3），每轮重新取图，识别空串跳过 `verifyCode`。
+6. 重提交成功响应（2026-11-08 实测）：
+   `{"state":true,"code":300,"msg":"","validateState":"2","toUrl":"/hall.html"}`，
+   并下发 `Puser`/`Pauth`/`Pauths`/`Pnick`/`ck_accname` 登录 Cookie。
 
 字段：`cid=3000`、`login_name`、`login_password`（密文）、`relogin_pwd`（密文）、
-`qq`、`true_name`、`sfz`、`encrypt=1`；页面上的协议勾选框没有 `name`，不随表单提交。
+`qq`、`true_name`、`sfz`、`encrypt=1`；验证码重提交额外带 `chk_code`（首次不带）。
+页面上的协议勾选框没有 `name`，不随表单提交。
+
+**实测状态（2026-11-08）**：web 路径**已实测建号成功**——完整走通
+`code=200 → 取图 → 识别 → verifyCode → 带 chk_code 重提交 → state=true`，
+`SubmitResult.captcha_attempts` 为真实轮次。
 
 **PII 注意**：web 路径只有密码用 DES；`true_name`/`sfz` 是明文（HTTPS body），
-DES 本身也不提供现代机密性保护。**成功响应（`state=true`）未实测**：
-只验证了非法用户名会被服务端拒绝（`state=false, code=100`），以及 POST body
-被接受；真实成功/验证码流程均为代码推断。
+DES 本身也不提供现代机密性保护。
+
+**实名限制**：已用于实名绑定的身份证再次注册会被服务端拒绝，实测返回
+`msg="姓名身份证不匹配"`（`kind="rejected"`）；该文案与「姓名与身份证不一致」
+相同，仅凭响应无法区分，不要据此断言「一证一号」。
