@@ -106,14 +106,17 @@ class MakeAccountE2E(unittest.TestCase):
         self.assertEqual(data["result"]["path"], "unified")
         self.assertEqual(
             data["result"]["encrypted_fields"],
-            ["password", "passwordveri", "realname", "idcard"],
+            ["password", "passwordveri"],
         )
-        # 真实组装出的 POST 字段：4 个敏感字段是 AES 密文
+        # 真实组装出的 POST 字段：密码是 AES 密文；默认不带实名（见
+        # UNIFIED_SEND_REALNAME：带实名会触发空白提示页）
         self.assertEqual(FakeSession.last_post["sec"], "1")
-        for name in ("password", "passwordveri", "realname", "idcard"):
+        for name in ("password", "passwordveri"):
             self.assertTrue(
                 FakeSession.last_post[name].startswith("U2FsdGVkX1")
             )
+        self.assertNotIn("realname", FakeSession.last_post)
+        self.assertNotIn("idcard", FakeSession.last_post)
         path = Path("accounts.json")
         self.assertTrue(path.exists())
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)

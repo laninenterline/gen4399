@@ -40,12 +40,12 @@ python scripts/verify_rules.py
 5. 更新 `gen4399/_rules.py` 的 `RULES_VERSION` / `RULES_CHECKED_AT`；
 6. 补测试并更新本文件。
 
-## 提交协议（unified 2.1.0 / web 2.2.0 / 图形验证码 2.3.0）
+## 提交协议（unified 2.4.0 / web 2.2.0–2.3.0）
 
 > 来源：`~/4399recon/REPORT-full.md` / `protocol-username-register.json`
-> （2026-11-07 被动分析 + 少量无害探测，当时未创建真实账号）；
-> 2026-11-08 对 web 路径做了真实建号实测（1 个账号，完整走通图形验证码）。
-> 详细说明见 [docs/submit.md](submit.md)。
+> （2026-11-07 被动分析 + 少量无害探测）；2026-11-08 对 **web 与 unified 两条路径**
+> 都做了真实建号实测（web 走通图形验证码；unified 剔除隐藏域后跑通，实测账号
+> 用户名 `abkeq7xvesft`，密码不记录）。详细说明见 [docs/submit.md](submit.md)。
 
 ### 端点与前置
 
@@ -58,17 +58,34 @@ python scripts/verify_rules.py
 `appId`（`u4399` / `my` / `www_home`）、`level`（`u4399` 为 4）、`regIdcard=true`、
 `externalLogin=qq`、`mainDivId=popup_reg_div`、`v=<毫秒时间戳>`。
 
-### 必填字段
+### 实际提交字段（21 个，2.4.0 实测）
 
-`username`（3~20，字母数字/@）、`password` + `passwordveri`（6~20，两者相同）、
-`realname`、`idcard`（18 位，15 位被拒）、`reg_eula_agree=on`、`sec`、`appId`、`level`；
-`email` 放 QQ 号（选填）。其余 hidden 域（`regMode` / `postLoginHandler` /
-`mainDivId` / `sessionId` 等）以服务端 `regFrame.do` 返回值为基线原样回传。
+`regFrame.do` 的 hidden 域先按 `UNIFIED_DROP_FIELDS` 剔除 15 个，再覆盖下列 6 个：
+
+| 类别 | 字段 |
+|---|---|
+| 本库写入 | `username`、`password`、`passwordveri`、`appId`、`level`、`sec` |
+| 原样回传 | `regMode`、`sessionId`、`postLoginHandler`、`displayMode`、`bizId`、`gameId`、`cid`、`externalLogin`、`aid`、`ref`、`css`、`redirectUrl`、`regIdcard`、`noEmail`、`crossDomainIFrame` |
+
+被剔除的 15 个字段（实测原样回传会让 `register.do` 返回空白「4399提示」页，
+`info_page` 壳：无 `#Msg`、无登录 Cookie，注册不发生——**不是风控封 IP**）：
+
+| 类别 | 字段 |
+|---|---|
+| 布局 / 防沉迷 / 前端开关（9） | `crossDomainUrl`、`mainDivId`、`showRegInfo`、`includeFcmInfo`、`expandFcmInput`、`fcmFakeValidate`、`realnameValidate`、`userNameLabel`、`iframeId` |
+| 实名与协议（6） | `email`、`realname`、`idcard`、`reg_eula_agree`、`autoLogin`、`fCaptcha` |
+
+- 常量：`gen4399.submit.UNIFIED_DROP_FIELDS`（frozenset）、
+  `gen4399.submit.UNIFIED_SEND_REALNAME`（默认 False）。
+- 本地仍要求 `RegistrationProfile` 提供合法姓名/身份证（用于本地校验）；
+  unified 默认只是**不把它们发出去**。
 
 ### sec 与 AES
 
-- `sec=1` 时加密 `password` / `passwordveri` / `realname` / `idcard`
-  （4399 前端 `validation.js` 的 `encryptAES()`）。
+- `sec=1` 时默认只加密 `password` / `passwordveri`
+  （`encrypted_fields == ("password", "passwordveri")`）。
+- 只有 `UNIFIED_SEND_REALNAME=True` 时才会把 `realname`/`idcard` 加回 payload 并加密；
+  该组合实测仍返回空白提示页，**未跑通**。
 - 格式：CryptoJS 口令模式 —— `EVP_BytesToKey(MD5, 8 字节 salt)` →
   AES-256-CBC + PKCS#7 → `Base64("Salted__" + salt + ciphertext)`；
   密文以 `U2FsdGVkX1` 开头，每次 salt 随机。
@@ -83,19 +100,21 @@ HTTP 200 重渲染 HTML，错误在
 `<div id="Msg" class="login_hor login_err_tip">...</div>`，同页含
 `isAutoRegSuccess=false`。实测样本：空用户名 → `用户名格式错误`。
 
-### 成功响应（未实测；且实测被风控页挡住）
+### 成功响应（2026-11-08 实测）
 
-`register.do` 的成功响应**没有实测样本**（2026-11-07 研究过程未创建真实账号）。
-2026-11-08 实测 `POST register.do` 返回一个空白「4399提示」页：`info_page` 壳，
-无 `<div id="Msg">`、无登录 Cookie，由 `oauthValidation.js` / `fingerprint2` 等
-风控/JS 校验脚本驱动，**纯 HTTP 无法完成，结果无法从响应判定**（归 `unknown`）。
+`register.do` 成功页约 4 KB：脚本含 `msnger.emit("isAutoRegSuccess",true)`，
+可见文本为「注册成功 请一定记住您注册的用户名和密码！用户名：… 密码：…」，
+并下发 `Pauth`/`Uauth`/`Xauth`/`Puser`/`Pnick`/`Qnick`/`ck_accname`/`ptusertype`
+登录 Cookie。成功页会**回显明文密码**，本库 `_redact_text()` 在解析前替换成 `***`。
 
-本库判定为启发式：
+本库判定顺序（`_classify_response()`）：
 
 1. `isAutoRegSuccess=true` → `success`（先于错误文案，避免成功页带「注册成功」Msg 被误判）；
 2. `Msg` 非空 → `rejected`；
-3. 新增登录 Cookie（`Pauth`/`Uauth`/`Xauth`/`user_4399`/`ck_accname`）→ `success`；
-4. 含「验证码」→ `captcha`；跳离 ptlogin → `success`；否则 `unknown`。
+3. 新增登录 Cookie（完整名单 `_LOGIN_COOKIE_NAMES`：`Pauth`/`Pauths`/`Uauth`/`Xauth`/`Puser`/`Pnick`/`Qnick`/`user_4399`/`ck_accname`/`ptusertype`）→ `success`；
+4. 含「验证码」→ `captcha`；跳离 ptlogin → `success`；
+5. `info_page` 空白「4399提示」壳 → `unknown`（专用提示；常见于回传
+   `UNIFIED_DROP_FIELDS` 或启用 `UNIFIED_SEND_REALNAME=True`）；其它 → `unknown`。
 
 最终以登录 `https://u.4399.com/` 为准；`unknown` 不代表失败。
 

@@ -4,8 +4,8 @@
 
     unified（ptlogin）
       GET  /ptlogin/regFrame.do     # 拿表单隐藏域 + 会话 Cookie（USESSIONID）
-      POST /ptlogin/register.do     # sec=1 时 AES 加密敏感字段
-        └─ 解析 <div id="Msg"> / 登录 Cookie / isAutoRegSuccess
+      POST /ptlogin/register.do     # 只回传 21 个必要字段（见 UNIFIED_DROP_FIELDS）
+        └─ 成功页含 isAutoRegSuccess(true) 与 Pauth/Uauth/Xauth 等 Cookie
 
     web（web.4399.com 用户中心）
       GET  /user/?_c=login&_a=checkUser   # 取 encryptCode
@@ -27,6 +27,8 @@
   不要批量注册他人账号。
 * 图形验证码需要调用方提供 :data:`CaptchaSolver`（人工识别或外部 OCR）；
   本库不做验证码自动破解。
+* unified 路径默认**不提交实名信息**（回传实名/协议字段会让服务端改走空白
+  「4399提示」页），见 :data:`UNIFIED_SEND_REALNAME`。
 """
 
 from __future__ import annotations
@@ -56,6 +58,8 @@ from .remote import _http
 
 __all__ = [
     "CaptchaSolver",
+    "UNIFIED_DROP_FIELDS",
+    "UNIFIED_SEND_REALNAME",
     "SubmitKind",
     "ResponseHook",
     "SubmitError",
@@ -76,10 +80,50 @@ CaptchaSolver = Callable[[bytes], str]
 #: ``sec=1`` 时需要加密的字段
 ENCRYPTED_FIELDS = ("password", "passwordveri", "realname", "idcard")
 
+#: unified 路径要从服务端隐藏域里**剔除**的字段（2.4.0 实测定案）。
+#:
+#: 实测（2026-11-08）：`regFrame.do` 页面里的这些隐藏域一旦原样回传，
+#: ``POST /ptlogin/register.do`` 一律返回空白「4399提示」页（``info_page``
+#: 外壳：没有 ``#Msg``、不下发任何登录 Cookie），注册不会发生；剔除后
+#: 同一套数据可以正常建号（成功页含 ``isAutoRegSuccess(...true)`` 与
+#: ``Pauth``/``Uauth``/``Xauth`` 等 Cookie）。
+#:
+#: 这些字段分两类：
+#:
+#: * 布局/防沉迷/前端校验开关（弹窗容器 id、跨域 iframe、是否展示注册信息、
+#:   实名前端校验开关等）——服务端有默认值，不需要回传；
+#: * 实名与协议字段（``realname`` / ``idcard`` / ``reg_eula_agree`` 等）——
+#:   一并回传时服务端会进入实名/风控分支并返回同一张空白提示页
+#:   （实测假身份必然触发；未用真实身份验证过）。
+UNIFIED_DROP_FIELDS = frozenset({
+    "crossDomainUrl",
+    "mainDivId",
+    "showRegInfo",
+    "includeFcmInfo",
+    "expandFcmInput",
+    "fcmFakeValidate",
+    "realnameValidate",
+    "userNameLabel",
+    "iframeId",
+    "email",
+    "realname",
+    "idcard",
+    "reg_eula_agree",
+    "autoLogin",
+    "fCaptcha",
+})
+
+#: unified 路径是否把实名信息（``realname`` / ``idcard``）一起提交。
+#:
+#: 默认 ``False``：实测带上实名字段后 ``register.do`` 会返回空白提示页
+#: （实名/风控分支），**注册不成功**。只有确认手中是能通过 4399 实名核验的
+#: 真实身份时才建议改成 ``True``（该组合未实测通过）。
+UNIFIED_SEND_REALNAME = False
+
 #: 登录成功后 4399 会下发的 Cookie 名（只看名字，不看值）
 _LOGIN_COOKIE_NAMES = (
-    "Pauth", "Pauths", "Uauth", "Xauth", "Puser", "Pnick",
-    "user_4399", "ck_accname",
+    "Pauth", "Pauths", "Uauth", "Xauth", "Puser", "Pnick", "Qnick",
+    "user_4399", "ck_accname", "ptusertype",
 )
 
 #: web 路径注册提交接口（POST；浏览器用 JSONP GET，服务端同样接受 POST）
@@ -285,23 +329,28 @@ def _build_payload(
 ) -> tuple[dict[str, str], tuple[str, ...]]:
     """以服务端表单隐藏域为基线，组装最终 POST 字段（不联网）。
 
+    会剔除 :data:`UNIFIED_DROP_FIELDS`（实测回传这些隐藏域会让服务端改走
+    空白「4399提示」页）；实名信息只在 :data:`UNIFIED_SEND_REALNAME` 为
+    真时才带（默认不带，见该常量的说明）。
+
     ``sec`` 缺失时按 ``"1"`` 处理（与实测页面一致，宁可加密也不明文发送）。
 
     Returns:
         ``(payload, encrypted_fields)``。
     """
-    payload = dict(form.hidden)
+    payload = {
+        name: value
+        for name, value in form.hidden.items()
+        if name not in UNIFIED_DROP_FIELDS
+    }
     payload.update({
         "username": bundle.username,
         "password": bundle.password,
         "passwordveri": bundle.password,
-        "realname": bundle.realname,
-        "idcard": bundle.idcard,
-        "email": bundle.qq or "",
-        "reg_eula_agree": "on",
-        "autoLogin": "",
-        "fCaptcha": "",
     })
+    if UNIFIED_SEND_REALNAME:
+        payload["realname"] = bundle.realname
+        payload["idcard"] = bundle.idcard
     payload["appId"] = app_id
     payload["level"] = str(level)
     payload.setdefault("regMode", "reg_normal")
@@ -310,9 +359,10 @@ def _build_payload(
     payload["sec"] = sec
     encrypted: tuple[str, ...] = ()
     if sec == "1":
-        for name in ENCRYPTED_FIELDS:
+        names = tuple(name for name in ENCRYPTED_FIELDS if name in payload)
+        for name in names:
             payload[name] = encrypt_aes(payload[name])
-        encrypted = ENCRYPTED_FIELDS
+        encrypted = names
     return payload, encrypted
 
 
@@ -327,13 +377,15 @@ def _classify_response(
     """把 POST 响应分类成 ``(kind, ok, message)``（启发式）。
 
     判定顺序：成功标记 → 错误文案 → 登录 Cookie → 验证码 → 跳转离开 ptlogin
-    → info_page 风控空壳页 → unknown。成功标记先于错误文案，是因为真实失败页
+    → info_page 空壳页 → unknown。成功标记先于错误文案，是因为真实失败页
     只含 ``isAutoRegSuccess=false``，而成功页可能出现「注册成功，正在跳转」
     之类的 ``Msg`` 文案。
 
     Note:
-        web 路径的成功响应已实测（``state=true`` + ``Pauth`` 等 Cookie），
-        unified 路径仍拿不到可判定的响应（风控空壳页）。
+        两条路径的成功响应都已实测：``web`` 是 ``state=true`` + ``Pauth`` 等
+        Cookie；``unified`` 是 ``isAutoRegSuccess(true)`` + ``Pauth``/``Uauth``/
+        ``Xauth`` 等 Cookie。``info_page`` 空壳页是回传了
+        :data:`UNIFIED_DROP_FIELDS` 里的字段导致的（2.4.0 起已按需剔除）。
     """
     if _SUCCESS_RE.search(body):
         return "success", True, "注册成功（页面返回 isAutoRegSuccess=true）"
@@ -364,8 +416,8 @@ def _classify_response(
             "unknown",
             False,
             "4399 返回空白「提示」页（info_page 外壳，无 #Msg、无登录 Cookie）："
-            "属于风控/需 JS 校验的分支，无法判定注册结果。请登录 "
-            "https://u.4399.com/ 确认，或改用 web 路径（支持图形验证码流程）",
+            "通常是回传了 UNIFIED_DROP_FIELDS 里的字段（或实名/风控分支），"
+            "无法判定注册结果。请登录 https://u.4399.com/ 确认",
         )
 
     excerpt = _page_excerpt(body)
@@ -373,7 +425,7 @@ def _classify_response(
     return (
         "unknown",
         False,
-        "无法确定提交结果（4399 成功响应未经实测），请登录 "
+        "无法确定提交结果，请登录 "
         "https://u.4399.com/ 确认" + detail,
     )
 

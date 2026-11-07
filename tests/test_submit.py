@@ -51,6 +51,15 @@ REJECT_HTML = (
 SUCCESS_HTML = (
     "<html><script>window.parent.isAutoRegSuccess=true;</script></html>"
 )
+#: unified 实测成功页的简化版：Messenger.emit + 回显用户名/密码
+UNIFIED_SUCCESS_HTML = (
+    "<html><body><script>"
+    'msnger.emit("isAutoRegSuccess",true);'
+    "</script>"
+    "注册成功 请一定记住您注册的用户名和密码！"
+    "用户名：abc12345 密码：Sup3rSecret"
+    "</body></html>"
+)
 CAPTCHA_HTML = "<html><body>请输入验证码</body></html>"
 UNKNOWN_HTML = "<html><body>系统繁忙，请稍后再试</body></html>"
 
@@ -205,7 +214,7 @@ class TestDryRun(SubmitTestBase):
         )
         self.assertEqual(self.session.post_calls, [])
         self.assertEqual(result.encrypted_fields,
-                         ("password", "passwordveri", "realname", "idcard"))
+                         ("password", "passwordveri"))
         self.assertIn("username", result.field_names)
         self.assertNotIn(self.bundle.password, json.dumps(result.to_dict()))
 
@@ -223,28 +232,50 @@ class TestPayloadBuilding(SubmitTestBase):
         submit_registration(self.bundle)
         url, data = self.session.post_calls[0]
         self.assertEqual(url, ENDPOINT)
-        # 服务端隐藏域保留
+        # 服务端隐藏域保留（布局/前端校验开关除外，见 UNIFIED_DROP_FIELDS）
         self.assertEqual(data["postLoginHandler"], "refreshParent")
         self.assertEqual(data["regMode"], "reg_normal")
-        self.assertEqual(data["mainDivId"], "popup_reg_div")
+        self.assertNotIn("mainDivId", data)
+        self.assertNotIn("showRegInfo", data)
         # 显式字段被覆盖
         self.assertEqual(data["username"], self.bundle.username)
         self.assertEqual(data["appId"], "u4399")
         self.assertEqual(data["level"], "4")
-        self.assertEqual(data["email"], "123456789")
-        self.assertEqual(data["reg_eula_agree"], "on")
+        self.assertNotIn("email", data)
+        self.assertNotIn("reg_eula_agree", data)
         self.assertEqual(data["sec"], "1")
+
+    def test_layout_fields_dropped(self):
+        """布局/前端校验开关不回传（否则服务端返回空白 info_page）。"""
+        from gen4399.submit import UNIFIED_DROP_FIELDS
+
+        submit_registration(self.bundle)
+        _, data = self.session.post_calls[0]
+        for name in UNIFIED_DROP_FIELDS:
+            self.assertNotIn(name, data, name)
+        for name in ("username", "password", "passwordveri"):
+            self.assertIn(name, data, name)
+        # 默认不提交实名（见 UNIFIED_SEND_REALNAME）
+        self.assertNotIn("realname", data)
+        self.assertNotIn("idcard", data)
 
     def test_sensitive_fields_encrypted(self):
         submit_registration(self.bundle)
         _, data = self.session.post_calls[0]
-        for name in ("password", "passwordveri", "realname", "idcard"):
+        for name in ("password", "passwordveri"):
             self.assertNotEqual(data[name], "")
             self.assertTrue(data[name].startswith("U2FsdGVkX1"), name)
         self.assertEqual(decrypt_aes(data["password"]), self.bundle.password)
         self.assertEqual(decrypt_aes(data["passwordveri"]), self.bundle.password)
-        self.assertEqual(decrypt_aes(data["realname"]), PROFILE.realname)
-        self.assertEqual(decrypt_aes(data["idcard"]), PROFILE.idcard)
+
+    def test_send_realname_switch(self):
+        """打开 UNIFIED_SEND_REALNAME 后才带实名信息（默认不带）。"""
+        with mock.patch("gen4399.submit.UNIFIED_SEND_REALNAME", True):
+            result = submit_registration(self.bundle, dry_run=True)
+        self.assertIn("realname", result.field_names)
+        self.assertIn("idcard", result.field_names)
+        self.assertEqual(result.encrypted_fields,
+                         ("password", "passwordveri", "realname", "idcard"))
 
     def test_sec_zero_sends_plaintext(self):
         FakeSession.get_response = response(
@@ -254,7 +285,7 @@ class TestPayloadBuilding(SubmitTestBase):
         submit_registration(self.bundle)
         _, data = self.session.post_calls[0]
         self.assertEqual(data["password"], self.bundle.password)
-        self.assertEqual(data["idcard"], PROFILE.idcard)
+        self.assertNotIn("idcard", data)
         self.assertEqual(data["sec"], "0")
 
     def test_app_id_and_level_options(self):
@@ -273,7 +304,7 @@ class TestPayloadBuilding(SubmitTestBase):
         )
         result = submit_registration(self.bundle, dry_run=True)
         self.assertEqual(result.encrypted_fields,
-                         ("password", "passwordveri", "realname", "idcard"))
+                         ("password", "passwordveri"))
 
 
 class TestClassify(SubmitTestBase):
@@ -299,6 +330,21 @@ class TestClassify(SubmitTestBase):
         self.assertTrue(result.ok)
         self.assertTrue(result)
         self.assertIn("isAutoRegSuccess", result.message)
+
+    def test_unified_live_success_page(self):
+        """实测成功页（简化）：isAutoRegSuccess + 回显用户名/密码。"""
+        FakeSession.post_response = response(UNIFIED_SUCCESS_HTML)
+        FakeSession.post_cookies = {
+            "Pauth": "x", "Uauth": "x", "Xauth": "x",
+            "Puser": "x", "Pnick": "x", "ck_accname": "x",
+        }
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.kind, "success")
+        self.assertTrue(result.ok)
+        self.assertIn("Pauth", result.login_cookies)
+        self.assertIn("ck_accname", result.login_cookies)
+        # 成功页会回显明文密码，message 里不能带出来
+        self.assertNotIn(self.bundle.password, result.message)
 
     def test_success_login_cookie(self):
         FakeSession.post_cookies = {"USESSIONID": "u", "Pauth": "secret"}

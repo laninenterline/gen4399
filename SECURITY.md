@@ -13,19 +13,25 @@
   `web` 提交 `POST /user/?_c=reg`（web.4399.com）。两者都需显式调用 / `--yes`。
   2.3.0 起 `web` 路径支持图形验证码流程（`captcha=` 回调 / `--captcha-prompt` /
   `--captcha-cmd`）：验证码图片由 4399 下发、由调用方自行识别，本库不做自动破解。
+  2.4.0 起 `unified` 也已实测建号成功：按 `UNIFIED_DROP_FIELDS` 剔除 15 个会触发
+  空白「4399提示」页的隐藏域；并默认**不发送实名信息**（`UNIFIED_SEND_REALNAME=False`）。
 - **只应使用本人的真实身份信息**：使用他人身份证号可能违法，也可能违反 4399 用户协议。
 - 身份信息默认只在内存中使用；只有显式调用 `load_profiles` / 传 `--profile-file` 才会读取文件。
-  只有显式真实提交时，姓名/身份证等字段才会发往 4399 官方端点，不经过任何第三方服务器：
-  `unified` 路径 `sec=1` 时 AES 加密；`web` 路径只有密码用 DES 加密，
-  `true_name` / `sfz` 是**明文**放在 HTTPS POST body（比浏览器原 JSONP GET 的 query
-  更不易进 URL 日志，但仍是明文）。
+  只有显式真实提交时，字段才会发往 4399 官方端点，不经过任何第三方服务器。
+  **`unified` 默认不发送实名信息**：`realname`/`idcard` 留在本地，
+  POST body 只含用户名与两个密码字段（AES 加密）；只有把 `UNIFIED_SEND_REALNAME`
+  设为 `True` 才会加回实名并 AES 加密（该组合实测仍返回空白提示页、未跑通）。
+  `web` 路径只有密码用 DES 加密，`true_name` / `sfz` 是**明文**放在 HTTPS POST body
+  （比浏览器原 JSONP GET 的 query 更不易进 URL 日志，但仍是明文）。
 - dry-run 只发 GET（unified：注册表单页；web：`checkUser`，只带用户名），
   不含姓名/身份证、不发注册 POST、不建号；但 dry-run 仍会联网。
 - `--show-pii` 会明文显示身份证/密码/QQ；`--output`/`save()` 默认 0600 权限且默认打码。
 - 日志与错误信息不会包含密码或完整身份证号；`repr(Account)` / `repr(RegistrationBundle)` /
   `repr(SubmitResult)` 已脱敏；`SubmitResult.to_dict()` 不含密码/身份证/Cookie 值，
   只含字段名、Cookie 名与脱敏后的 `message`/端点/状态等；服务端文案里若回显
-  密码/身份证/姓名，会先替换为 `***`。
+  密码/身份证/姓名，会先替换为 `***`。`unified` 成功页会回显明文密码
+  （「注册成功…用户名：… 密码：…」），本库在解析前就替换为 `***`，不会进入
+  `message` / `to_dict()` / JSON 输出。
 
 ## 提交能力：风险与同意要求
 
@@ -39,16 +45,22 @@
 4. **PII 流向**：真实提交只把字段发往 4399 官方端点（`ptlogin.4399.com` /
    `web.4399.com`）。`unified` 的 AES 口令 `lzYW5qaXVqa` 与 `web` 的 DES 算法/
    `encryptCode` 都公开在前端 JS 中，**都不构成机密性保护**，只是协议要求；
-   `web` 的 `true_name`/`sfz` 更是明文（HTTPS body）。更在意 PII 时优先用 `unified`。
+   `web` 的 `true_name`/`sfz` 更是明文（HTTPS body）。`unified` 默认只发
+   用户名+密码（两个 AES 字段），**不发实名信息**；更在意 PII 时优先用 `unified`。
 5. **先 dry-run**：库不会自动提交、CLI 默认 dry-run；先跑一次 dry-run 检查端点/字段/
    加密开关（`unified` 看 `sec`，`web` 看 `encryptCode`/DES 字段），确认后再加 `--yes`。
 6. **POST 不自动重试**：超时后服务端可能已建号；请先尝试登录确认，不要立即重跑。
-7. **成功判定**：`web` 路径的成功响应已实测（`{"state":true,"code":300,...}` +
-   `Pauth`/`Pauths` 等登录 Cookie），但仍建议以登录 `https://u.4399.com/` 为准；
-   `unified` 路径实测只返回空白「提示」页（风控空壳，无法判定），`unknown` 不代表失败。
+7. **成功判定**：两条路径的成功响应均已在 2026-11-08 实测建号成功——`web` 返回
+   `{"state":true,"code":300,...}` + `Pauth`/`Pauths` 等 Cookie；`unified` 返回约 4 KB
+   成功页（`msnger.emit("isAutoRegSuccess",true)`）+ `Pauth`/`Uauth`/`Xauth` 等 Cookie。
+   `unified` 默认不发实名信息；打开 `UNIFIED_SEND_REALNAME=True` 的组合实测仍返回
+   空白「4399提示」页、未跑通。成功判定仍是启发式，建议以登录 `https://u.4399.com/`
+   为准；`unknown` 不代表失败。
 8. **不绕过风控**：本库不破解图形验证码——`captcha` 回调由调用方实现
-   （人工输入或外部 OCR）；识别不出时如实返回 `kind=captcha`。同一身份证在
-   4399 只能绑定一个账号。
+   （人工输入或外部 OCR）；识别不出时如实返回 `kind=captcha`。已用于实名绑定的
+   身份证再次注册会被 4399 拒绝（实测 `msg="姓名身份证不匹配"`），但该文案无法区分
+   「已绑定」与「实名不通过」，不要据此断言「一证一号」；请只使用本人未绑定过
+   4399 的身份证。
 
 ## 建议
 
