@@ -16,3 +16,5 @@ venv/
 # 本地身份/账号文件（含 PII，勿提交）
 sfz.txt
 accounts.json
+# make_account --diagnose 保存的脱敏响应
+registration-response-*.html
