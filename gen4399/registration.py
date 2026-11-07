@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -125,6 +127,48 @@ class RegistrationBundle:
                 out[key] = value[:2] + "*" * max(0, len(value) - 2)
         return out
 
+    def to_dict(self, *, include_secrets: bool = True) -> dict[str, object]:
+        """转成可 JSON 序列化的字典。
+
+        Args:
+            include_secrets: 为 False 时密码/身份证/QQ 用打码值。
+        """
+        fields = dict(
+            self.fields if include_secrets else self.masked_fields()
+        )
+        return {
+            "path": self.path,
+            "url": self.url,
+            "username": self.username,
+            "password": self.password if include_secrets else "*" * len(self.password),
+            "realname": self.realname,
+            "idcard": self.idcard if include_secrets else self.masked_idcard(),
+            "qq": self.qq,
+            "fields": fields,
+            "username_available": self.username_available,
+            "warnings": list(self.warnings),
+        }
+
+    def save(
+        self,
+        path: "str | os.PathLike[str]",
+        *,
+        show_pii: bool = False,
+        mode: int = 0o600,
+    ) -> None:
+        """把 bundle 写成 JSON 文件（默认打码，权限 0600）。"""
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(
+                self.to_dict(include_secrets=show_pii),
+                fh,
+                ensure_ascii=False,
+                indent=2,
+            )
+        try:
+            os.chmod(path, mode)
+        except OSError:  # pragma: no cover - 非 POSIX
+            pass
+
     def as_text(self, *, show_pii: bool = False) -> str:
         """渲染成可读的填表清单。
 
@@ -166,6 +210,8 @@ def prepare_registration(
     verify_username: bool = True,
     app_id: str = DEFAULT_APP_ID,
     timeout: float = DEFAULT_TIMEOUT,
+    retry_delay: float = 0.0,
+    retry_policy=None,
 ) -> RegistrationBundle:
     """准备一套 4399 注册数据（生成 + 查重 + 校验 + 组装字段）。
 
@@ -214,7 +260,12 @@ def prepare_registration(
     available: bool | None = None
     if username is not None:
         if verify_username:
-            res = check_username(username, app_id=app_id, timeout=timeout)
+            res = check_username(
+                username,
+                app_id=app_id,
+                timeout=timeout,
+                retry_policy=retry_policy,
+            )
             if not res.available:
                 raise RegistrationError(
                     f"指定的用户名 {username!r} 不可用：{res.message}"
@@ -227,6 +278,8 @@ def prepare_registration(
             suffix=suffix,
             app_id=app_id,
             timeout=timeout,
+            retry_delay=retry_delay,
+            retry_policy=retry_policy,
         )
         available = True
     else:

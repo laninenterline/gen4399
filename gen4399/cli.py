@@ -18,12 +18,21 @@
     python -m gen4399 --prepare --profile-file ids.txt       从 txt 批量准备
     python -m gen4399 --check-available "abc12345"
     python -m gen4399 --entropy -p abc
+
+全局增强：``--json`` 机器可读输出、``--offline`` 跳过在线查重、
+``--output DIR`` 把结果写成 0600 文件、``--min-interval`` 批量限速、
+``--verbose`` 打印重试日志。
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import logging
+import os
 import sys
+import time
+from pathlib import Path
 from typing import Sequence
 
 from . import __version__
@@ -31,14 +40,15 @@ from ._width import pad
 from .registration import prepare_registration
 from .forms import (
     RegistrationProfile,
-    load_profiles,
     build_registration_fields,
     check_registration_form,
     get_form,
+    load_profiles,
 )
 from .remote import (
     DEFAULT_TIMEOUT,
     RemoteError,
+    RetryPolicy,
     check_username,
     fetch_suggested_usernames,
     generate_account,
@@ -62,6 +72,8 @@ from .core import (
     validate_username,
 )
 
+logger = logging.getLogger("gen4399.cli")
+
 
 def build_parser() -> argparse.ArgumentParser:
     """构造参数解析器（独立出来便于测试）。"""
@@ -83,14 +95,20 @@ def build_parser() -> argparse.ArgumentParser:
             '  python -m gen4399 --check-available "abc12345"\n'
             "  python -m gen4399 --entropy -p abc      查看熵\n"
             "  python -m gen4399 --prepare --profile-file ids.txt   批量准备\n"
+            "  python -m gen4399 --prepare --profile-file ids.txt --json --output out/\n"
         ),
     )
     p.add_argument("-n", "--length", type=int, default=None,
                    help=f"总长度。密码默认 {DEFAULT_LENGTH}（{MIN_LENGTH}~{MAX_LENGTH}），"
                         f"账号名默认 {DEFAULT_USERNAME_LENGTH}"
-                        f"（{USERNAME_MIN_LENGTH}~{USERNAME_MAX_LENGTH}）")
+                        f"（{USERNAME_MIN_LENGTH}~{USERNAME_MAX_LENGTH}）。"
+                        "兼容旧语义：-u 时作用于账号名，--account/--prepare 时作用于密码")
+    p.add_argument("--password-length", type=int, default=None,
+                   help="密码长度（优先于 -n，仅用于密码/账号/准备命令）")
+    p.add_argument("--username-length", type=int, default=None,
+                   help="账号名长度（优先于 -n，默认 12）")
     p.add_argument("-c", "--count", type=int, default=1,
-                   help="生成个数，默认 1")
+                   help="生成/批量账号的个数，默认 1")
     p.add_argument("-p", "--prefix", default="",
                    help="自定义前缀（只允许字母和数字），计入总长度")
     p.add_argument("-s", "--suffix", default="",
@@ -108,9 +126,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--verify", action="store_true",
                    help="生成账号名后自动调用官方接口确认可注册（配合 -u / --fetch-username）")
     p.add_argument("--account", action="store_true",
-                   help="生成一套账号名+密码，默认自动调用官方接口查重账号名")
+                   help="生成账号名+密码；-c 可批量，默认自动查重")
     p.add_argument("--no-verify", action="store_true",
                    help="配合 --account / --prepare 使用，跳过在线查重（离线可用）")
+    p.add_argument("--offline", action="store_true",
+                   help="全局离线模式：等价于 --no-verify；对必须联网的命令报错")
     p.add_argument("--check-available", metavar="NAME", default=None,
                    help="调用 4399 官方 isExist.do 查询用户名是否还能注册")
     p.add_argument("--form-fields", choices=["web", "unified"], default=None,
@@ -120,7 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
                    metavar=("USERNAME", "PASSWORD"),
                    help="本地校验一份注册表单（不联网、不代提交）")
     p.add_argument("--form-path", choices=["web", "unified"], default="web",
-                   help="--check-form 使用的注册路径，默认 web")
+                   help="表单相关命令使用的注册路径，默认 web")
     p.add_argument("--realname", default=None, metavar="NAME",
                    help="真实姓名（用于 --check-form / --build-form / --prepare；"
                         "也可改用 --profile-file）")
@@ -132,23 +152,87 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--profile-file", metavar="FILE", default=None,
                    help="身份信息 txt：每行「姓名|身份证号[|QQ]」，"
                         "空行和 # 注释跳过；可多行批量，用于 "
-                        "--prepare / --build-form / --check-form")
+                        "--prepare / --build-form / --check-form；'-' 表示 stdin")
     p.add_argument("--build-form", nargs=2, default=None,
                    metavar=("USERNAME", "PASSWORD"),
                    help="生成填表清单（参数名=值），不提交")
     p.add_argument("--prepare", action="store_true",
                    help="一键准备注册数据（生成用户名+密码、查重、校验、输出填表清单；不提交）")
-    p.add_argument("--username-length", type=int, default=None,
-                   help="--prepare / --account 自动生成用户名的长度，默认 12")
     p.add_argument("--show-pii", action="store_true",
-                   help="配合 --build-form 显示完整身份证号/密码/QQ（默认打码）")
+                   help="显示明文身份证号/密码/QQ（默认打码）")
     p.add_argument("--entropy", action="store_true",
                    help="只输出熵估算（bit），不生成")
     p.add_argument("--timeout", type=float, default=None, metavar="SECONDS",
                    help=f"远程接口单次超时，默认 {DEFAULT_TIMEOUT:g} 秒")
+    p.add_argument("--retries", type=int, default=None, metavar="N",
+                   help="远程重试总尝试次数（默认：fetch 4 次，其它 2~3 次）")
+    p.add_argument("--retry-delay", type=float, default=None, metavar="SECONDS",
+                   help="首次重试等待（秒），之后指数递增并加抖动")
+    p.add_argument("--max-total-timeout", type=float, default=None,
+                   metavar="SECONDS", help="单次远程调用的总时间预算（秒）")
+    p.add_argument("--min-interval", type=float, default=0.0, metavar="SECONDS",
+                   help="批量远程命令之间的最小间隔（秒），默认 0")
+    p.add_argument("--output", metavar="DIR", default=None,
+                   help="把结果写成 JSON 文件（目录，文件权限 0600）")
+    p.add_argument("--json", action="store_true",
+                   help="以 JSON 输出（便于脚本消费）")
+    p.add_argument("-v", "--verbose", action="store_true",
+                   help="输出重试等调试日志")
     p.add_argument("-V", "--version", action="version",
                    version=f"gen4399 {__version__}")
     return p
+
+
+# ---------------------------------------------------------------------------
+# 通用小工具
+# ---------------------------------------------------------------------------
+
+
+def _offline(args) -> bool:
+    return bool(args.no_verify or args.offline)
+
+
+def _retry_policy(args) -> RetryPolicy | None:
+    if (
+        args.retries is None
+        and args.retry_delay is None
+        and args.max_total_timeout is None
+    ):
+        return None
+    attempts = 3 if args.retries is None else args.retries
+    base_delay = 0.5 if args.retry_delay is None else args.retry_delay
+    return RetryPolicy(
+        attempts=attempts,
+        base_delay=base_delay,
+        total_deadline=args.max_total_timeout,
+    )
+
+
+def _emit_json(obj) -> None:
+    print(json.dumps(obj, ensure_ascii=False, indent=2))
+
+
+def _write_json_file(path: Path, obj) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(obj, fh, ensure_ascii=False, indent=2)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:  # pragma: no cover - 非 POSIX
+        pass
+
+
+def _maybe_output(args, filename: str, obj) -> None:
+    if args.output:
+        path = Path(args.output) / filename
+        _write_json_file(path, obj)
+        print(f"# 已写入 {path}", file=sys.stderr)
+
+
+def _warn_pii(args) -> None:
+    if args.show_pii:
+        print("# 警告：正在显示明文身份证号/密码/QQ，请勿在共享屏幕/日志中使用",
+              file=sys.stderr)
 
 
 def _report(violations, raw: str) -> int:
@@ -188,7 +272,9 @@ def _load_identity_profiles(args):
             raise ValueError(
                 "--profile-file 不能与 --realname/--idcard 同时使用"
             )
-        return load_profiles(args.profile_file)
+        if args.qq is not None:
+            raise ValueError("--profile-file 不能与 --qq 同时使用")
+        return load_profiles(args.profile_file, encoding="utf-8-sig")
     if not (args.realname and args.idcard):
         raise ValueError(
             "需要同时提供 --realname 和 --idcard，或使用 --profile-file"
@@ -200,199 +286,358 @@ def _load_identity_profiles(args):
     ]
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """CLI 主函数。返回退出码：0 成功，1 校验失败，2 参数错误。"""
-    args = build_parser().parse_args(argv)
-    timeout = DEFAULT_TIMEOUT if args.timeout is None else args.timeout
+def _display_length(args, as_username: bool) -> int:
+    if as_username:
+        if args.username_length is not None:
+            return args.username_length
+        if args.length is not None:
+            return args.length
+        return DEFAULT_USERNAME_LENGTH
+    if args.password_length is not None:
+        return args.password_length
+    if args.length is not None:
+        return args.length
+    return DEFAULT_LENGTH
 
-    # 校验模式
+
+def _sleep_between(args) -> None:
+    if args.min_interval and args.min_interval > 0:
+        time.sleep(args.min_interval)
+
+
+# ---------------------------------------------------------------------------
+# 各子命令实现
+# ---------------------------------------------------------------------------
+
+
+def _cmd_check(args) -> int:
+    """--check / --check-username"""
     if args.check is not None:
-        return _report(validate(args.check), args.check)
-    if args.check_username is not None:
-        return _report(
-            validate_username(args.check_username), args.check_username
-        )
+        value, violations, kind = args.check, validate(args.check), "password"
+    else:
+        value = args.check_username
+        violations = validate_username(value)
+        kind = "username"
+    if args.json:
+        _emit_json({
+            "kind": kind,
+            "value": value,
+            "ok": not violations,
+            "violations": [
+                {"code": v.code, "message": v.message} for v in violations
+            ],
+        })
+        return 0 if not violations else 1
+    return _report(violations, value)
 
-    # 打印注册表单字段
-    if args.form_fields is not None:
-        form = get_form(args.form_fields)
-        print(f"{form.title}  ({form.path})")
-        print(f"页面: {form.url}")
-        print(f"提交: POST {form.submit_url}")
-        print(
-            pad("参数名", 18) + pad("标签", 12) + pad("必填", 5)
-            + pad("类型", 9) + pad("上限", 5) + "说明"
-        )
-        print("-" * 78)
-        for f in form.fields:
-            print(
-                pad(f.name, 18) + pad(f.label, 12)
-                + pad("是" if f.required else "否", 5)
-                + pad(f.kind, 9) + pad(str(f.maxlength or "-"), 5) + f.note
-            )
+
+def _cmd_form_fields(args) -> int:
+    form = get_form(args.form_fields)
+    if args.json:
+        _emit_json({
+            "path": form.path,
+            "title": form.title,
+            "url": form.url,
+            "submit_url": form.submit_url,
+            "fields": [
+                {
+                    "name": f.name,
+                    "label": f.label,
+                    "required": f.required,
+                    "kind": f.kind,
+                    "maxlength": f.maxlength,
+                    "note": f.note,
+                }
+                for f in form.fields
+            ],
+        })
         return 0
-
-    # 校验注册表单
-    if args.check_form is not None:
-        username, password = args.check_form
-        if args.profile_file is not None:
-            try:
-                profiles = _load_identity_profiles(args)
-            except (Gen4399Error, TypeError, ValueError, OSError) as exc:
-                print(f"错误：{exc}", file=sys.stderr)
-                return 2
-            failed = False
-            for idx, profile in enumerate(profiles, 1):
-                if len(profiles) > 1:
-                    print(f"# 身份 {idx}/{len(profiles)}")
-                res = check_registration_form(
-                    username, password, path=args.form_path, profile=profile
-                )
-                if not _print_form_result(res):
-                    failed = True
-            return 1 if failed else 0
-        res = check_registration_form(
-            username,
-            password,
-            path=args.form_path,
-            realname=args.realname,
-            idcard=args.idcard,
-            qq=args.qq,
+    print(f"{form.title}  ({form.path})")
+    print(f"页面: {form.url}")
+    print(f"提交: POST {form.submit_url}")
+    print(
+        pad("参数名", 18) + pad("标签", 12) + pad("必填", 5)
+        + pad("类型", 9) + pad("上限", 5) + "说明"
+    )
+    print("-" * 78)
+    for f in form.fields:
+        print(
+            pad(f.name, 18) + pad(f.label, 12)
+            + pad("是" if f.required else "否", 5)
+            + pad(f.kind, 9) + pad(str(f.maxlength or "-"), 5) + f.note
         )
-        return 0 if _print_form_result(res) else 1
+    return 0
 
-    # 一键准备注册数据
-    if args.prepare:
+
+def _cmd_check_form(args) -> int:
+    username, password = args.check_form
+    if args.profile_file is not None:
         try:
             profiles = _load_identity_profiles(args)
-            bundles = [
-                prepare_registration(
-                    profile,
-                    path=args.form_path,
-                    username_length=args.username_length
-                    or DEFAULT_USERNAME_LENGTH,
-                    password_length=args.length or DEFAULT_LENGTH,
-                    prefix=args.prefix,
-                    suffix=args.suffix,
-                    verify_username=not args.no_verify,
-                    timeout=timeout,
-                )
-                for profile in profiles
-            ]
         except (Gen4399Error, TypeError, ValueError, OSError) as exc:
             print(f"错误：{exc}", file=sys.stderr)
             return 2
+        results = []
+        failed = False
+        for idx, profile in enumerate(profiles, 1):
+            res = check_registration_form(
+                username, password, path=args.form_path, profile=profile
+            )
+            results.append(res)
+            if len(profiles) > 1 and not args.json:
+                print(f"# 身份 {idx}/{len(profiles)}")
+            if not args.json and not _print_form_result(res):
+                failed = True
+            elif args.json and not res.ok:
+                failed = True
+        if args.json:
+            _emit_json([
+                {"ok": r.ok, "errors": r.errors, "warnings": r.warnings}
+                for r in results
+            ])
+        return 1 if failed else 0
+
+    res = check_registration_form(
+        username,
+        password,
+        path=args.form_path,
+        realname=args.realname,
+        idcard=args.idcard,
+        qq=args.qq,
+    )
+    if args.json:
+        _emit_json({
+            "ok": res.ok,
+            "errors": res.errors,
+            "warnings": res.warnings,
+        })
+        return 0 if res.ok else 1
+    return 0 if _print_form_result(res) else 1
+
+
+def _cmd_prepare(args) -> int:
+    policy = _retry_policy(args)
+    timeout = DEFAULT_TIMEOUT if args.timeout is None else args.timeout
+    try:
+        profiles = _load_identity_profiles(args)
+        bundles = []
+        for profile in profiles:
+            bundles.append(prepare_registration(
+                profile,
+                path=args.form_path,
+                username_length=args.username_length
+                or DEFAULT_USERNAME_LENGTH,
+                password_length=args.password_length
+                or args.length or DEFAULT_LENGTH,
+                prefix=args.prefix,
+                suffix=args.suffix,
+                verify_username=not _offline(args),
+                timeout=timeout,
+                retry_delay=args.retry_delay or 0.0,
+                retry_policy=policy,
+            ))
+            _sleep_between(args)
+    except (Gen4399Error, TypeError, ValueError, OSError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+
+    _warn_pii(args)
+    if args.json:
+        _emit_json([
+            b.to_dict(include_secrets=args.show_pii) for b in bundles
+        ])
+    else:
         for idx, bundle in enumerate(bundles, 1):
             if len(bundles) > 1:
                 if idx > 1:
                     print()
                 print(f"# 身份 {idx}/{len(bundles)}")
             print(bundle.as_text(show_pii=args.show_pii))
-        return 0
-
-    # 生成填表清单
-    if args.build_form is not None:
-        username, password = args.build_form
-        try:
-            profiles = _load_identity_profiles(args)
-            form = get_form(args.form_path)
-        except (Gen4399Error, TypeError, ValueError, OSError) as exc:
-            print(f"错误：{exc}", file=sys.stderr)
-            return 2
-
-        labels = {f.name: f.label for f in form.fields}
-        for idx, profile in enumerate(profiles, 1):
-            try:
-                fields = build_registration_fields(
-                    username, password, path=args.form_path, profile=profile
-                )
-            except (Gen4399Error, TypeError, ValueError) as exc:
-                print(f"错误：{exc}", file=sys.stderr)
-                return 2
-            if idx > 1:
-                print()
-            if len(profiles) > 1:
-                print(f"# 身份 {idx}/{len(profiles)}")
-            print(f"{form.title}  ({form.path})")
-            print(f"页面: {form.url}")
-            print(pad("参数名", 18) + pad("标签", 12) + "值")
-            print("-" * 70)
-            for name, value in fields.items():
-                shown = value
-                if name in ("sfz", "idcard") and not args.show_pii:
-                    shown = profile.masked_idcard()
-                elif name in ("login_password", "password",
-                              "relogin_pwd", "passwordveri") and not args.show_pii:
-                    shown = "*" * len(value)
-                elif name in ("qq", "email") and not args.show_pii:
-                    shown = (
-                        value[:2] + "*" * max(0, len(value) - 2) if value else value
-                    )
-                print(pad(name, 18) + pad(labels.get(name, ""), 12) + shown)
-        print("\n# 提示：身份证/密码/QQ 默认打码，需要明文请加 --show-pii",
-              file=sys.stderr)
-        print("# 提示：本命令只生成清单，不会提交注册", file=sys.stderr)
-        return 0
-
-    # 一键生成账号名 + 密码
-    if args.account:
-        try:
-            acc = generate_account(
-                verify_username=not args.no_verify,
-                username_length=args.username_length
-                or DEFAULT_USERNAME_LENGTH,
-                password_length=args.length or DEFAULT_LENGTH,
-                prefix=args.prefix,
-                suffix=args.suffix,
-                timeout=timeout,
+    if args.output:
+        out_dir = Path(args.output)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for idx, bundle in enumerate(bundles, 1):
+            bundle.save(
+                out_dir / f"bundle-{idx:02d}.json",
+                show_pii=args.show_pii,
             )
-        except (RemoteError, Gen4399Error, TypeError, ValueError) as exc:
-            print(f"错误：{exc}", file=sys.stderr)
-            return 2
-        print(f"username: {acc.username}")
-        print(f"password: {acc.password}")
-        if acc.username_available is True:
-            print("# 账号名已通过官方接口确认可注册", file=sys.stderr)
-        elif acc.username_available is None:
-            print("# 未做在线查重（--no-verify）", file=sys.stderr)
-        return 0
+        print(f"# 已写入 {args.output}/bundle-*.json", file=sys.stderr)
+    return 0
 
-    # 远程：查询用户名可用性
-    if args.check_available is not None:
-        try:
-            res = check_username(args.check_available, timeout=timeout)
-        except RemoteError as exc:
-            print(f"错误：{exc}", file=sys.stderr)
-            return 2
-        if res.available:
-            print(f"AVAILABLE: {res.username}")
-            return 0
-        print(f"UNAVAILABLE: {res.username}  ({res.message})", file=sys.stderr)
-        return 1
 
-    # 远程：获取服务端分配的用户名
-    if args.fetch_username is not None:
+def _cmd_build_form(args) -> int:
+    username, password = args.build_form
+    try:
+        profiles = _load_identity_profiles(args)
+        form = get_form(args.form_path)
+    except (Gen4399Error, TypeError, ValueError, OSError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+
+    _warn_pii(args)
+    labels = {f.name: f.label for f in form.fields}
+    payload = []
+    for idx, profile in enumerate(profiles, 1):
         try:
-            names = fetch_suggested_usernames(
-                args.fetch_username,
-                prefix=args.prefix,
-                suffix=args.suffix,
-                verify_available=args.verify,
-                timeout=timeout,
+            fields = build_registration_fields(
+                username, password, path=args.form_path, profile=profile
             )
         except (Gen4399Error, TypeError, ValueError) as exc:
             print(f"错误：{exc}", file=sys.stderr)
             return 2
+        shown_fields = fields
+        if not args.show_pii:
+            shown_fields = dict(fields)
+            for key in ("sfz", "idcard"):
+                if key in shown_fields:
+                    shown_fields[key] = profile.masked_idcard()
+            for key in ("login_password", "password",
+                        "relogin_pwd", "passwordveri"):
+                if key in shown_fields:
+                    shown_fields[key] = "*" * len(shown_fields[key])
+            for key in ("qq", "email"):
+                value = shown_fields.get(key)
+                if value:
+                    shown_fields[key] = value[:2] + "*" * (len(value) - 2)
+        payload.append({
+            "index": idx,
+            "realname_masked": profile.masked(),
+            "fields": shown_fields,
+        })
+        if args.json:
+            continue
+        if idx > 1:
+            print()
+        if len(profiles) > 1:
+            print(f"# 身份 {idx}/{len(profiles)}")
+        print(f"{form.title}  ({form.path})")
+        print(f"页面: {form.url}")
+        print(pad("参数名", 18) + pad("标签", 12) + "值")
+        print("-" * 70)
+        for name, value in shown_fields.items():
+            print(pad(name, 18) + pad(labels.get(name, ""), 12) + value)
+
+    if args.json:
+        if len(payload) == 1:
+            _emit_json(payload[0])
+        else:
+            _emit_json(payload)
+    else:
+        print("\n# 提示：身份证/密码/QQ 默认打码，需要明文请加 --show-pii",
+              file=sys.stderr)
+        print("# 提示：本命令只生成清单，不会提交注册", file=sys.stderr)
+    if args.output:
+        _maybe_output(args, "form-fields.json", payload)
+    return 0
+
+
+def _cmd_account(args) -> int:
+    policy = _retry_policy(args)
+    timeout = DEFAULT_TIMEOUT if args.timeout is None else args.timeout
+    count = args.count
+    accounts = []
+    try:
+        for _ in range(count):
+            accounts.append(generate_account(
+                verify_username=not _offline(args),
+                username_length=args.username_length
+                or DEFAULT_USERNAME_LENGTH,
+                password_length=args.password_length
+                or args.length or DEFAULT_LENGTH,
+                prefix=args.prefix,
+                suffix=args.suffix,
+                timeout=timeout,
+                retry_policy=policy,
+            ))
+            _sleep_between(args)
+    except (RemoteError, Gen4399Error, TypeError, ValueError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        _emit_json([a.to_dict() for a in accounts])
+    else:
+        for idx, acc in enumerate(accounts, 1):
+            if count > 1:
+                print(f"# account {idx}/{count}")
+            print(f"username: {acc.username}")
+            print(f"password: {acc.password}")
+            if acc.username_available is True:
+                print("# 账号名已通过官方接口确认可注册", file=sys.stderr)
+            elif acc.username_available is None:
+                print("# 未做在线查重（--no-verify）", file=sys.stderr)
+    if args.output:
+        out_dir = Path(args.output)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for idx, acc in enumerate(accounts, 1):
+            acc.save(out_dir / f"account-{idx:02d}.json")
+        print(f"# 已写入 {args.output}/account-*.json", file=sys.stderr)
+    return 0
+
+
+def _cmd_check_available(args) -> int:
+    if _offline(args):
+        print("错误：--check-available 需要联网，不能与 --offline/--no-verify 同用",
+              file=sys.stderr)
+        return 2
+    timeout = DEFAULT_TIMEOUT if args.timeout is None else args.timeout
+    try:
+        res = check_username(
+            args.check_available,
+            timeout=timeout,
+            validate_input=True,
+            retry_policy=_retry_policy(args),
+        )
+    except RemoteError as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        _emit_json(res.to_dict())
+    elif res.available:
+        print(f"AVAILABLE: {res.username}")
+    else:
+        print(f"UNAVAILABLE: {res.username}  ({res.message})", file=sys.stderr)
+    if args.output:
+        _maybe_output(args, "availability.json", res.to_dict())
+    return 0 if res.available else 1
+
+
+def _cmd_fetch(args) -> int:
+    if _offline(args):
+        print("错误：--fetch-username 需要联网，不能与 --offline/--no-verify 同用",
+              file=sys.stderr)
+        return 2
+    timeout = DEFAULT_TIMEOUT if args.timeout is None else args.timeout
+    try:
+        names = fetch_suggested_usernames(
+            args.fetch_username,
+            prefix=args.prefix,
+            suffix=args.suffix,
+            verify_available=args.verify,
+            timeout=timeout,
+            retries=4 if args.retries is None else args.retries,
+            retry_delay=5.0 if args.retry_delay is None else args.retry_delay,
+            retry_policy=_retry_policy(args),
+            max_total_seconds=args.max_total_timeout,
+        )
+    except (Gen4399Error, TypeError, ValueError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        _emit_json(names)
+    else:
         for name in names:
             print(name)
-        return 0
+    if args.output:
+        _maybe_output(args, "fetched-usernames.json", names)
+    return 0
 
+
+def _cmd_generate(args) -> int:
     as_username = args.username
     charset = USERNAME_CHARSET if as_username else CHARSET
-    length = args.length
-    if length is None:
-        length = DEFAULT_USERNAME_LENGTH if as_username else DEFAULT_LENGTH
-
+    length = _display_length(args, as_username)
+    policy = _retry_policy(args)
     try:
         min_len = USERNAME_MIN_LENGTH if as_username else MIN_LENGTH
         max_len = USERNAME_MAX_LENGTH if as_username else MAX_LENGTH
@@ -405,30 +650,52 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
         if args.entropy:
-            print(f"{bits:.1f}")
+            if args.json:
+                _emit_json({"kind": "username" if as_username else "password",
+                            "length": length, "entropy_bits": round(bits, 4)})
+            else:
+                print(f"{bits:.1f}")
             return 0
 
-        if as_username:
-            if args.verify:
-                items = [
-                    generate_available_username(
-                        length=length, prefix=args.prefix, suffix=args.suffix
-                    )
-                    for _ in range(args.count)
-                ]
-            else:
-                items = generate_usernames(
-                    args.count, length=length, prefix=args.prefix, suffix=args.suffix
-                )
+        if as_username and args.verify:
+            items = []
+            for _ in range(args.count):
+                items.append(generate_available_username(
+                    length=length,
+                    prefix=args.prefix,
+                    suffix=args.suffix,
+                    retry_policy=policy,
+                ))
+                _sleep_between(args)
+        elif as_username:
+            items = generate_usernames(
+                args.count, length=length, prefix=args.prefix, suffix=args.suffix
+            )
         else:
             items = generate_many(
                 args.count, length=length, prefix=args.prefix, suffix=args.suffix
             )
-        for item in items:
-            print(item)
     except (Gen4399Error, TypeError, ValueError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 2
+
+    if args.json:
+        _emit_json({
+            "kind": "username" if as_username else "password",
+            "length": length,
+            "prefix": args.prefix,
+            "suffix": args.suffix,
+            "entropy_bits": round(bits, 4),
+            "items": items,
+        })
+    else:
+        for item in items:
+            print(item)
+    if args.output:
+        _maybe_output(args, "generated.json", {
+            "kind": "username" if as_username else "password",
+            "items": items,
+        })
 
     rnd = length - len(args.prefix) - len(args.suffix)
     kind = "账号名" if as_username else "密码"
@@ -444,6 +711,34 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
     return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """CLI 主函数。返回退出码：0 成功，1 校验失败，2 参数/远程错误。"""
+    args = build_parser().parse_args(argv)
+    if args.verbose:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(levelname)s %(name)s: %(message)s",
+        )
+
+    if args.check is not None or args.check_username is not None:
+        return _cmd_check(args)
+    if args.form_fields is not None:
+        return _cmd_form_fields(args)
+    if args.check_form is not None:
+        return _cmd_check_form(args)
+    if args.prepare:
+        return _cmd_prepare(args)
+    if args.build_form is not None:
+        return _cmd_build_form(args)
+    if args.account:
+        return _cmd_account(args)
+    if args.check_available is not None:
+        return _cmd_check_available(args)
+    if args.fetch_username is not None:
+        return _cmd_fetch(args)
+    return _cmd_generate(args)
 
 
 if __name__ == "__main__":  # pragma: no cover

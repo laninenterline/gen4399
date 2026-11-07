@@ -2,6 +2,8 @@
 
 import contextlib
 import io
+import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -252,6 +254,164 @@ class TestProfileFile(unittest.TestCase):
         )
         self.assertEqual(code, 2)
         self.assertIn("第 2 行", err)
+
+
+class TestJsonOutput(unittest.TestCase):
+    def test_generate_json(self):
+        code, out, _ = run(["-n", "8", "-c", "2", "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual(data["kind"], "password")
+        self.assertEqual(len(data["items"]), 2)
+        self.assertEqual(data["length"], 8)
+        for item in data["items"]:
+            self.assertEqual(validate(item), [])
+
+    def test_username_generate_json(self):
+        code, out, _ = run(["-u", "-n", "10", "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual(data["kind"], "username")
+        self.assertEqual(len(data["items"][0]), 10)
+
+    def test_check_json(self):
+        code, out, _ = run(["--check", "123456", "--json"])
+        self.assertEqual(code, 1)
+        data = json.loads(out)
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["violations"][0]["code"], "all_digits")
+
+    def test_entropy_json(self):
+        code, out, _ = run(["--entropy", "-n", "8", "--json"])
+        self.assertEqual(code, 0)
+        self.assertGreater(json.loads(out)["entropy_bits"], 0)
+
+    def test_form_fields_json(self):
+        code, out, _ = run(["--form-fields", "web", "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual(data["path"], "web")
+        self.assertIn("login_name", [f["name"] for f in data["fields"]])
+
+    def test_build_form_json(self):
+        code, out, _ = run([
+            "--build-form", "abc12345", "Abc123456",
+            "--realname", "张三", "--idcard", VALID_ID, "--json",
+        ])
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertNotIn(VALID_ID, json.dumps(data, ensure_ascii=False))
+        self.assertEqual(data["fields"]["login_name"], "abc12345")
+
+    def test_prepare_json(self):
+        code, out, _ = run([
+            "--prepare", "--offline",
+            "--realname", "张三", "--idcard", VALID_ID, "--json",
+        ])
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual(len(data), 1)
+        self.assertNotIn(VALID_ID, out)
+
+    def test_check_available_json(self):
+        avail = UsernameAvailability(
+            username="abc12345", available=True, message="0"
+        )
+        with mock.patch("gen4399.cli.check_username", return_value=avail):
+            code, out, _ = run(["--check-available", "abc12345", "--json"])
+        self.assertEqual(code, 0)
+        self.assertTrue(json.loads(out)["available"])
+
+    def test_fetch_json(self):
+        with mock.patch("gen4399.cli.fetch_suggested_usernames",
+                        return_value=["u4257237567"]):
+            code, out, _ = run(["--fetch-username", "1", "-p", "u", "--json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), ["u4257237567"])
+
+
+class TestNewFlags(unittest.TestCase):
+    def test_password_length_and_username_length(self):
+        code, out, _ = run([
+            "--account", "--no-verify",
+            "--password-length", "20", "--username-length", "10",
+        ])
+        self.assertEqual(code, 0)
+        lines = dict(line.split(": ", 1) for line in out.strip().splitlines())
+        self.assertEqual(len(lines["username"]), 10)
+        self.assertEqual(len(lines["password"]), 20)
+
+    def test_account_batch_count(self):
+        code, out, _ = run(["--account", "--no-verify", "-c", "3"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.count("username: "), 3)
+
+    def test_check_available_offline_errors(self):
+        code, _, err = run(["--check-available", "abc12345", "--offline"])
+        self.assertEqual(code, 2)
+        self.assertIn("需要联网", err)
+
+    def test_fetch_offline_errors(self):
+        code, _, err = run(["--fetch-username", "--offline"])
+        self.assertEqual(code, 2)
+        self.assertIn("需要联网", err)
+
+    def test_retry_policy_passed(self):
+        avail = UsernameAvailability(
+            username="abc12345", available=True, message="0"
+        )
+        with mock.patch("gen4399.cli.check_username", return_value=avail) as chk:
+            run(["--check-available", "abc12345",
+                 "--retries", "5", "--retry-delay", "0.1"])
+        policy = chk.call_args.kwargs["retry_policy"]
+        self.assertEqual(policy.attempts, 5)
+        self.assertEqual(policy.base_delay, 0.1)
+
+    def test_output_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, _, err = run([
+                "--prepare", "--offline",
+                "--realname", "张三", "--idcard", VALID_ID,
+                "--output", tmp,
+            ])
+            self.assertEqual(code, 0)
+            files = list(Path(tmp).glob("bundle-*.json"))
+            self.assertEqual(len(files), 1)
+            mode = files[0].stat().st_mode & 0o777
+            data = json.loads(files[0].read_text(encoding="utf-8"))
+        self.assertEqual(mode, 0o600)
+        self.assertNotIn(VALID_ID, json.dumps(data, ensure_ascii=False))
+
+    def test_profile_file_stdin(self):
+        old = sys.stdin
+        sys.stdin = io.StringIO("张三|" + VALID_ID + "\n")
+        try:
+            code, out, _ = run([
+                "--prepare", "--offline", "--profile-file", "-",
+            ])
+        finally:
+            sys.stdin = old
+        self.assertEqual(code, 0)
+        self.assertIn("login_name", out)
+
+    def test_show_pii_warning(self):
+        code, _, err = run([
+            "--build-form", "abc12345", "Abc123456",
+            "--realname", "张三", "--idcard", VALID_ID, "--show-pii",
+        ])
+        self.assertEqual(code, 0)
+        self.assertIn("警告", err)
+
+    def test_profile_file_with_qq_conflicts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ids.txt"
+            path.write_text("张三|" + VALID_ID + "\n", encoding="utf-8")
+            code, _, err = run([
+                "--prepare", "--offline", "--profile-file", str(path),
+                "--qq", "123456789",
+            ])
+        self.assertEqual(code, 2)
+        self.assertIn("不能与", err)
 
 
 class TestAccount(unittest.TestCase):

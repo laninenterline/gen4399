@@ -23,6 +23,9 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import os
 import random
 import re
 import socket
@@ -31,6 +34,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from typing import Literal
 
 from .core import (
     DEFAULT_LENGTH,
@@ -43,6 +49,12 @@ from .core import (
     validate_username,
 )
 
+#: ``UsernameAvailability.kind`` 的合法取值
+AvailabilityKind = Literal["available", "taken", "invalid", "unknown"]
+
+#: 模块日志器（只输出非 PII 的调试信息）
+logger = logging.getLogger("gen4399.remote")
+
 __all__ = [
     "REG_FRAME_URL",
     "IS_EXIST_URL",
@@ -54,6 +66,8 @@ __all__ = [
     "RemoteHTTPError",
     "RemoteParseError",
     "UsernameAvailability",
+    "AvailabilityKind",
+    "RetryPolicy",
     "Account",
     "fetch_suggested_username",
     "fetch_suggested_usernames",
@@ -81,6 +95,52 @@ DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    """远程请求的重试策略。
+
+    Attributes:
+        attempts: 总尝试次数（含首次），必须 >= 1。
+        base_delay: 第一次失败后的等待基数（秒），之后指数递增。
+        max_delay: 单次等待上限（秒）。
+        total_deadline: 整次调用的总时间预算（秒），``None`` 表示不限制。
+        respect_retry_after: 是否优先采用服务端 ``Retry-After`` 头。
+    """
+
+    attempts: int = 3
+    base_delay: float = 0.5
+    max_delay: float = 10.0
+    total_deadline: float | None = None
+    respect_retry_after: bool = True
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.attempts, int) or isinstance(self.attempts, bool):
+            raise TypeError("attempts 必须是 int")
+        if self.attempts < 1:
+            raise ValueError("attempts 必须 >= 1")
+        if self.base_delay < 0 or self.max_delay < 0:
+            raise ValueError("delay 不能为负")
+        if self.total_deadline is not None and self.total_deadline <= 0:
+            raise ValueError("total_deadline 必须 > 0 或为 None")
+
+    def delay_for(self, failed_attempt: int, retry_after: float | None = None) -> float:
+        """返回第 ``failed_attempt`` 次失败后的等待时间（含 ±25% 抖动）。"""
+        if retry_after is not None and self.respect_retry_after:
+            return min(max(retry_after, 0.0), self.max_delay)
+        delay = min(self.base_delay * (2 ** (failed_attempt - 1)), self.max_delay)
+        return delay * (1 + random.uniform(0, 0.25))
+
+
+#: 通用默认策略（单次请求，含有限重试）
+DEFAULT_RETRY_POLICY = RetryPolicy()
+
+#: 取分配账号时，单次 HTTP 请求内部的重试策略
+DEFAULT_FETCH_RETRY_POLICY = RetryPolicy(attempts=2, base_delay=0.5, max_delay=2.0)
+
+#: 查重时单次 HTTP 请求内部的重试策略
+DEFAULT_CHECK_RETRY_POLICY = RetryPolicy(attempts=2, base_delay=0.5, max_delay=2.0)
+
 # 匹配 <input ... id="j-username" ...> 整个标签：不依赖属性顺序、单双引号皆可
 _INPUT_TAG_RE = re.compile(
     r"""<input\b[^>]*\bid\s*=\s*["']j-username["'][^>]*>""",
@@ -97,7 +157,15 @@ MAX_BODY_BYTES = 512 * 1024
 
 
 class RemoteError(Gen4399Error):
-    """调用 4399 远程接口失败。"""
+    """调用 4399 远程接口失败。
+
+    Attributes:
+        url: 出错的请求地址（可能为 None）。
+    """
+
+    def __init__(self, message: str, *, url: str | None = None) -> None:
+        super().__init__(message)
+        self.url = url
 
 
 class RemoteTimeoutError(RemoteError):
@@ -105,11 +173,24 @@ class RemoteTimeoutError(RemoteError):
 
 
 class RemoteHTTPError(RemoteError):
-    """HTTP 状态码非 2xx。"""
+    """HTTP 状态码非 2xx。
 
-    def __init__(self, message: str, status: int) -> None:
-        super().__init__(message)
+    Attributes:
+        status: HTTP 状态码。
+        retry_after: 服务端 ``Retry-After`` 解析出的秒数（可能为 None）。
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status: int,
+        *,
+        retry_after: float | None = None,
+        url: str | None = None,
+    ) -> None:
+        super().__init__(message, url=url)
         self.status = status
+        self.retry_after = retry_after
 
 
 class RemoteParseError(RemoteError):
@@ -131,14 +212,23 @@ class UsernameAvailability:
     username: str
     available: bool
     message: str
-    kind: str = ""
+    kind: AvailabilityKind | None = None
 
     def __post_init__(self) -> None:
-        if not self.kind:
+        if self.kind is None:
             object.__setattr__(self, "kind", _classify_availability(self.message))
 
     def __bool__(self) -> bool:  # 让 `if result:` 直接表示是否可用
         return self.available
+
+    def to_dict(self) -> dict[str, object]:
+        """转成可 JSON 序列化的字典。"""
+        return {
+            "username": self.username,
+            "available": self.available,
+            "kind": self.kind,
+            "message": self.message,
+        }
 
 
 #: 服务端"用户名可用"的响应体
@@ -148,7 +238,7 @@ _AVAILABLE_BODY = "0"
 _INVALID_HINTS = ("敏感", "至少", "字符", "长度", "格式", "不能", "非法", "限制")
 
 
-def _classify_availability(body: str) -> str:
+def _classify_availability(body: str) -> AvailabilityKind:
     """把 isExist.do 的响应体分类（内部函数）。
 
     Returns:
@@ -164,14 +254,47 @@ def _classify_availability(body: str) -> str:
     return "taken"
 
 
-def _http_get(url: str, timeout: float, *, retries: int = 1) -> str:
-    """带有限重试的最小 HTTP GET 封装（内部函数，便于测试时打桩）。
+def _parse_retry_after(headers) -> float | None:
+    """解析 ``Retry-After`` 头（秒数或 HTTP-date），失败返回 None。"""
+    if headers is None:
+        return None
+    value = headers.get("Retry-After") if hasattr(headers, "get") else None
+    if not value:
+        return None
+    value = str(value).strip()
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        dt = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return max(0.0, (dt - datetime.now(timezone.utc)).total_seconds())
+
+
+def _safe_url(url: str) -> str:
+    """日志用：去掉 query，避免把用户名等写进日志。"""
+    return url.split("?", 1)[0]
+
+
+def _http_get(
+    url: str,
+    timeout: float,
+    *,
+    retries: int = 1,
+    policy: RetryPolicy | None = None,
+) -> str:
+    """带重试策略的最小 HTTP GET 封装（内部函数，便于测试时打桩）。
 
     Args:
         url: 请求地址。
         timeout: 单次请求超时（秒）。
-        retries: 总尝试次数（含首次）。超时、网络错误、5xx、429 会重试；
-            其它 4xx 直接抛出。
+        retries: 旧参数；未提供 ``policy`` 时用它构造单次策略。
+        policy: 显式重试策略；超时 / 网络错误 / 5xx / 429 会重试，
+            其它 4xx 直接抛出，``Retry-After`` 优先。
 
     Returns:
         响应体文本。
@@ -181,21 +304,36 @@ def _http_get(url: str, timeout: float, *, retries: int = 1) -> str:
     """
     if retries < 1:
         raise ValueError("retries 必须 >= 1")
+    if policy is None:
+        policy = RetryPolicy(attempts=retries)
+
+    start = time.monotonic()
     last_error: RemoteError | None = None
-    for attempt in range(1, retries + 1):
+    for attempt in range(1, policy.attempts + 1):
+        logger.debug(
+            "GET %s (attempt %d/%d)", _safe_url(url), attempt, policy.attempts
+        )
         try:
             return _http_get_once(url, timeout)
         except RemoteHTTPError as exc:
             if 400 <= exc.status < 500 and exc.status != 429:
                 raise
             last_error = exc
-        except RemoteTimeoutError as exc:
-            last_error = exc
         except RemoteError as exc:
             last_error = exc
-        if attempt < retries:
-            # 线性退避 + 抖动，避免并发重试同时打到接口
-            time.sleep(0.5 * attempt * (1 + random.uniform(0, 0.25)))
+
+        if attempt >= policy.attempts:
+            break
+        delay = policy.delay_for(attempt, getattr(last_error, "retry_after", None))
+        if policy.total_deadline is not None:
+            remaining = policy.total_deadline - (time.monotonic() - start)
+            if remaining <= 0:
+                break
+            delay = min(delay, remaining)
+        if delay > 0:
+            logger.debug("retry in %.2fs after %s", delay, type(last_error).__name__)
+            time.sleep(delay)
+
     assert last_error is not None
     raise last_error
 
@@ -215,19 +353,29 @@ def _http_get_once(url: str, timeout: float) -> str:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             status = getattr(resp, "status", 200)
             if status and not 200 <= status < 300:
-                raise RemoteHTTPError(f"HTTP {status}", status)
+                raise RemoteHTTPError(
+                    f"HTTP {status}",
+                    status,
+                    retry_after=_parse_retry_after(getattr(resp, "headers", None)),
+                    url=url,
+                )
             raw = resp.read(MAX_BODY_BYTES)
     except urllib.error.HTTPError as exc:  # 4xx / 5xx
-        raise RemoteHTTPError(f"HTTP {exc.code}", exc.code) from exc
+        raise RemoteHTTPError(
+            f"HTTP {exc.code}",
+            exc.code,
+            retry_after=_parse_retry_after(getattr(exc, "headers", None)),
+            url=url,
+        ) from exc
     except socket.timeout as exc:
-        raise RemoteTimeoutError(f"请求超时（{timeout}s）") from exc
+        raise RemoteTimeoutError(f"请求超时（{timeout}s）", url=url) from exc
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", exc)
         if isinstance(reason, socket.timeout):
-            raise RemoteTimeoutError(f"请求超时（{timeout}s）") from exc
-        raise RemoteError(f"网络错误：{reason}") from exc
+            raise RemoteTimeoutError(f"请求超时（{timeout}s）", url=url) from exc
+        raise RemoteError(f"网络错误：{reason}", url=url) from exc
     except OSError as exc:
-        raise RemoteError(f"网络错误：{exc}") from exc
+        raise RemoteError(f"网络错误：{exc}", url=url) from exc
     return raw.decode("utf-8", errors="replace")
 
 
@@ -287,6 +435,8 @@ def fetch_suggested_username(
     prefix: str = "",
     suffix: str = "",
     verify_available: bool = False,
+    retry_policy: RetryPolicy | None = None,
+    max_total_seconds: float | None = None,
 ) -> str:
     """从 4399 官方注册面板接口获取一个服务端分配的用户名。
 
@@ -308,6 +458,9 @@ def fetch_suggested_username(
         suffix: 加在后面的固定后缀（只允许字母数字）。
         verify_available: 拿到用户名后，是否再调用 ``isExist.do`` 确认它
             仍然可注册（默认 False）。被占用时会继续重试。
+        retry_policy: 单次 HTTP 请求的重试策略，默认
+            :data:`DEFAULT_FETCH_RETRY_POLICY`。
+        max_total_seconds: 整个调用的总时间预算（秒），默认不限制。
 
     Returns:
         服务端分配的用户名字符串（已用 :func:`validate_username` 校验格式）。
@@ -322,6 +475,13 @@ def fetch_suggested_username(
         >>> fetch_suggested_username()        # doctest: +SKIP
         '4257237567'
     """
+    if not isinstance(retries, int) or isinstance(retries, bool):
+        raise TypeError("retries 必须是 int")
+    if retries < 1:
+        raise ValueError("retries 必须 >= 1")
+    if max_total_seconds is not None and max_total_seconds <= 0:
+        raise ValueError("max_total_seconds 必须 > 0 或为 None")
+
     # 先校验本地参数：前缀/后缀非法时立即报错，不要白跑一次网络请求
     check_fixed_part(prefix, "prefix")
     check_fixed_part(suffix, "suffix")
@@ -336,10 +496,13 @@ def fetch_suggested_username(
     }
     url = f"{REG_FRAME_URL}?{urllib.parse.urlencode(params)}"
 
+    policy = retry_policy or DEFAULT_FETCH_RETRY_POLICY
+    started = time.monotonic()
     last_error: RemoteError | None = None
-    attempts = max(1, retries)
-    for attempt in range(attempts):
-        html = _http_get(url, timeout, retries=2)
+    attempts = retries
+    for attempt in range(1, attempts + 1):
+        logger.debug("fetch_suggested_username attempt %d/%d", attempt, attempts)
+        html = _http_get(url, timeout, policy=policy)
         try:
             name = _parse_suggested_username(html)
         except RemoteParseError as exc:
@@ -349,7 +512,12 @@ def fetch_suggested_username(
             candidate = _apply_fixed_parts(name, prefix, suffix)
             if not verify_available:
                 return candidate
-            res = check_username(candidate, app_id=app_id, timeout=timeout)
+            res = check_username(
+                candidate,
+                app_id=app_id,
+                timeout=timeout,
+                retry_policy=policy,
+            )
             if res.available:
                 return candidate
             last_error = RemoteParseError(
@@ -359,11 +527,25 @@ def fetch_suggested_username(
             last_error = RemoteParseError(
                 f"服务端返回的用户名 {name!r} 不符合 4399 规则"
             )
-        if attempt < attempts - 1:
+        if attempt < attempts:
             # 指数退避（封顶 + 抖动）：该接口对短时间高频请求会返回空值
-            delay = min(retry_delay * (2 ** attempt), 60.0)
+            delay = min(retry_delay * (2 ** (attempt - 1)), 60.0)
+            delay *= 1 + random.uniform(0, 0.25)
+            if max_total_seconds is not None:
+                remaining = max_total_seconds - (time.monotonic() - started)
+                if remaining <= 0:
+                    break
+                delay = min(delay, remaining)
             if delay > 0:
-                time.sleep(delay * (1 + random.uniform(0, 0.25)))
+                time.sleep(delay)
+
+    if max_total_seconds is not None and (
+        time.monotonic() - started
+    ) >= max_total_seconds:
+        raise RemoteTimeoutError(
+            f"获取分配账号超过总时间预算 {max_total_seconds}s",
+            url=url,
+        )
 
     if fallback_to_local:
         if verify_available:
@@ -398,17 +580,24 @@ def fetch_suggested_usernames(
     prefix: str = "",
     suffix: str = "",
     verify_available: bool = False,
-) -> list[str]:
+    with_availability: bool = False,
+    retry_policy: RetryPolicy | None = None,
+    max_total_seconds: float | None = None,
+) -> "list[str] | list[UsernameAvailability]":
     """批量获取服务端分配的用户名。
 
     Args:
         count: 需要的数量，必须 >= 1。
         unique: 是否保证互不相同（默认 True）。为 True 时最多尝试
             ``count * 3`` 次（该接口有频率限制，重复很常见）。
+        with_availability: 为 True 时返回
+            ``list[UsernameAvailability]``（会对每个名字再查一次
+            ``isExist.do``，多消耗一次请求/名字）。
         其它参数同 :func:`fetch_suggested_username`。
 
     Returns:
-        恰好 ``count`` 个用户名。
+        恰好 ``count`` 个用户名；``with_availability=True`` 时是
+        :class:`UsernameAvailability` 列表。
 
     Raises:
         ValueError: ``count < 1``。
@@ -433,7 +622,9 @@ def fetch_suggested_usernames(
             fallback_to_local=fallback_to_local,
             prefix=prefix,
             suffix=suffix,
-            verify_available=verify_available,
+            verify_available=verify_available and not with_availability,
+            retry_policy=retry_policy,
+            max_total_seconds=max_total_seconds,
         )
         if unique:
             if name in seen:
@@ -441,6 +632,16 @@ def fetch_suggested_usernames(
             seen.add(name)
         out.append(name)
         if len(out) == count:
+            if with_availability:
+                return [
+                    check_username(
+                        item,
+                        app_id=app_id,
+                        timeout=timeout,
+                        retry_policy=retry_policy,
+                    )
+                    for item in out
+                ]
             return out
 
     raise RemoteError(
@@ -454,6 +655,8 @@ def check_username(
     *,
     app_id: str = DEFAULT_APP_ID,
     timeout: float = DEFAULT_TIMEOUT,
+    validate_input: bool = False,
+    retry_policy: RetryPolicy | None = None,
 ) -> UsernameAvailability:
     """查询用户名是否还能注册（调用官方 ``isExist.do``）。
 
@@ -461,6 +664,9 @@ def check_username(
         username: 待查询的用户名。
         app_id: 业务方 appId，默认 ``u4399``。
         timeout: 请求超时（秒）。
+        validate_input: 为 True 时先用本地规则快速校验，明显非法
+            （长度/字符集）直接返回 ``kind="invalid"``，不发网络请求。
+        retry_policy: 单次 HTTP 请求的重试策略。
 
     Returns:
         :class:`UsernameAvailability`，``.available`` 为 True 表示可注册，
@@ -480,10 +686,24 @@ def check_username(
     """
     if not isinstance(username, str):
         raise TypeError(f"username 必须是 str，收到 {type(username).__name__}")
+    if validate_input:
+        violations = validate_username(username)
+        if violations:
+            detail = "；".join(v.message for v in violations)
+            return UsernameAvailability(
+                username=username,
+                available=False,
+                message=f"本地校验失败：{detail}",
+                kind="invalid",
+            )
     query = urllib.parse.urlencode(
         {"username": username, "appId": app_id, "regMode": "reg_normal"}
     )
-    body = _http_get(f"{IS_EXIST_URL}?{query}", timeout, retries=2).strip()
+    body = _http_get(
+        f"{IS_EXIST_URL}?{query}",
+        timeout,
+        policy=retry_policy or DEFAULT_CHECK_RETRY_POLICY,
+    ).strip()
     kind = _classify_availability(body)
     if kind == "unknown":
         raise RemoteParseError(
@@ -503,13 +723,21 @@ def is_username_available(
     *,
     app_id: str = DEFAULT_APP_ID,
     timeout: float = DEFAULT_TIMEOUT,
+    validate_input: bool = False,
+    retry_policy: RetryPolicy | None = None,
 ) -> bool:
     """判断用户名是否可注册（:func:`check_username` 的布尔便捷版）。
 
     ``kind="invalid"``（名字本身不合法）也返回 False。
     响应无法识别时抛 :class:`RemoteParseError`，不会静默返回 False。
     """
-    return check_username(username, app_id=app_id, timeout=timeout).available
+    return check_username(
+        username,
+        app_id=app_id,
+        timeout=timeout,
+        validate_input=validate_input,
+        retry_policy=retry_policy,
+    ).available
 
 
 def generate_available_username(
@@ -521,6 +749,7 @@ def generate_available_username(
     app_id: str = DEFAULT_APP_ID,
     timeout: float = DEFAULT_TIMEOUT,
     retry_delay: float = 0.0,
+    retry_policy: RetryPolicy | None = None,
 ) -> str:
     """本地生成用户名，并用官方 ``isExist.do`` 自动确认它真的能注册。
 
@@ -555,7 +784,9 @@ def generate_available_username(
     last = ""
     for attempt in range(max_attempts):
         name = generate_username(length=length, prefix=prefix, suffix=suffix)
-        res = check_username(name, app_id=app_id, timeout=timeout)
+        res = check_username(
+            name, app_id=app_id, timeout=timeout, retry_policy=retry_policy
+        )
         if res.available:
             return name
         last = res.message
@@ -600,6 +831,23 @@ class Account:
             username_available=self.username_available,
         )
 
+    def to_dict(self) -> dict[str, object]:
+        """转成可 JSON 序列化的字典（含明文密码）。"""
+        return {
+            "username": self.username,
+            "password": self.password,
+            "username_available": self.username_available,
+        }
+
+    def save(self, path: "str | os.PathLike[str]", *, mode: int = 0o600) -> None:
+        """把账号信息写成 JSON 文件（默认权限 0600，含明文密码）。"""
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(self.to_dict(), fh, ensure_ascii=False, indent=2)
+        try:
+            os.chmod(path, mode)
+        except OSError:  # pragma: no cover - 非 POSIX 平台
+            pass
+
 
 def generate_account(
     *,
@@ -612,6 +860,7 @@ def generate_account(
     max_attempts: int = 20,
     app_id: str = DEFAULT_APP_ID,
     timeout: float = DEFAULT_TIMEOUT,
+    retry_policy: RetryPolicy | None = None,
 ) -> Account:
     """生成一套合规的账号名 + 密码，并（默认）校验账号名可用性。
 
@@ -653,7 +902,12 @@ def generate_account(
             detail = "；".join(v.message for v in violations)
             raise ValueError(f"指定的用户名 {username!r} 不符合 4399 规则：{detail}")
         if verify_username:
-            res = check_username(username, app_id=app_id, timeout=timeout)
+            res = check_username(
+                username,
+                app_id=app_id,
+                timeout=timeout,
+                retry_policy=retry_policy,
+            )
             if not res.available:
                 raise RemoteError(
                     f"指定的用户名 {username!r} 不可用：{res.message}"
@@ -669,6 +923,7 @@ def generate_account(
             max_attempts=max_attempts,
             app_id=app_id,
             timeout=timeout,
+            retry_policy=retry_policy,
         )
         return Account(username=name, password=pwd, username_available=True)
 

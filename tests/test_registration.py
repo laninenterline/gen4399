@@ -1,6 +1,9 @@
 """gen4399.registration 单元测试（网络层全部打桩）。"""
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from gen4399 import (
@@ -79,6 +82,45 @@ class TestPrepareOffline(unittest.TestCase):
     def test_as_text_show_pii(self):
         b = prepare_registration(PROFILE, verify_username=False)
         text = b.as_text(show_pii=True)
+        self.assertIn(VALID_ID, text)
+        self.assertIn(b.password, text)
+
+
+class TestBundleSerialization(unittest.TestCase):
+    def test_to_dict_masks(self):
+        b = prepare_registration(PROFILE, verify_username=False)
+        data = b.to_dict(include_secrets=False)
+        self.assertEqual(data["username"], b.username)
+        self.assertEqual(data["password"], "*" * len(b.password))
+        self.assertNotEqual(data["idcard"], VALID_ID)
+        self.assertNotIn(VALID_ID, json.dumps(data, ensure_ascii=False))
+
+    def test_to_dict_full(self):
+        b = prepare_registration(PROFILE, verify_username=False)
+        data = b.to_dict(include_secrets=True)
+        self.assertEqual(data["password"], b.password)
+        self.assertEqual(data["idcard"], VALID_ID)
+
+    def test_save_masked_by_default(self):
+        b = prepare_registration(PROFILE, verify_username=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bundle.json"
+            b.save(path)
+            text = path.read_text(encoding="utf-8")
+            mode = path.stat().st_mode & 0o777
+            data = json.loads(text)
+        self.assertNotIn(VALID_ID, text)
+        self.assertNotIn(b.password, text)
+        if __import__("os").name == "posix":
+            self.assertEqual(mode, 0o600)
+        self.assertEqual(data["username"], b.username)
+
+    def test_save_show_pii(self):
+        b = prepare_registration(PROFILE, verify_username=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bundle.json"
+            b.save(path, show_pii=True)
+            text = path.read_text(encoding="utf-8")
         self.assertIn(VALID_ID, text)
         self.assertIn(b.password, text)
 

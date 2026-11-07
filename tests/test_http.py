@@ -10,14 +10,17 @@ from gen4399.remote import (
     RemoteError,
     RemoteHTTPError,
     RemoteTimeoutError,
+    RetryPolicy,
     _http_get,
 )
 
 
 class FakeResponse:
-    def __init__(self, body: bytes = b"0", status: int = 200) -> None:
+    def __init__(self, body: bytes = b"0", status: int = 200,
+                 headers: dict | None = None) -> None:
         self._body = body
         self.status = status
+        self.headers = headers or {}
         self.read_args: list[int] = []
 
     def read(self, size: int = -1) -> bytes:
@@ -131,6 +134,36 @@ class TestHttpGet(unittest.TestCase):
     def test_invalid_retries(self):
         with self.assertRaises(ValueError):
             _http_get("https://example.test/x", 5, retries=0)
+
+    def test_error_carries_url(self):
+        self.urlopen.side_effect = urllib.error.HTTPError(
+            "https://example.test/x", 500, "err", {}, None
+        )
+        with self.assertRaises(RemoteHTTPError) as ctx:
+            _http_get("https://example.test/x", 5)
+        self.assertEqual(ctx.exception.url, "https://example.test/x")
+
+    def test_429_respects_retry_after(self):
+        self.urlopen.side_effect = [
+            FakeResponse(b"", status=429, headers={"Retry-After": "2"}),
+            FakeResponse(b"0"),
+        ]
+        with mock.patch("gen4399.remote.time.sleep") as sleep:
+            self.assertEqual(_http_get("https://example.test/x", 5, retries=2), "0")
+        sleep.assert_called_once()
+        self.assertGreaterEqual(sleep.call_args.args[0], 2.0)
+
+    def test_policy_delay_is_capped(self):
+        policy = RetryPolicy(attempts=2, base_delay=100, max_delay=1)
+        self.assertLessEqual(policy.delay_for(1), 1.0 * 1.25)
+
+    def test_policy_validation(self):
+        with self.assertRaises(ValueError):
+            RetryPolicy(attempts=0)
+        with self.assertRaises(ValueError):
+            RetryPolicy(total_deadline=0)
+        with self.assertRaises(TypeError):
+            RetryPolicy(attempts="3")  # type: ignore[arg-type]
 
 
 if __name__ == "__main__":

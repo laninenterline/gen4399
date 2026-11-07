@@ -23,6 +23,7 @@ from gen4399.remote import (
     generate_account,
     generate_available_username,
     is_username_available,
+    RetryPolicy,
 )
 
 HTML_WITH_NAME = '''
@@ -277,6 +278,78 @@ class TestGenerateAccountValidation(unittest.TestCase):
         self.assertNotIn("Secret123", repr(acc))
         self.assertIn("***", repr(acc))
         self.assertNotIn("Secret123", repr(acc.masked()))
+
+
+class TestValidateInput(unittest.TestCase):
+    def test_invalid_name_is_not_sent(self):
+        with mock.patch("gen4399.remote._http_get") as get:
+            res = check_username("a b", validate_input=True)
+        self.assertEqual(res.kind, "invalid")
+        self.assertFalse(res.available)
+        get.assert_not_called()
+
+    def test_valid_name_is_sent(self):
+        with mock.patch("gen4399.remote._http_get", return_value="0") as get:
+            res = check_username("abc12345", validate_input=True)
+        self.assertTrue(res.available)
+        get.assert_called_once()
+
+
+class TestFetchRetryParams(unittest.TestCase):
+    def test_invalid_retries(self):
+        for bad in (0, -1):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    fetch_suggested_username(retries=bad)
+
+    def test_invalid_total_seconds(self):
+        with self.assertRaises(ValueError):
+            fetch_suggested_username(max_total_seconds=0)
+
+    def test_total_deadline_raises(self):
+        with mock.patch("gen4399.remote._http_get", return_value=HTML_EMPTY_NAME):
+            with mock.patch("gen4399.remote.time.sleep"):
+                with mock.patch(
+                    "gen4399.remote.time.monotonic",
+                    side_effect=[0.0, 0.0, 100.0, 100.0, 100.0],
+                ):
+                    with self.assertRaises(RemoteTimeoutError):
+                        fetch_suggested_username(
+                            retries=3, retry_delay=1, max_total_seconds=5
+                        )
+
+
+class TestBatchWithAvailability(unittest.TestCase):
+    @mock.patch("gen4399.remote.check_username")
+    @mock.patch("gen4399.remote._http_get", return_value=HTML_WITH_NAME)
+    def test_with_availability(self, _get, chk):
+        chk.return_value = UsernameAvailability(
+            username="x", available=True, message="0"
+        )
+        result = fetch_suggested_usernames(
+            2, unique=False, with_availability=True, retries=1
+        )
+        self.assertEqual(len(result), 2)
+        self.assertTrue(all(isinstance(x, UsernameAvailability) for x in result))
+        self.assertEqual(chk.call_count, 2)
+
+
+class TestAccountSave(unittest.TestCase):
+    def test_save_json(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        acc = Account(username="abc12345", password="Abc123456")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "acc.json"
+            acc.save(path)
+            data = json.loads(path.read_text(encoding="utf-8"))
+            mode = path.stat().st_mode & 0o777
+        self.assertEqual(data["username"], "abc12345")
+        self.assertEqual(data["password"], "Abc123456")
+        if __import__("os").name == "posix":
+            self.assertEqual(mode, 0o600)
 
 
 class TestErrorTypes(unittest.TestCase):
