@@ -90,6 +90,13 @@ class TestLoadProfiles(unittest.TestCase):
         self.assertEqual(profiles[0].realname, "张三")
         self.assertEqual(profiles[1].qq, "123456789")
 
+    def test_gbk_encoding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ids-gbk.txt"
+            path.write_bytes(("张三|" + VALID_ID + "\n").encode("gbk"))
+            profiles = load_profiles(path, encoding="gbk")
+        self.assertEqual(profiles[0].realname, "张三")
+
     def test_utf8_bom(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "ids.txt"

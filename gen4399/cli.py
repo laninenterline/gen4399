@@ -154,6 +154,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="身份信息 txt：每行「姓名|身份证号[|QQ]」，"
                         "空行和 # 注释跳过；可多行批量，用于 "
                         "--prepare / --build-form / --check-form；'-' 表示 stdin")
+    p.add_argument("--profile-encoding", default=None, metavar="ENCODING",
+                   help="身份文件编码，默认 utf-8-sig（自动兼容 BOM）")
     p.add_argument("--build-form", nargs=2, default=None,
                    metavar=("USERNAME", "PASSWORD"),
                    help="生成填表清单（参数名=值），不提交")
@@ -277,7 +279,8 @@ def _load_identity_profiles(args):
             )
         if args.qq is not None:
             raise ValueError("--profile-file 不能与 --qq 同时使用")
-        return load_profiles(args.profile_file, encoding="utf-8-sig")
+        encoding = getattr(args, "profile_encoding", None) or "utf-8-sig"
+        return load_profiles(args.profile_file, encoding=encoding)
     if not (args.realname and args.idcard):
         raise ValueError(
             "需要同时提供 --realname 和 --idcard，或使用 --profile-file"
@@ -752,6 +755,8 @@ def _add_io_opts(sp: argparse.ArgumentParser) -> None:
 def _add_identity_opts(sp: argparse.ArgumentParser) -> None:
     sp.add_argument("--profile-file", metavar="FILE", default=None,
                     help="每行「姓名|身份证号[|QQ]」，'-' 表示 stdin")
+    sp.add_argument("--profile-encoding", default=None, metavar="ENCODING",
+                    help="身份文件编码，默认 utf-8-sig")
     sp.add_argument("--realname", default=None, metavar="NAME")
     sp.add_argument("--idcard", default=None, metavar="ID")
     sp.add_argument("--qq", default=None, metavar="QQ")
@@ -868,6 +873,7 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
     pfcheck = pfsub.add_parser("check", help="校验身份文件")
     pfcheck.set_defaults(**defaults)
     pfcheck.add_argument("--profile-file", metavar="FILE", required=True)
+    pfcheck.add_argument("--profile-encoding", default=None, metavar="ENCODING")
     pfcheck.add_argument("--json", action="store_true")
 
     new("rules", "打印内置规则版本")
@@ -878,7 +884,11 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
 
 def _cmd_profile_check(args) -> int:
     try:
-        profiles = load_profiles(args.profile_file)
+        profiles = load_profiles(
+            args.profile_file,
+            encoding=getattr(args, "profile_encoding", None)
+            or "utf-8-sig",
+        )
     except (Gen4399Error, TypeError, ValueError, OSError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 2
