@@ -1,22 +1,26 @@
-# gen4399 项目全貌与架构说明
+# gen4399 项目全貌与架构说明（2.1.0）
 
-- **对象**：`gen4399` 2.0.0（tag `v2.0.0`，2026-11-07）
+- **对象**：`gen4399` 2.1.0（tag `v2.1.0`，2026-11-07）
 - **内容**：项目定位与边界、仓库地图、分层架构、4399 规则快照、各模块职责、关键数据流、API/CLI 速查、工程质量实测、PII 治理、演进史与已知问题清单。
-- **方法**：通读全部源码（3,716 行，含 remote 包）+ 9 个测试文件 + 全部文档；实跑 pytest / coverage / doctest；CLI 与 API 定向探针验证。
+- **方法**：通读全部源码（5,414 行，含 remote 包与 2.1.0 新增的 submit/_aes）+ 11 个测试文件 + 全部文档；实跑 pytest / coverage / doctest；CLI 与 API 定向探针验证。
 - **时效**：基于 2026-11-07 工作区快照，规则版本 `4399-2026-11`；行号引用以该版本源码为准。
 
 ---
 
 ## 1. 一句话定位
 
-gen4399 是一个**零运行时依赖**（只用标准库）的 Python 工具库，围绕「4399 账号注册」这一件事，提供四层能力：
+gen4399 是一个**零运行时依赖**（只用标准库）的 Python 工具库，围绕「4399 账号注册」这一件事，提供五层能力：
 
 1. **本地规则引擎**：按 4399 前端校验规则生成/校验密码与用户名，估算熵，批量去重生成；
 2. **官方接口封装**：调用 4399 两个公开 ptlogin 接口（`regFrame.do` 取分配账号、`isExist.do` 查用户名可注册性），带重试/退避/超时预算；
 3. **注册表单知识库**：定义 web / unified 两条注册路径的字段、必填、提交地址，并做**提交前本地整表校验**；
-4. **注册数据编排**：把「身份信息 → 生成用户名 → 在线查重 → 生成密码 → 整表校验 → 组装字段」串成 `prepare_registration()`，输出一份可以照着填的清单。
+4. **注册数据编排**：把「身份信息 → 生成用户名 → 在线查重 → 生成密码 → 整表校验 → 组装字段」串成 `prepare_registration()`，输出一份可以照着填的清单；
+5. **真实提交（2.1.0）**：`submit_registration()` / `gen4399 submit` 把 `unified` 路径的数据 POST 到 `ptlogin/register.do`（`sec=1` 时 AES 加密敏感字段）。**库不会自动提交**：CLI 默认 dry-run（需 `--yes`）；API 需显式调用 `submit_registration()`（默认 `dry_run=False`，建议先传 `dry_run=True`）。
 
-> **核心边界**：库**只准备数据，永不提交注册**；不碰验证码/风控；只应使用本人真实身份。定位是「半自动填表助手 + 规则库」，不是批量注册器。
+> **核心边界**：库**默认不提交注册**；`prepare_registration()` 只准备数据，真实提交必须显式开启。
+> 只支持 `unified` 路径（`web` 提交端点未实测，仍用浏览器）；成功判定是启发式的，
+> 因为 4399 成功响应未经实测。不碰验证码/风控；只应使用本人真实身份。
+> 定位是「半自动填表/提交助手 + 规则库」，不是批量注册器。
 
 ---
 
@@ -24,13 +28,15 @@ gen4399 是一个**零运行时依赖**（只用标准库）的 Python 工具库
 
 | 做 | 不做（刻意） |
 |---|---|
-| 生成合规密码/用户名（可带前后缀、自定义字符集、去重批量） | 不发送注册 POST 请求（表单提交地址只作元数据） |
-| 校验密码/用户名并给出机器可读违规码 | 不绕过验证码、不逆向风控、不做协议级自动注册 |
-| 封装 `regFrame.do` / `isExist.do` 两个公开 GET 接口 | 不提供密码「预校验」接口（4399 没有，只有提交时校验） |
+| 生成合规密码/用户名（可带前后缀、自定义字符集、去重批量） | 不默认提交注册：只有显式调用 `submit_registration()` / 加 `--yes` 才发 POST（CLI 默认 dry-run） |
+| 校验密码/用户名并给出机器可读违规码 | 不提交 `web` 路径注册（`POST /user/?_c=reg` 未实测，仍用浏览器） |
+| 封装 `regFrame.do` / `isExist.do` 两个公开 GET 接口，以及 `register.do` 提交（2.1.0） | 不提供密码「预校验」接口（4399 没有，只有提交时校验） |
 | 定义两条注册路径的表单字段并做本地整表校验 | 不自动填写浏览器、不驱动浏览器（无 Selenium 依赖） |
-| 从 `姓名\|身份证[|QQ]` 的 txt 批量读身份、校验、打码、落盘 | 不把身份信息发送到除 4399 官方接口以外的任何服务器 |
+| 从 `姓名\|身份证[\|QQ]` 的 txt 批量读身份、校验、打码、落盘 | 不绕过验证码/风控、不做协议级批量注册 |
+| `sec=1` 时按 4399 前端同款 AES 加密敏感字段（纯标准库） | 不把身份信息发送到除 4399 官方接口以外的任何服务器 |
+| 提交结果解析 + 启发式成功判定（成功响应未实测） | 不保证 `success` 一定是服务端最终结果，以登录 u.4399.com 为准 |
 
-**合规与伦理**：README / SECURITY.md 均声明「仅限本人真实身份、遵守 4399 用户协议、不要批量注册他人账号」；测试与文档中的身份证号是合成的测试夹具。
+**合规与伦理**：README / SECURITY.md 均声明「仅限本人真实身份、遵守 4399 用户协议、不要批量注册他人账号」；2.1.0 的提交能力不会自动触发（CLI 默认 dry-run），POST 不自动重试；测试与文档中的身份证号是合成的测试夹具。
 
 ---
 
@@ -39,26 +45,29 @@ gen4399 是一个**零运行时依赖**（只用标准库）的 Python 工具库
 ```
 lead-workspace/
 ├── gen4399/                  # 运行时包（零依赖）
-│   ├── __init__.py   193 行  # 公共门面：69 个导出、__version__ = "2.0.0"
+│   ├── __init__.py   207 行  # 公共门面：2.1.0 新增 submit 导出；__version__ = "2.1.0"
 │   ├── __main__.py     6 行  # python -m gen4399 → cli.main()
 │   ├── core.py       661 行  # 生成/校验/熵/异常/常量（纯规则，无 IO）
 │   ├── identity.py   396 行  # 姓名/身份证/QQ 校验 + RegistrationProfile + txt 读取
 │   ├── forms.py      399 行  # 两条注册路径字段定义 + 整表校验 + 字段组装
-│   ├── registration.py 321行 # prepare_registration 编排 + RegistrationBundle
+│   ├── registration.py 327行 # prepare_registration 编排 + RegistrationBundle
+│   ├── _aes.py       399 行  # 2.1.0 新增：CryptoJS 兼容 AES-256-CBC（纯标准库）
+│   ├── submit.py     412 行  # 2.1.0 新增：submit_registration + SubmitResult/SubmitError
 │   ├── remote/
 │   │   ├── __init__.py 65 行 # 再导出（兼容旧 from gen4399.remote import ...）
-│   │   ├── _http.py  318 行  # 传输层：urllib、RetryPolicy、错误类型、HTML 解析
+│   │   ├── _http.py  691 行  # 传输层：urllib、RetryPolicy、错误类型、HTML 解析、CookieJar 会话、POST
 │   │   └── _api.py   626 行  # 业务层：取号/查重/批量/Account/generate_*
 │   ├── _rules.py      35 行  # 规则快照版本/来源/关键字
 │   ├── _width.py      50 行  # CJK 终端显示宽度（表格对齐）
 │   └── py.typed              # 类型标记（随包分发）
-├── tests/            9 个文件，3,803 行，308 个用例 + 90 subtests
+├── tests/            12 个文件，4,122 行，456 个用例 + 437 subtests（含 test_aes/test_submit/test_submit_http）
 ├── scripts/verify_rules.py   # 规则页面关键词冒烟检查（GET + 子串匹配）
-├── docs/rules.md             # 规则快照、复核流程、改规则清单
+├── docs/rules.md             # 规则快照、复核流程、改规则清单、提交协议摘要
+├── docs/submit.md            # 2.1.0 新增：提交协议/字段/AES/结果判定/安全/未验证项
 ├── .github/workflows/ci.yml  # 3.10–3.13 矩阵 × 7 道门禁
 ├── pyproject.toml            # 版本单一来源、pytest/coverage/ruff/mypy 配置、dev extras
 ├── README.md / CHANGELOG.md / SECURITY.md / CONTRIBUTING.md / REVIEW.md / SUGGESTIONS.md
-└── dist/gen4399-2.0.0-py3-none-any.whl   # 与源码逐字节一致的构建产物
+└── dist/gen4399-2.0.0-py3-none-any.whl   # 旧构建产物（2.0 时代；2.1.0 请重新构建）
 ```
 
 依赖关系（实际 import）：
@@ -72,12 +81,14 @@ registration.py ──→ forms.py ──→ identity.py ──→ core.py
       │                │             (Gen4399Error)
       │                └──→ core.py
       │
-      └──→ remote/ ──→ _api.py ──→ _http.py ──→ core.py
-                (_http 无业务语义，_api 只做业务)
-_rules.py / _width.py 为叶子工具
+      ├──→ remote/ ──→ _api.py ──→ _http.py ──→ core.py
+      │                (_http 无业务语义，_api 只做业务)
+      │
+      └──→ submit.py ──→ _aes.py ──→ core.py
+                 └──→ registration.py / remote._http（RemoteSession）
 ```
 
-分层要点：**core 是纯函数层**（无 IO、无网络、无全局状态）；identity/forms 是领域知识层；remote 拆成传输/业务两层；registration 只做编排；cli 只做参数翻译与输出；`__init__` 只做门面。依赖方向单向，无环。
+分层要点：**core 是纯函数层**（无 IO、无网络、无全局状态）；identity/forms 是领域知识层；remote 拆成传输/业务两层；registration 只做编排；submit 是 2.1.0 新增的「提交用例层」（只依赖 `_aes` 与 `remote._http`，不反向依赖 CLI）；cli 只做参数翻译与输出；`__init__` 只做门面。依赖方向单向，无环。
 
 ---
 
@@ -98,10 +109,11 @@ _rules.py / _width.py 为叶子工具
 | | `web`（网页用户名注册，推荐） | `unified`（ptlogin 统一注册面板） |
 |---|---|---|
 | 注册页 | `https://web.4399.com/user/reg.php` | `https://u.4399.com/register.html` |
-| 提交地址（仅元数据） | `POST /user/?_c=reg` | `POST /ptlogin/register.do` |
-| 字段数 | 8 | 15 |
+| 提交地址 | `POST /user/?_c=reg` | `POST /ptlogin/register.do` |
+| 本库能否提交 | ❌ 未实测，仍用浏览器（表单地址只作元数据） | ✅ 2.1.0 起 `submit_registration()`（需显式调用） |
+| 字段数 | 8 | 15（提交时另以 `regFrame.do` 返回的 hidden 域为基线） |
 | 必填 | 6：login_name / login_password / relogin_pwd / true_name / sfz / agree | 8：username / password / passwordveri / realname / idcard / reg_eula_agree / regMode / appId |
-| 特殊点 | 无 email（页面注释掉）；cid 固定 3000 | 姓名/身份证是 hidden；有验证码字段 `fCaptcha`（风控弹窗才出现）、`autoLogin`、`level` 等固定隐藏域 |
+| 特殊点 | 无 email（页面注释掉）；cid 固定 3000 | 姓名/身份证是 hidden；`sec=1` 时 4 个敏感字段 AES 加密；有验证码字段 `fCaptcha`（风控弹窗才出现）、`autoLogin`、`level` 等固定隐藏域 |
 
 ---
 
@@ -142,7 +154,9 @@ _rules.py / _width.py 为叶子工具
 `RegistrationBundle`：frozen、可 hash（fields 用 `frozenset`）、`fields` 是 `MappingProxyType` 只读；`repr` 遮 password/idcard；`masked_fields()` / `to_dict(include_secrets=)` / `save(path, show_pii=False, mode=0o600)` / `as_text(show_pii=False)`。默认 `save` 打码 + 0600。
 
 ### 5.5 `remote/` —— 官方接口封装
-- **传输层 `_http.py`**：标准库 `urllib.request`；固定 Chrome UA + Referer + Accept-Language；无 Cookie；默认 10s 超时；响应最多读 512 KiB（静默截断）、`utf-8 errors="replace"`。
+- **传输层 `_http.py`**：标准库 `urllib.request`；固定 Chrome UA + Referer + Accept-Language；默认 10s 超时；响应最多读 512 KiB（静默截断）、`utf-8 errors="replace"`。
+- **2.1.0 新增会话层**：`RemoteSession`（`urllib.request.build_opener` + `HTTPCookieProcessor(CookieJar)`）把 GET/POST 串在同一会话；`cookies` 属性返回 `name -> value` 快照。**GET 按 `RetryPolicy` 重试，POST 永远单次**（失败直接抛 `Remote*Error`，防重复注册）。
+- **2.1.0 新增解析**：`HttpResponse(status/url/headers/body)`；`parse_registration_form(html) -> RegFormSnapshot`（`<form action>`、全部 hidden 域、`sec`、`j-username` 预填、`inputCaptcha` 探测；容忍属性顺序/单双引号/跨行/HTML 实体，解析不到 `<form>` 抛 `RemoteParseError`）。
 - `RetryPolicy`（frozen）：`attempts/base_delay/max_delay/total_deadline/respect_retry_after`；指数退避 + ±25% 抖动 + 封顶（封顶在抖动前，实际最长 1.25×max_delay）+ 优先 `Retry-After`；`total_deadline` 只在两次尝试之间检查。
 - 重试类别：超时、网络错误、5xx、429；**其它 4xx（含 408）不重试**。
 - 错误族：`RemoteError`（带 `.url`）、`RemoteTimeoutError`、`RemoteHTTPError`（带 `.status/.retry_after`）、`RemoteParseError`。
@@ -153,15 +167,30 @@ _rules.py / _width.py 为叶子工具
   - `fetch_suggested_usernames(count, unique=True, with_availability=...)`：凑满数量，凑不满抛 `RemoteError`；`with_availability=True` 返回 `UsernameAvailability` 列表（但**可能包含 taken 项**，见风险）。
 - 远程默认参数较「礼貌」：`min_interval` CLI 可调，库自带重试带抖动与总预算。
 
-### 5.6 `cli.py` —— 双模式 CLI（2.0 子命令 + 1.x flag 兼容）
-- **入口 `main()`**：仅当 `argv[0]` 是子命令名时走子命令 parser，否则走 legacy parser；最后统一按固定优先级 dispatch。
-- **legacy flag 模式**：`-n/-c/-p/-s/-u/--check/--check-username/--fetch-username/--verify/--account/--no-verify/--offline/--check-available/--form-fields/--check-form/--form-path/--realname/--idcard/--qq/--profile-file/--profile-encoding/--build-form/--prepare/--show-pii/--entropy/--timeout/--retries/--retry-delay/--max-total-timeout/--min-interval/--output/--json/-v/-V/--rules-version`，全部在同一个 parser 里（**无互斥检查**，多命令同时给时按优先级静默取第一个）。
-- **子命令模式**：`generate / check / account / fetch / available / form fields|check|build / prepare / profile check / rules / version`；共享 helper 加 `--timeout/--retries/--retry-delay/--max-total-timeout/--min-interval`、`--json/--output`、身份 opts。
-- 退出码约定：**0 成功；1 校验失败（check/check-form/available-unavailable）；2 参数/网络/配置错误**。
-- 输出：文本（`OK:`/`FAIL:`/`错误：`/`# 提示:`）与 `--json` 机器可读；`--output DIR` 写 0600 JSON（`bundle-XX.json` / `account-XX.json` / `generated.json` 等）。
+### 5.6 `_aes.py` + `submit.py` —— 2.1.0 提交能力
+- **`_aes.py`**：与 4399 前端 CryptoJS 互操作的 AES 实现，**纯标准库**（`hashlib.md5` + 自实现 AES-256-CBC，无 pycryptodome 依赖）。
+  - `PASSPHRASE = "lzYW5qaXVqa"`（4399 公开硬编码口令，不是秘密）；`SALT_LEN = 8`。
+  - `encrypt_aes(plaintext, passphrase=PASSPHRASE)`：UTF-8 → 随机 8 字节 salt → `EVP_BytesToKey(MD5)` 派生 key/IV → AES-256-CBC + PKCS#7 → `Base64("Salted__" + salt + ct)`；输出以 `U2FsdGVkX1` 开头。
+  - `decrypt_aes()` 仅用于互操作验证；非法 Base64 / 缺 `Salted__` / 长度或填充错误 → `CryptoError`。
+  - **不提供机密性保护**：口令公开，只用于构造符合协议的表单字段。
+- **`submit.py`**：提交用例层。
+  - `submit_registration(bundle, *, app_id="u4399", level=4, timeout=10.0, dry_run=False, retry_policy=None) -> SubmitResult`；仅接受 `bundle.path == "unified"`，`web` 直接抛 `SubmitError`（未实测，不在范围）。
+  - 流程：`RemoteSession` GET `regFrame.do`（拿 Cookie + hidden/action）→ `_build_payload()` 以 hidden 为基线覆盖可见字段 → `sec=="1"` 时对 4 个敏感字段各自 `encrypt_aes()` → 同一会话 POST `form.action` → `_classify_response()` 判定。
+  - `dry_run=True` 仍 GET 表单（只读、查询参数不含 PII），组装/加密后**不发 POST**，返回 `kind="dry_run"`。
+  - `SubmitResult`（frozen，`repr`/`to_dict()` 脱敏）：`ok/kind/message/username/path/app_id/endpoint/http_status/final_url/encrypted_fields/login_cookies/field_names/dry_run/elapsed`；`__bool__` 等价 `ok`；`login_cookies` 只存 Cookie **名字**，`final_url` 去掉 query/fragment。
+  - 判定（启发式，见 `_classify_response()`）：`isAutoRegSuccess=true` → `success`（先于错误文案）；`<div id="Msg">` 非空 → `rejected`；新增登录 Cookie → `success`；「验证码」→ `captcha`；跳离 ptlogin → `success`；否则 `unknown`。**4399 成功响应未实测**。服务端文案中的密码/身份证/姓名会被替换为 `***`。
+  - POST **不自动重试**；`retry_policy` 只作用于 GET 表单。
 
-### 5.7 其余
-- `__init__.py`：69 个顶层导出 + `__version__`，门面式 re-export；`py.typed` 随包。
+### 5.7 `cli.py` —— 双模式 CLI（2.0 子命令 + 1.x flag 兼容）
+- **入口 `main()`**：仅当 `argv[0]` 是子命令名时走子命令 parser，否则走 legacy parser；最后统一按固定优先级 dispatch。
+- **legacy flag 模式**：`-n/-c/-p/-s/-u/--check/--check-username/--fetch-username/--verify/--account/--no-verify/--offline/--check-available/--form-fields/--check-form/--form-path/--realname/--idcard/--qq/--profile-file/--profile-encoding/--build-form/--prepare/--submit/--yes/--app-id/--level/--show-pii/--entropy/--timeout/--retries/--retry-delay/--max-total-timeout/--min-interval/--output/--json/-v/-V/--rules-version`，全部在同一个 parser 里（**无互斥检查**，多命令同时给时按优先级静默取第一个；`--submit` 在 `--prepare` 之前 dispatch）。
+- **子命令模式**：`generate / check / account / fetch / available / form fields|check|build / prepare / submit / profile check / rules / version`；共享 helper 加 `--timeout/--retries/--retry-delay/--max-total-timeout/--min-interval`、`--json/--output`、身份 opts。
+- **`submit` 子命令**：`--form-path` 只接受 `unified`；默认 dry-run，`--yes` 才发 POST；`--app-id` / `--level`、身份参数、`--json/--output`（写 `submit.json`）。多身份时 stderr 警告「仅限本人真实身份、勿批量注册」。
+- 退出码约定：**0 成功（含 dry-run）；1 校验失败/注册被拒/未知/验证码；2 参数/网络/配置错误**。
+- 输出：文本（`OK:`/`FAIL:`/`DRY-RUN:`/`错误：`/`# 提示:`）与 `--json` 机器可读；`--output DIR` 写 0600 JSON（`bundle-XX.json` / `account-XX.json` / `generated.json` / `submit.json` 等）。
+
+### 5.8 其余
+- `__init__.py`：2.1.0 新增 `submit_registration` / `SubmitResult` / `SubmitError` 顶层导出；门面式 re-export；`py.typed` 随包。
 - `__main__.py`：`raise SystemExit(main())`。
 - `_rules.py`：`RULES_VERSION` / `RULES_CHECKED_AT` / `RULES_SOURCES` / `RULE_KEYWORDS`（含 `CheakPWD` 原拼写）。
 - `_width.py`：`display_width()`（EAW 的 W/F 记 2 列）+ `pad()`，用于 `as_text()` 与 `--form-fields` 的 CJK 表格对齐。
@@ -194,10 +223,43 @@ RegistrationProfile(realname, idcard, qq)
         │
         ├── as_text()           # 照着填的清单（默认打码）
         ├── to_dict()/save()    # JSON（默认打码 + 0600）
-        └── 用户自己打开 bundle.url 在浏览器提交 ← 库到此为止
+        ├── submit_registration(bundle, dry_run=False)   # 2.1.0：显式真实提交（仅 unified）
+        └── 或用户自己打开 bundle.url 在浏览器提交（web 路径仍走这里）
 ```
 
-### 6.2 一次远程查询的内部链路
+### 6.2 `submit_registration` 提交流程（2.1.0，仅 unified）
+
+```
+submit_registration(bundle, dry_run=..., app_id, level, timeout, retry_policy)
+        │  _validate_args: 必须 bundle.path == "unified"
+        ▼
+ RemoteSession (CookieJar, GET 默认重试)
+        │
+        ├─ GET  regFrame.do?appId=...&level=...&v=<ms>
+        │        └─ 下发 USESSIONID；返回表单 HTML
+        │
+        ├─ parse_registration_form(html)
+        │        └─ <form action> / hidden{...} / sec / j-username / 验证码探测
+        │
+        ├─ _build_payload(bundle, form)
+        │        └─ hidden 基线 + username/password/passwordveri/realname/idcard/
+        │           email(=qq)/reg_eula_agree=on/autoLogin=""/fCaptcha=""/appId/level
+        │
+        ├─ sec == "1" ? encrypt_aes(password, passwordveri, realname, idcard)
+        │
+        ├─ dry_run → 返回 SubmitResult(kind="dry_run")，不发 POST
+        │
+        └─ POST form.action（register.do，同一会话 Cookie，**单次不重试**）
+                 ▼
+           _classify_response: isAutoRegSuccess → Msg → 登录 Cookie → 验证码 → 跳转 → unknown
+                 ▼
+           SubmitResult(ok, kind, message, ..., login_cookies=名字, field_names=名字)
+```
+
+> 成功判定是启发式的，因为 `register.do` 的成功响应**未经实测**；`unknown` 不代表失败，
+> 以登录 `https://u.4399.com/` 为准。详见 [docs/submit.md](submit.md)。
+
+### 6.3 一次远程查询的内部链路
 
 ```
 check_username(name)
@@ -216,33 +278,38 @@ check_username(name)
 
 | 门禁 | 命令 | 实测结果 | 判定 |
 |---|---|---|---|
-| 全量测试 | `pytest -q` | **308 passed, 1 skipped, 90 subtests passed, ~0.5s** | ✅ |
-| 覆盖率 | `coverage run --branch -m pytest` + `report` | **TOTAL 92%**（1459 stmts / 93 miss / 592 branch / 62 brpart），阈值 90 满足 | ✅ |
-| doctest | `pytest --doctest-modules gen4399 -q` | **10 passed, 5 skipped**（skip 均为源码 `# doctest: +SKIP` 的网络/IO 示例） | ✅ |
+| 全量测试 | `pytest -q` | **456 passed, 1 skipped, 437 subtests passed, ~1.4s** | ✅ |
+| 覆盖率 | `coverage run --branch -m pytest` + `report` | **TOTAL 94%**（2041 stmts / 85 miss / 782 branch / 67 brpart），阈值 90 满足 | ✅ |
+| doctest | `pytest --doctest-modules gen4399 -q` | **11 passed, 5 skipped**（skip 均为源码 `# doctest: +SKIP` 的网络/IO 示例） | ✅ |
 | ruff | `ruff check .` | 本机未安装（离线不可装） | ⏭️ NOT-RUN |
 | mypy | `mypy gen4399` | 未安装；CI 中本身是 `continue-on-error` 观察项 | ⏭️ NOT-RUN |
-| 打包 | `python -m build` / `twine check` | build/twine 未安装；回退 `pip wheel` 52883 B、`build_sdist` 65419 B 均成功；现有 wheel 与源码逐字节一致 | ✅（回退） |
-| 安装 | `pip show gen4399` | 2.0.0 editable，console script 正常 | ✅ |
+| 打包 | `python -m build` / `twine check` | build/twine 未安装；2.0 时代曾回退 `pip wheel`/`build_sdist` 成功；2.1.0 尚未重新构建 dist | ⏭️ 待重构建 |
+| 安装 | `pip show gen4399` | editable 安装，console script 正常；pip 元数据仍显示 2.0.0（模块 `__version__` 已是 2.1.0，需重装/重构建后一致） | ⚠️ |
 
-覆盖率结构（薄弱面）：`cli.py` 88%、`remote/_http.py` 86%、`__main__.py` 0%；`forms.py` 97%、`registration.py` 97%、`core.py` 95%、`identity.py` 94%、`remote/_api.py` 95%；4 个文件 100%（`__init__` / `_rules` / `_width` / `remote/__init__`）。总阈值只卡 TOTAL，故仍通过。
+覆盖率结构（薄弱面）：`cli.py` 90%、`remote/_http.py` 92%、`__main__.py` 0%；`forms.py` / `registration.py` 97%、`core.py` / `remote/_api.py` 95%、`identity.py` 94%；6 个文件 100%（`__init__` / `_aes` / `_rules` / `_width` / `remote/__init__` / `submit`）。总阈值只卡 TOTAL，故仍通过。
 
-测试风格：纯 `unittest.TestCase` + `unittest.mock.patch`（约 70 处，remote 43/最重）+ `tempfile`；90 个 subtests 来自 `subTest` 参数化；无 pytest fixture/monkeypatch/临时目录/subprocess；hypothesis 属性测试模块因未装依赖整体 skip（非缺陷）。**测试不联网**（全部桩掉 HTTP）。
+测试风格：纯 `unittest.TestCase` + `unittest.mock.patch`（约 70 处，remote 43/最重）+ `tempfile`；437 个 subtests 来自 `subTest` 参数化；无 pytest fixture/monkeypatch/临时目录/subprocess；hypothesis 属性测试模块因未装依赖整体 skip（非缺陷）。**测试不联网**（全部桩掉 HTTP；2.1.0 的 `test_submit_http` / `test_submit` 也全部 mock）。
 
 工程配置：`pyproject.toml` 版本单一来源（`attr = "gen4399.__version__"`）、pytest/coverage/ruff/mypy 配置、dev extras；CI 矩阵 **3.10–3.13**，7 道门禁（ruff 硬门禁 → mypy 观察 → pytest → coverage 90 → doctest → build+twine）；`.pre-commit-config.yaml` 带 ruff + whitespace/EOF/yaml/toml 检查；MIT License；`py.typed` 随包。
 
-文档链完整：README（安装/API/CLI/安全/FAQ）、`docs/rules.md`（规则快照 + 复核流程）、CHANGELOG（1.8.1 → 2.0.0 逐版本）、SECURITY.md（PII 边界）、CONTRIBUTING.md、REVIEW.md 与 SUGGESTIONS.md（前两轮自审记录，均已标注闭环）。
+文档链完整：README（安装/API/CLI/安全/FAQ）、`docs/rules.md`（规则快照 + 复核流程 + 提交协议摘要）、`docs/submit.md`（2.1.0 提交协议/字段/AES/判定/未验证项）、CHANGELOG（1.8.1 → 2.1.0 逐版本）、SECURITY.md（PII 边界 + 提交同意要求）、CONTRIBUTING.md、REVIEW.md 与 SUGGESTIONS.md（前两轮自审记录，均已标注闭环）。
 
 ---
 
 ## 8. 安全与 PII 治理（设计 vs 实际）
 
-设计意图（README/SECURITY/CONTRIBUTING 都写了）：**默认打码、不写日志、落盘 0600、只准备不提交**。
+设计意图（README/SECURITY/CONTRIBUTING 都写了）：**默认打码、不写日志、落盘 0600、默认不提交注册**。
 
 实际做到：
-- `Account` / `RegistrationBundle` 的 `repr` 遮蔽密码与身份证；
+- `Account` / `RegistrationBundle` / `SubmitResult` 的 `repr` 遮蔽敏感信息；
 - `prepare` / `form build` 默认遮身份证、密码、QQ；`--show-pii` 才显明文（会打印警告）；
 - `--output` 文件 0600；身份文件权限过宽会 warning；错误/日志里的 URL 用 `_safe_url` 去 query；
-- 远程库自带重试/限速，`check_username(validate_input=True)` 明显非法名不联网。
+- 远程库自带重试/限速，`check_username(validate_input=True)` 明显非法名不联网；
+- 2.1.0 提交能力不会自动触发（CLI 默认 dry-run）；POST 单次不重试；`SubmitResult` 只含 Cookie **名字**与字段 **名字**，
+  `final_url` 去掉 query/fragment，`to_dict()` 可直接安全落盘；
+- dry-run 只 GET 表单页（查询参数不含 PII），**不发送姓名/身份证等 PII**；
+  真实提交时 PII 只发往 `ptlogin.4399.com`（4399 官方端点），`sec=1` 时先经前端同款 AES 加密
+  ——但该口令公开，**不构成机密性保护**。
 
 实测缺口（详见第 10 节风险表）：
 - `--account` **默认就地打印明文密码**（无 `--show-pii` 概念、无警告），`--json/--output` 同样明文；
@@ -262,8 +329,9 @@ check_username(name)
 | 1.9.0 | 修 REVIEW.md 的 P0：响应结构化（kind）、HTML 解析健壮性、批量凑满、CLI 异常兜底、QQ strip、Bundle 只读、repr 打码；加 unique 批量、License/CI/CHANGELOG/类型 |
 | 1.10.0 | 身份文件 `load_profiles/parse_profile_line` + CLI `--profile-file` 批量 |
 | 2.0.0 | 子命令 CLI + 全局增强（--json/--offline/--output/重试参数）、`RetryPolicy`、类型收紧、模块拆分（remote 拆包、identity 拆出）、规则版本 + verify_rules、property 测试、CI 门禁、SECURITY/CONTRIBUTING/pre-commit、`requires-python>=3.10` |
+| 2.1.0 | **真实 POST 提交**：`submit_registration()` / `SubmitResult` / `SubmitError` + `gen4399 submit` 子命令 + legacy `--submit/--yes`；`gen4399/_aes.py`（CryptoJS 兼容 AES-256-CBC，纯标准库）；`RemoteSession`（CookieJar，GET 重试/POST 单次）+ `parse_registration_form()`；`docs/submit.md`；库不自动提交（API 调用即提交、CLI 默认 dry-run）、仅 unified、成功判定为推断、POST 不自动重试 |
 
-`REVIEW.md`（1.8.1 审查）与 `SUGGESTIONS.md`（1.10.0 评估）是两轮「审查 → 修复 → 验证」的记录，文件头均标注了闭环状态；本次深读也核对了其中大部分 P0/P1 确实已在代码中修复（如 `unknown` 抛解析错、`validate_fixed_part` 公开、Bundle MappingProxyType、`unique` 凑满、CLI 子命令等）。项目在单日内完成 16 次提交、从 1.8.1 演进到 2.0.0，属于典型的「先做对、再补工程质量」路径。
+`REVIEW.md`（1.8.1 审查）与 `SUGGESTIONS.md`（1.10.0 评估）是两轮「审查 → 修复 → 验证」的记录，文件头均标注了闭环状态；本次深读也核对了其中大部分 P0/P1 确实已在代码中修复（如 `unknown` 抛解析错、`validate_fixed_part` 公开、Bundle MappingProxyType、`unique` 凑满、CLI 子命令等）。项目在单日内完成 16 次提交、从 1.8.1 演进到 2.0.0，属于典型的「先做对、再补工程质量」路径；2.1.0 又在同一天补上最后的真实提交层。
 
 ---
 
@@ -289,8 +357,18 @@ check_username(name)
 | 9 | `check_username` 把「非 0、非空、非 HTML、无 invalid 关键词」的响应一律判 `taken`（如 `"1"`、JSON 错误体） | `_api.py:88-101`；`unknown` 实际只覆盖空/HTML，接口异常可能误报「已被注册」 |
 | 10 | `fetch_suggested_usernames(with_availability=True)` 可返回 `available=False/taken` 的项（不重试），且 `verify_available` 被静默忽略 | `_api.py:320,330-339` |
 | 11 | `verify_rules.py` 网络错误立即 return 2（跳过后续 URL）；非法 URL 的 ValueError 未捕获 → 退出码可能 1；干净 checkout 未安装包时 `sys.path[0]=scripts` 可能 ImportError | `scripts/verify_rules.py:32-48` |
-| 12 | 覆盖率薄弱点 `cli 88% / _http 86% / __main__ 0%`，若未来加 per-file 阈值会先卡住 | quality-runner 实测 |
+| 12 | 覆盖率薄弱点 `cli 90% / _http 92% / __main__ 0%`，若未来加 per-file 阈值会先卡住 | quality-runner 实测 |
 | 13 | 文档漂移：README 写 `pytest --cov=gen4399`，CI 实际用 `coverage run/report`；README「全局 flag」与子命令实际能力不对称；本机 Python 3.14 不在 CI 矩阵/classifier 中 | README、ci.yml、pyproject |
+
+### 🟠 2.1.0 提交能力的新增风险/限制
+
+| # | 问题 | 证据/位置 | 影响与建议 |
+|---|---|---|---|
+| 14 | **成功判定为启发式，`register.do` 成功响应未实测** | `submit._classify_response()`；`~/4399recon/protocol-username-register.json` 的 `meta.not_verified` | `success` 可能误判/漏判；以登录 `u.4399.com` 为准。已收紧成功标记正则（排除 `== true` 比较式）、把验证码判定提前到跳转判定之前，并对服务端文案做 PII 兜底替换，但仍是启发式 |
+| 15 | **只支持 `unified`，`web` 提交端点未实测** | `submit._validate_args()`；`cli._cmd_submit()` | 默认 `prepare_registration(path="web")` 的 bundle 不能直接提交，用户需先 `path="unified"` 重新准备；web 路径继续用浏览器 |
+| 16 | **POST 不自动重试，超时后结果不确定** | `RemoteSession.post()` 单次；`submit.py` 注释 | 超时/5xx 时服务端可能已建号；重跑 `--yes` 有重复注册风险。建议先登录确认，必要时人工处理 |
+| 17 | **dry-run 仍会联网 GET `regFrame.do`** | `submit_registration()` 先 GET 再判 dry_run | 完全离线环境不可 dry-run；不过 GET 不含 PII，且不会发 POST |
+| 18 | **依赖服务端表单结构（hidden 域/`sec`/action）** | `parse_registration_form()` / `_build_payload()` | 4399 前端改版即可能失效；已提供 `docs/submit.md` 的 dry-run 复核清单，但无自动结构断言 |
 
 ### 🟡 低（健壮性 / 边界 / 可维护性）
 
@@ -310,7 +388,7 @@ check_username(name)
 
 ```bash
 pip install -e ".[dev]"          # 安装（运行时零依赖）
-python -m pytest                 # 308 项测试
+python -m pytest                 # 456 项测试
 python -m pytest --doctest-modules gen4399 -q
 python -m coverage run --branch -m pytest -q && python -m coverage report
 ```
@@ -323,6 +401,9 @@ validate("123456")                        # [Violation(code='all_digits', ...)]
 generate_username(length=12)              # 小写+数字
 check_username("abc12345")                # UsernameAvailability(available/kind/...)
 prepare_registration(profile)             # 一键准备（默认会在线查重）
+prepare_registration(profile, path="unified")            # 可提交的路径
+submit_registration(bundle, dry_run=True)                # 2.1.0：dry-run（不发 POST）
+submit_registration(bundle, dry_run=False)               # 2.1.0：真实提交（仅本人身份）
 ```
 
 ```bash
@@ -331,6 +412,8 @@ python -m gen4399 check password "Abc12345"      # 退出码 0/1
 python -m gen4399 account --offline -c 3
 python -m gen4399 prepare --profile-file ids.txt --json --output out/
 python -m gen4399 form build abc12345 Abc123456 --realname 张三 --idcard ...
+python -m gen4399 submit --realname 张三 --idcard ...            # 2.1.0：dry-run
+python -m gen4399 submit --realname 张三 --idcard ... --yes      # 2.1.0：真实提交
 python -m gen4399 rules                          # 规则版本与来源
 ```
 
@@ -339,20 +422,22 @@ python -m gen4399 rules                          # 规则版本与来源
 ## 12. 总体评价
 
 **优点**：
-- 领域边界清晰、目标克制（只准备不提交），规则来源与维护流程有记录；
-- 分层干净、单向依赖、`__init__` 门面 + 69 个导出、`py.typed`，API 文档与 doctest 齐全；
-- 工程配套成熟：零运行时依赖、308 测试、92% 分支覆盖、CI 7 道门禁、MIT、语义化版本、CHANGELOG、SECURITY/CONTRIBUTING、pre-commit；
-- 远程层做了真实工程化：重试策略对象、抖动、Retry-After、总预算、结构化错误、HTML 解析健壮性、结构化可用性结果；
+- 领域边界清晰、目标克制（默认只准备、提交必须显式开启），规则来源与维护流程有记录；
+- 分层干净、单向依赖、`__init__` 门面 + 72 个导出、`py.typed`，API 文档与 doctest 齐全；
+- 工程配套成熟：零运行时依赖（新增提交层仍只用标准库）、456 测试、94% 覆盖、CI 7 道门禁、MIT、语义化版本、CHANGELOG、SECURITY/CONTRIBUTING、pre-commit；
+- 远程层做了真实工程化：重试策略对象、抖动、Retry-After、总预算、结构化错误、HTML 解析健壮性、结构化可用性结果，以及 2.1.0 的 CookieJar 会话 + 单次 POST；
+- 2.1.0 提交层在安全上保守：默认不自动提交（CLI 默认 dry-run）、POST 不自动重试、结果对象脱敏、只发往 4399 官方端点，并把「成功响应未实测」写进文档；
 - PII 安全意识整体在线（repr 打码、0600、权限警告、日志去 query）。
 
 **主要短板**：
-- CLI 2.0 双模式是最大维护瓶颈（995 行、两套 parser、`set_defaults` hack），出现 `-v` 失效、`--offline` 漏判、能力不对称、多命令静默优先级等一批一致性问题；
+- CLI 2.0 双模式是最大维护瓶颈（1,148 行、两套 parser、`set_defaults` hack），出现 `-v` 失效、`--offline` 漏判、能力不对称、多命令静默优先级等一批一致性问题；
 - PII 打码口径不统一（密码默认明文、姓名/QQ 漏遮、`to_dict` 顶层 qq 漏遮），与自身文档冲突；
 - 远程分类启发式仍偏「宽容」（未知响应→taken 的兜底、with_availability 可返回 taken）；
+- 提交能力边界未闭合：成功响应未实测、仅支持 unified、web 未支持、依赖 4399 表单结构；
 - 覆盖率过线靠 TOTAL，CLI/HTTP 细节分支是薄弱面；
-- 规则依赖 4399 前端，存在天然过期风险（已提供复核脚本但只能冒烟）。
+- 规则与提交协议都依赖 4399 前端，存在天然过期风险（已提供复核脚本/ dry-run 复核清单但只能冒烟）。
 
-**一句话**：这是一个「小而完整、工程质量高于同类脚本」的领域工具库——核心规则/表单/远程/编排设计扎实，2.0 的工程化基本补齐；当前最值得做的不是加功能，而是**收敛 CLI 双模式与统一 PII 打码**（上面 🔴/🟠 清单）。
+**一句话**：这是一个「小而完整、工程质量高于同类脚本」的领域工具库——核心规则/表单/远程/编排设计扎实，2.0 补齐工程化，2.1.0 补上真实提交但把边界（库不自动提交 / CLI 默认 dry-run、仅 unified、成功判定为推断、POST 不重试）写得很清楚；当前最值得做的仍是**收敛 CLI 双模式与统一 PII 打码**，并持续用 dry-run 复核提交协议（上面 🔴/🟠 清单）。
 
 ---
 

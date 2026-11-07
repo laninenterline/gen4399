@@ -2,6 +2,56 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.1.0] - 2026-11-07
+
+### 新增
+
+- **真实 POST 提交（仅 `unified` 路径）**：
+  - `submit_registration(bundle, *, app_id="u4399", level=4, timeout=10.0,
+    dry_run=False, retry_policy=None)` → `SubmitResult`
+    （`kind` = `success` / `rejected` / `captcha` / `unknown` / `dry_run`）；
+    `SubmitError` 表示参数/路径不合法。CLI 侧默认 dry-run。
+  - CLI 新增 `submit` 子命令：`gen4399 submit --realname … --idcard …`
+    默认 dry-run，加 `--yes` 才真实提交；支持 `--form-path unified`（默认）、
+    `--app-id`、`--level`、`--json`、`--output`；legacy 模式新增
+    `--submit` / `--yes` / `--app-id` / `--level`。退出码 0/1/2。
+  - 提交流程：GET `regFrame.do`（会话 Cookie + 表单 hidden 域）→ 解析
+    `<form action>` / `sec` → `sec=1` 时 AES 加密
+    `password` / `passwordveri` / `realname` / `idcard` → POST `register.do` →
+    解析 `<div id="Msg">` / `isAutoRegSuccess` / 登录 Cookie / 跳转。
+  - `gen4399/_aes.py`：CryptoJS 兼容的 AES-256-CBC
+    （`EVP_BytesToKey(MD5, 8B salt)` + PKCS#7 + `Salted__` 格式），
+    **纯标准库**实现；附 `decrypt_aes()` 用于互操作验证。
+  - `gen4399/remote/_http.py`：`RemoteSession`（CookieJar 会话；GET 可重试、
+    POST 单次）、`HttpResponse`、`RegFormSnapshot`、`parse_registration_form()`。
+  - `gen4399/__init__.py` 导出 `submit_registration` / `SubmitResult` / `SubmitError`；
+    新增 `docs/submit.md`（协议、字段、AES、判定规则、未验证项）。
+  - `RegistrationBundle.as_text()` 尾注改为「手动填表；或用 submit 提交（需 --yes）」。
+
+### 变更（可能影响调用方）
+
+- **库不会自动提交**：`prepare_registration()` 仍只准备数据；真实提交必须显式
+  调用 `submit_registration()`（API 默认 `dry_run=False`，调用即提交；CLI 默认
+  dry-run，必须加 `--yes`）。
+- **只支持 `unified`**：`bundle.path == "web"` 提交抛 `SubmitError`
+  （web 提交端点未实测，仍用浏览器）。
+- **POST 不自动重试**（超时 / 5xx / 429 直接抛错），避免服务端已建号却重复提交；
+  `retry_policy` 只作用于 GET 注册表单。
+- `SubmitResult` 的 `repr()` / `to_dict()` 已脱敏：不含明文密码/身份证/Cookie 值，
+  `final_url` 去掉 query/fragment。
+- **不新增运行时依赖**：AES 由 `_aes.py` 用标准库自实现。
+
+### 安全
+
+- 库不会自动提交（CLI 默认 dry-run）；dry-run 只 GET 表单（不发 POST、不发送 PII）。
+- 真实提交的 PII 只发往 4399 官方端点 `ptlogin.4399.com`；`sec=1` 时先 AES 加密，
+  但该口令公开在前端 JS 中，**不提供机密性保护**。
+- 仅限本人真实身份、遵守 4399 用户协议、禁止批量注册他人账号
+  （CLI 多身份时在 stderr 警告）。
+- **成功判定为推断**：4399 `register.do` 的成功响应未经实测（研究过程未创建真实账号），
+  `success` 为启发式判定；请以登录 `https://u.4399.com/` 为准。
+- 不绕过验证码/风控；`captcha` 时需人工处理。
+
 ## [2.0.0] - 2026-11-07
 
 ### 新增
