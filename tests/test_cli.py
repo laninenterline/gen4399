@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -786,6 +787,85 @@ class TestSubmitCommand(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(self.submit.call_count, 2)
         self.assertIn("2 个身份", err)
+
+
+class TestDefaultProfileFile(unittest.TestCase):
+    """未指定身份来源时默认读取当前目录的 sfz.txt。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.old_cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+        self.addCleanup(os.chdir, self.old_cwd)
+
+    def _write(self, text: str, name: str = "sfz.txt"):
+        path = Path(name)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_prepare_uses_default_sfz_txt(self):
+        self._write("张三|" + VALID_ID + "\n")
+        code, out, _ = run(["--prepare", "--offline", "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["realname"], "张三")
+        self.assertNotIn(VALID_ID, out)
+
+    def test_missing_default_errors(self):
+        code, _, err = run(["--prepare", "--offline"])
+        self.assertEqual(code, 2)
+        self.assertIn("sfz.txt", err)
+
+    def test_qq_alone_does_not_fall_back(self):
+        self._write("张三|" + VALID_ID + "\n")
+        code, _, err = run(["--prepare", "--offline", "--qq", "123456789"])
+        self.assertEqual(code, 2)
+        self.assertIn("realname", err)
+
+    def test_explicit_profile_file_wins(self):
+        self._write("张三|" + VALID_ID + "\n")
+        other = self._write("李四|11010119900101004X\n", "other.txt")
+        code, out, _ = run([
+            "--prepare", "--offline", "--json",
+            "--profile-file", str(other),
+        ])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)[0]["realname"], "李四")
+
+    def test_realname_idcard_wins_over_default(self):
+        self._write("张三|" + VALID_ID + "\n")
+        code, out, _ = run([
+            "--prepare", "--offline", "--json",
+            "--realname", "李四", "--idcard", "11010119900101004X",
+        ])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)[0]["realname"], "李四")
+
+    def test_profile_check_uses_default(self):
+        self._write("张三|" + VALID_ID + "\n")
+        code, out, _ = run(["profile", "check", "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual(data[0]["realname"], "张三")
+        self.assertNotIn(VALID_ID, out)
+
+    def test_profile_check_missing_default_errors(self):
+        code, _, err = run(["profile", "check"])
+        self.assertEqual(code, 2)
+        self.assertIn("sfz.txt", err)
+
+    def test_submit_uses_default_sfz_txt(self):
+        self._write("张三|" + VALID_ID + "\n")
+        with mock.patch(
+            "gen4399.cli.submit_registration", return_value=_submit_result()
+        ) as submit:
+            code, out, _ = run(["submit", "--offline", "--form-path", "web"])
+        self.assertEqual(code, 0)
+        self.assertIn("DRY-RUN", out)
+        bundle = submit.call_args.args[0]
+        self.assertEqual(bundle.realname, "张三")
 
 
 class TestMisc(unittest.TestCase):

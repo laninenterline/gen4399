@@ -16,6 +16,7 @@
     python -m gen4399 --build-form NAME PW --realname 张三 --idcard ...
     python -m gen4399 --prepare --realname 张三 --idcard ...   一键准备注册数据
     python -m gen4399 --prepare --profile-file ids.txt       从 txt 批量准备
+    python -m gen4399 --prepare                              默认读取 ./sfz.txt
     python -m gen4399 submit --realname 张三 --idcard ... --yes  真实提交（unified）
     python -m gen4399 submit --form-path web --realname 张三 --idcard ... --yes
     python -m gen4399 --check-available "abc12345"
@@ -78,6 +79,9 @@ from .core import (
 )
 
 logger = logging.getLogger("gen4399.cli")
+
+#: 未指定身份来源时默认读取的身份文件名（当前目录下）
+DEFAULT_PROFILE_FILE = "sfz.txt"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -159,7 +163,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--profile-file", metavar="FILE", default=None,
                    help="身份信息 txt：每行「姓名|身份证号[|QQ]」，"
                         "空行和 # 注释跳过；可多行批量，用于 "
-                        "--prepare / --build-form / --check-form；'-' 表示 stdin")
+                        "--prepare / --submit / --build-form / --check-form；"
+                        "'-' 表示 stdin；未指定且未给 --realname/--idcard 时"
+                        "默认读取当前目录 sfz.txt")
     p.add_argument("--profile-encoding", default=None, metavar="ENCODING",
                    help="身份文件编码，默认 utf-8-sig（自动兼容 BOM）")
     p.add_argument("--build-form", nargs=2, default=None,
@@ -279,11 +285,19 @@ def _print_form_result(res) -> bool:
     return False
 
 
+def _default_profile_file() -> Path:
+    """默认身份文件：当前目录下的 ``sfz.txt``。"""
+    return Path.cwd() / DEFAULT_PROFILE_FILE
+
+
 def _load_identity_profiles(args):
-    """按 --profile-file 或 --realname/--idcard 取得身份信息列表。
+    """按 --profile-file / --realname+--idcard / 默认 ./sfz.txt 取身份信息。
+
+    未指定任何身份来源（既没有 --profile-file，也没有 --realname/--idcard/--qq）
+    时，自动读取当前目录下的 ``sfz.txt``；文件不存在则报错。
 
     Raises:
-        ValueError: 参数缺失或互相冲突。
+        ValueError: 参数缺失、互相冲突，或默认 sfz.txt 不存在。
         OSError: 身份文件无法读取。
         InvalidProfileError: 身份信息不合法。
     """
@@ -296,9 +310,23 @@ def _load_identity_profiles(args):
             raise ValueError("--profile-file 不能与 --qq 同时使用")
         encoding = getattr(args, "profile_encoding", None) or "utf-8-sig"
         return load_profiles(args.profile_file, encoding=encoding)
+
+    manual = bool(args.realname or args.idcard or args.qq)
+    if not manual:
+        default = _default_profile_file()
+        if default.is_file():
+            encoding = getattr(args, "profile_encoding", None) or "utf-8-sig"
+            return load_profiles(default, encoding=encoding)
+        raise ValueError(
+            "未指定身份来源：请用 --profile-file 指定文件，或提供 "
+            "--realname + --idcard；也可把身份文件放到默认路径 "
+            f"{default}（每行：姓名|身份证号[|QQ]）"
+        )
+
     if not (args.realname and args.idcard):
         raise ValueError(
             "需要同时提供 --realname 和 --idcard，或使用 --profile-file"
+            f"（未指定时默认读取 {_default_profile_file()}）"
         )
     return [
         RegistrationProfile(
@@ -876,7 +904,8 @@ def _add_io_opts(sp: argparse.ArgumentParser) -> None:
 
 def _add_identity_opts(sp: argparse.ArgumentParser) -> None:
     sp.add_argument("--profile-file", metavar="FILE", default=None,
-                    help="每行「姓名|身份证号[|QQ]」，'-' 表示 stdin")
+                    help="每行「姓名|身份证号[|QQ]」，'-' 表示 stdin；"
+                         "未指定且未给 --realname/--idcard 时默认读 ./sfz.txt")
     sp.add_argument("--profile-encoding", default=None, metavar="ENCODING",
                     help="身份文件编码，默认 utf-8-sig")
     sp.add_argument("--realname", default=None, metavar="NAME")
@@ -1015,9 +1044,12 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
 
     pf = new("profile", "身份文件操作")
     pfsub = pf.add_subparsers(dest="profile_command", required=True)
-    pfcheck = pfsub.add_parser("check", help="校验身份文件")
+    pfcheck = pfsub.add_parser("check", help="校验身份文件（默认 ./sfz.txt）")
     pfcheck.set_defaults(**defaults)
-    pfcheck.add_argument("--profile-file", metavar="FILE", required=True)
+    pfcheck.add_argument(
+        "--profile-file", metavar="FILE", default=None,
+        help="身份文件；未指定时默认当前目录 sfz.txt",
+    )
     pfcheck.add_argument("--profile-encoding", default=None, metavar="ENCODING")
     pfcheck.add_argument("--json", action="store_true")
 
@@ -1029,11 +1061,7 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
 
 def _cmd_profile_check(args) -> int:
     try:
-        profiles = load_profiles(
-            args.profile_file,
-            encoding=getattr(args, "profile_encoding", None)
-            or "utf-8-sig",
-        )
+        profiles = _load_identity_profiles(args)
     except (Gen4399Error, TypeError, ValueError, OSError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 2

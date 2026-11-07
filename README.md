@@ -272,6 +272,11 @@ python -m gen4399 --check-form abc12345 Abc123456 --profile-file ids.txt
 
 > `--profile-file` 与 `--realname/--idcard` 互斥；某行格式/内容不合法时整体报错，
 > 错误信息带行号（退出码 2）。
+>
+> **默认身份文件**：如果既没给 `--profile-file`，也没给 `--realname/--idcard/--qq`，
+> CLI 会自动读取**当前目录下的 `sfz.txt`**（格式同样是 `姓名|身份证号[|QQ]`）。
+> 文件不存在时退出码 2 并提示；`gen4399 profile check` 也适用（其 `--profile-file`
+> 已改为可选）。
 
 ## 提交注册（web / unified，2.2.0）
 

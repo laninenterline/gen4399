@@ -33,6 +33,9 @@
   降低 URL 日志泄露风险）。
 - 两条路径的注册 POST 均**单次不重试**；`retry_policy` 只作用于 GET。
 - dry-run 均只 GET：unified 拉 `regFrame.do`，web 取 `encryptCode`（只带用户名）。
+- **CLI 默认身份文件**：未指定任何身份来源（无 `--profile-file`，也无
+  `--realname/--idcard/--qq`）时，自动读取当前目录下的 `sfz.txt`；文件不存在则
+  退出码 2 并提示。`gen4399 profile check --profile-file` 改为可选（默认同上）。
 - `__version__ = "2.2.0"`；仍为**零运行时依赖**（AES/DES 均为纯标准库实现）。
 
 ### 安全
