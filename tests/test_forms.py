@@ -119,6 +119,11 @@ class TestQQ(unittest.TestCase):
             with self.subTest(v=v):
                 self.assertTrue(validate_qq(v))
 
+    def test_whitespace_is_stripped(self):
+        for v in (" 123456789", "123456789 ", "123456789\n", "\t123456789\t"):
+            with self.subTest(v=v):
+                self.assertEqual(validate_qq(v), [])
+
 
 class TestCheckRegistrationForm(unittest.TestCase):
     def test_all_ok(self):

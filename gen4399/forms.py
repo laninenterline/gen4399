@@ -20,9 +20,6 @@ import re
 from dataclasses import dataclass, field
 
 from .core import (
-    MAX_LENGTH,
-    MIN_LENGTH,
-    USERNAME_CHARSET,
     Gen4399Error,
     validate,
     validate_username,
@@ -181,9 +178,6 @@ _REALNAME_RE = re.compile(
 )
 _QQ_RE = re.compile(r"^[0-9]{4,11}$")
 _IDCARD_RE = re.compile(r"^\d{15}(\d{2}[\dx])?$", re.IGNORECASE)
-_WEB_USERNAME_RE = re.compile(r"^[A-Za-z0-9]+$")
-_UNIFIED_USERNAME_RE = re.compile(r"^[A-Za-z0-9_@]+$")
-_UNIFIED_PASSWORD_RE = re.compile(r"^[\w.(!@#$%&)]+$")
 
 _ID_WEIGHTS = (7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2)
 _ID_CHECK = "10X98765432"
@@ -259,26 +253,24 @@ def validate_qq(qq: str) -> list[str]:
     """
     if not isinstance(qq, str):
         raise TypeError("qq 必须是 str")
+    qq = qq.strip()
     if not qq:
         return []
-    return [] if _QQ_RE.match(qq) else ["QQ 号无效（应为 4~11 位数字）"]
+    return [] if _QQ_RE.fullmatch(qq) else ["QQ 号无效（应为 4~11 位数字）"]
 
 
 def _check_username_for_path(username: str, path: str) -> list[str]:
-    errs = validate_username(username)
-    msgs = [v.message for v in errs]
-    if path == "unified" and not msgs:
-        if not _UNIFIED_USERNAME_RE.match(username):
-            msgs.append("统一注册的用户名只允许字母、数字、下划线、@")
-    return msgs
+    """按注册路径校验用户名，返回错误信息列表。
+
+    两条路径最终都执行服务端同样的 6~20 位字母数字规则；``path`` 参数
+    保留是为了以后不同路径规则分叉时不用改调用方。
+    """
+    return [v.message for v in validate_username(username)]
 
 
 def _check_password_for_path(password: str, path: str) -> list[str]:
-    msgs = [v.message for v in validate(password)]
-    if path == "unified" and not msgs:
-        if not _UNIFIED_PASSWORD_RE.match(password):
-            msgs.append("密码包含不支持的特殊字符")
-    return msgs
+    """按注册路径校验密码，返回错误信息列表（当前两条路径规则一致）。"""
+    return [v.message for v in validate(password)]
 
 
 # ---------------------------------------------------------------------------

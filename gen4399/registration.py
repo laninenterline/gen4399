@@ -13,7 +13,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 from .core import (
     DEFAULT_LENGTH,
@@ -46,7 +48,7 @@ class RegistrationError(Gen4399Error):
     """准备注册数据失败（用户名不可用、表单校验不通过等）。"""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class RegistrationBundle:
     """一套准备好的注册数据。
 
@@ -58,9 +60,13 @@ class RegistrationBundle:
         realname: 真实姓名。
         idcard: 身份证号。
         qq: QQ 号（可能为 None）。
-        fields: ``{参数名: 值}``，按表单顺序。
+        fields: 只读的 ``{参数名: 值}``，按表单顺序。
         username_available: 是否经服务端确认可用；None 表示未查重。
         warnings: 提示信息。
+
+    Note:
+        ``fields`` 是 ``MappingProxyType``，不可修改；``repr()`` 会把密码与
+        身份证号打码，可安全写日志。
     """
 
     path: str
@@ -70,16 +76,26 @@ class RegistrationBundle:
     realname: str
     idcard: str
     qq: str | None
-    fields: dict[str, str] = field(default_factory=dict)
+    fields: Mapping[str, str] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
     username_available: bool | None = None
     warnings: tuple[str, ...] = ()
+
+    def __repr__(self) -> str:
+        return (
+            f"RegistrationBundle(path={self.path!r}, url={self.url!r}, "
+            f"username={self.username!r}, password='***', "
+            f"realname={self.realname!r}, idcard={self.masked_idcard()!r}, "
+            f"qq={self.qq!r}, username_available={self.username_available!r})"
+        )
 
     def masked_idcard(self) -> str:
         """打码后的身份证号。"""
         return RegistrationProfile(self.realname, self.idcard, self.qq).masked_idcard()
 
     def masked_fields(self) -> dict[str, str]:
-        """打码后的字段清单，可安全贴到日志/聊天里。"""
+        """打码后的字段清单（身份证、密码、QQ），可安全贴到日志/聊天里。"""
         out = dict(self.fields)
         for key in ("sfz", "idcard"):
             if key in out:
@@ -87,6 +103,10 @@ class RegistrationBundle:
         for key in ("login_password", "password", "relogin_pwd", "passwordveri"):
             if key in out:
                 out[key] = "*" * len(out[key])
+        for key in ("qq", "email"):
+            value = out.get(key)
+            if value:
+                out[key] = value[:2] + "*" * max(0, len(value) - 2)
         return out
 
     def as_text(self, *, show_pii: bool = False) -> str:
@@ -226,7 +246,7 @@ def prepare_registration(
         realname=profile.realname,
         idcard=profile.idcard,
         qq=profile.qq,
-        fields=fields,
+        fields=MappingProxyType(dict(fields)),
         username_available=available,
         warnings=tuple(warnings),
     )
