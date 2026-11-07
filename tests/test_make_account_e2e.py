@@ -70,7 +70,8 @@ class FakeSession:
         FakeSession.last_post = dict(data)
         if "_c=reg" in url:
             return _http.HttpResponse(200, url, {}, self.web_post_body)
-        self.cookies["Pauth"] = "mock"
+        if "isAutoRegSuccess=true" in self.unified_post_body:
+            self.cookies["Pauth"] = "mock"
         return _http.HttpResponse(200, url, {}, self.unified_post_body)
 
 
@@ -137,6 +138,40 @@ class MakeAccountE2E(unittest.TestCase):
         self.assertEqual(len(json.loads(
             Path("accounts.json").read_text(encoding="utf-8")
         )), 1)
+
+    def test_diagnose_saves_sanitized_response(self):
+        FakeSession.unified_post_body = (
+            "<html><head><title>4399提示</title></head>"
+            "<body>操作频繁，请稍后再试</body></html>"
+        )
+        code, _, err = run(["--yes", "--offline", "--json", "--diagnose"])
+        self.assertEqual(code, 1)
+        self.assertIn("操作频繁", err)
+        self.assertIn("频率限制", err)
+        files = list(Path(".").glob("registration-response-*.html"))
+        self.assertEqual(len(files), 1)
+        self.assertEqual(stat.S_IMODE(files[0].stat().st_mode), 0o600)
+        content = files[0].read_text(encoding="utf-8")
+        self.assertIn("操作频繁", content)
+        self.assertNotIn(VALID_ID, content)
+        saved = json.loads(
+            Path("accounts.json").read_text(encoding="utf-8")
+        )
+        self.assertNotIn(saved[0]["password"], content)
+
+    def test_diagnose_custom_response_file(self):
+        code, _, err = run([
+            "--yes", "--offline", "--diagnose", "--response-file", "resp.html",
+        ])
+        self.assertEqual(code, 0)
+        self.assertIn("resp.html", err)
+        self.assertTrue(Path("resp.html").exists())
+
+    def test_diagnose_dry_run_has_no_response(self):
+        code, _, err = run(["--diagnose"])
+        self.assertEqual(code, 0)
+        self.assertIn("dry-run 未发送注册 POST", err)
+        self.assertEqual(list(Path(".").glob("registration-response-*.html")), [])
 
     def test_full_flow_rejected_does_not_save(self):
         FakeSession.unified_post_body = (

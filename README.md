@@ -335,6 +335,7 @@ submit_registration(
     timeout: float = 10.0,
     dry_run: bool = False,
     retry_policy: RetryPolicy | None = None,
+    on_response: ResponseHook | None = None,   # 诊断用：收到注册 POST 的 HttpResponse
 ) -> SubmitResult
 ```
 
@@ -414,6 +415,10 @@ python scripts/make_account.py --yes
 # 其它：web 路径 / 输出文件 / JSON
 python scripts/make_account.py --yes --form-path web --output my_accounts.json
 python scripts/make_account.py --json
+
+# 排查 unknown/rejected：保存 4399 的脱敏响应（status/URL/可见文本/常见原因）
+python scripts/make_account.py --yes --diagnose
+python scripts/make_account.py --yes --diagnose --response-file resp.html
 ```
 
 - 身份文件编码默认 UTF-8（失败自动回退 GB18030）；`sfz.txt` / `accounts.json`
@@ -423,6 +428,10 @@ python scripts/make_account.py --json
   多行文件可用 `--index N` 指定用第 N 条有效身份。
 - 成功或被判定为 `unknown` 时会追加到 `accounts.json`（默认 0600，含明文密码，
   请妥善保管）；`unknown` 请先登录 `https://u.4399.com/` 确认，不要立刻重跑。
+- **诊断**：`--diagnose` 会在注册 POST 后把响应打印到 stderr（状态码/最终 URL/
+  可见文本/常见原因），并保存一份**脱敏后**的响应 HTML（默认 0600 的
+  `registration-response-<时间戳>.html`）；它不改变提交/判定行为，也不绕过
+  验证码/风控。dry-run 没有 POST，因此没有可诊断的响应。
 - 退出码：0 成功/dry-run；1 被拒/验证码/未知；2 参数/网络/配置错误。
 - 脚本不会循环、不会重试注册 POST；每次运行都是一个独立的新账号准备流程。
 

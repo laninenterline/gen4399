@@ -40,6 +40,8 @@ from ._aes import encrypt_aes
 from ._des import encode_4399
 from .core import Gen4399Error
 from .registration import RegistrationBundle
+from collections.abc import Callable
+
 from .remote import (
     DEFAULT_APP_ID,
     DEFAULT_TIMEOUT,
@@ -50,6 +52,7 @@ from .remote import _http
 
 __all__ = [
     "SubmitKind",
+    "ResponseHook",
     "SubmitError",
     "SubmitResult",
     "submit_registration",
@@ -57,6 +60,9 @@ __all__ = [
 
 #: ``SubmitResult.kind`` 的合法取值
 SubmitKind = Literal["success", "rejected", "captcha", "unknown", "dry_run"]
+
+#: 注册 POST 响应回调（诊断用；收到原始 ``HttpResponse``，不改变提交行为）
+ResponseHook = Callable[["_http.HttpResponse"], None]
 
 #: ``sec=1`` 时需要加密的字段
 ENCRYPTED_FIELDS = ("password", "passwordveri", "realname", "idcard")
@@ -472,6 +478,7 @@ def _submit_unified(
     dry_run: bool,
     retry_policy: RetryPolicy | None,
     started: float,
+    on_response: ResponseHook | None = None,
 ) -> SubmitResult:
     """unified 路径：regFrame.do -> AES 加密 -> POST register.do。"""
     session = _http.RemoteSession(timeout=timeout, policy=retry_policy)
@@ -499,6 +506,8 @@ def _submit_unified(
 
     before = set(session.cookies)
     response = session.post(action, payload)
+    if on_response is not None:
+        on_response(response)
     after = set(session.cookies)
     login_cookies = tuple(
         name for name in _LOGIN_COOKIE_NAMES if name in after and name not in before
@@ -537,6 +546,7 @@ def _submit_web(
     dry_run: bool,
     retry_policy: RetryPolicy | None,
     started: float,
+    on_response: ResponseHook | None = None,
 ) -> SubmitResult:
     """web 路径：checkUser 取 key -> DES 加密密码 -> POST /user/?_c=reg。"""
     session = _http.RemoteSession(timeout=timeout, policy=retry_policy)
@@ -563,6 +573,8 @@ def _submit_web(
     callback = _jsonp_callback("gen4399reg")
     endpoint = f"{WEB_REG_API}&jsoncallback={callback}"
     response = session.post(endpoint, payload)
+    if on_response is not None:
+        on_response(response)
     after = set(session.cookies)
     login_cookies = tuple(
         name for name in _LOGIN_COOKIE_NAMES if name in after and name not in before
@@ -618,6 +630,7 @@ def submit_registration(
     timeout: float = DEFAULT_TIMEOUT,
     dry_run: bool = False,
     retry_policy: RetryPolicy | None = None,
+    on_response: ResponseHook | None = None,
 ) -> SubmitResult:
     """把准备好的注册数据真正提交到 4399（支持 ``web`` / ``unified``）。
 
@@ -637,6 +650,8 @@ def submit_registration(
         dry_run: 为 True 时只拉取必要数据、组装/加密字段，**不发送注册
             POST**。web 路径仍会 GET ``checkUser``（只带用户名）。
         retry_policy: 只作用于 GET；注册 POST 永远单次尝试。
+        on_response: 可选的注册 POST 响应回调（``HttpResponse``），用于诊断；
+            不改变提交/判定行为。回调抛出的异常会向上传播（此时 POST 已发出）。
 
     Returns:
         :class:`SubmitResult`；``.kind == "success"`` 表示（可判定为）成功。
@@ -663,6 +678,7 @@ def submit_registration(
             dry_run=dry_run,
             retry_policy=retry_policy,
             started=started,
+            on_response=on_response,
         )
     return _submit_unified(
         bundle,
@@ -672,4 +688,5 @@ def submit_registration(
         dry_run=dry_run,
         retry_policy=retry_policy,
         started=started,
+        on_response=on_response,
     )

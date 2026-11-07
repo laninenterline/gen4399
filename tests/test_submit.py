@@ -521,6 +521,31 @@ class TestWebSubmit(SubmitTestBase):
             submit_registration(self.web_bundle)
 
 
+class TestResponseHook(SubmitTestBase):
+    def test_unified_hook_receives_response(self):
+        seen = []
+        submit_registration(self.bundle, on_response=seen.append)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0].status, 200)
+        self.assertIn("isAutoRegSuccess", seen[0].body)
+
+    def test_dry_run_does_not_call_hook(self):
+        seen = []
+        submit_registration(self.bundle, dry_run=True, on_response=seen.append)
+        self.assertEqual(seen, [])
+
+    def test_web_hook_receives_response(self):
+        web = prepare_registration(PROFILE, path="web", verify_username=False)
+        FakeSession.get_response = response(
+            'cb({"state":false,"data":"5c43e3"})'
+        )
+        FakeSession.post_response = response('cb({"state":true})')
+        seen = []
+        submit_registration(web, on_response=seen.append)
+        self.assertEqual(len(seen), 1)
+        self.assertIn('"state":true', seen[0].body)
+
+
 class TestErrors(SubmitTestBase):
     def test_get_error_propagates(self):
         FakeSession.get_response = RemoteError("boom")

@@ -8,6 +8,7 @@
     python scripts/make_account.py --yes --form-path web
     python scripts/make_account.py --yes --profile-file ids.txt
     python scripts/make_account.py --yes --index 2        # 用第 2 条有效身份
+    python scripts/make_account.py --yes --diagnose       # 保存脱敏后的注册响应，排查 unknown
 
 身份文件默认为当前目录的 ``sfz.txt``，每行 ``姓名|身份证号[|QQ]``；本脚本每次
 只使用一条身份（默认第 1 条有效记录，可用 ``--index`` 选择）。默认会**跳过**
@@ -25,10 +26,12 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
 import sys
+import urllib.parse
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -93,6 +96,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", default="accounts.json", metavar="FILE",
                    help="账号保存文件，默认 ./accounts.json（0600）")
     p.add_argument("--json", action="store_true", help="以 JSON 输出本次结果")
+    p.add_argument("--diagnose", action="store_true",
+                   help="保存注册 POST 的脱敏响应（status/URL/可见文本/常见原因），"
+                        "排查 unknown/rejected；不改变提交行为")
+    p.add_argument("--response-file", default=None, metavar="FILE",
+                   help="--diagnose 时保存原始响应 HTML 的路径，"
+                        "默认 registration-response-<时间戳>.html（0600）")
     return p
 
 
@@ -155,6 +164,64 @@ def _load_profile(
     return profiles[index - 1]
 
 
+def _redact_text(text: str, bundle) -> str:
+    """把响应里可能回显的密码/身份证/姓名替换成 ***。"""
+    for secret in (bundle.password, bundle.idcard, bundle.realname):
+        if secret:
+            text = text.replace(secret, "***")
+    return text
+
+
+def _visible_text(body: str) -> str:
+    body = re.sub(r"<(script|style)\b.*?</\1>", "", body, flags=re.I | re.S)
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", body))).strip()
+
+
+def _diagnose_response(response, bundle, output: str | None) -> None:
+    """打印并保存注册 POST 响应的脱敏诊断信息（只写 stderr / 0600 文件）。"""
+    body = _redact_text(response.body, bundle)
+    text = _visible_text(body)
+    parsed = urllib.parse.urlsplit(response.url)
+    safe_url = urllib.parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, "", "")
+    )
+    content_type = response.headers.get("Content-Type", "?")
+    print(f"  [诊断] HTTP {response.status} | 最终 URL: {safe_url}", file=sys.stderr)
+    print(f"  [诊断] 响应 {len(response.body)} 字节 | Content-Type: {content_type}",
+          file=sys.stderr)
+    print(f"  [诊断] 可见文本: {text[:600] or '（空）'}", file=sys.stderr)
+    hints = (
+        ("验证码", "服务端要求验证码/人机验证，需要人工完成"),
+        ("频繁", "很可能触发了频率限制，请降低频率并稍后再试"),
+        ("稍后", "服务端繁忙或临时限制，稍后再试"),
+        ("实名", "实名核验相关提示，确认姓名与身份证号是本人且一致"),
+        ("身份证", "身份证相关校验未通过，检查号码/出生日期/校验码"),
+        ("已注册", "用户名/账号已存在，换一个用户名"),
+        ("存在", "可能用户名/账号已存在"),
+        ("非法", "服务端判定请求非法/风控命中"),
+        ("安全", "可能触发安全校验/风控"),
+    )
+    matched = [hint for keyword, hint in hints if keyword in text]
+    for hint in matched:
+        print(f"  [诊断] 可能原因: {hint}", file=sys.stderr)
+    if not matched:
+        print("  [诊断] 未匹配到已知关键词，请查看保存的响应内容", file=sys.stderr)
+
+    path = Path(output) if output else Path(
+        f"registration-response-{datetime.now().strftime('%Y%m%d-%H%M%S')}.html"
+    )
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, body.encode("utf-8"))
+    finally:
+        os.close(fd)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:  # pragma: no cover - 非 POSIX
+        pass
+    print(f"  [诊断] 原始响应（已脱敏）已保存: {path}", file=sys.stderr)
+
+
 def _append_account(path: Path, record: dict) -> None:
     """把账号记录追加到 JSON 文件（保持 0600）。"""
     existing: list = []
@@ -180,7 +247,9 @@ def _append_account(path: Path, record: dict) -> None:
         pass
 
 
-def _print_result(result: SubmitResult, bundle, *, show_credentials: bool) -> None:
+def _print_result(
+    result: SubmitResult, bundle, *, show_credentials: bool, output_path: str
+) -> None:
     if result.kind == "dry_run":
         print(f"DRY-RUN: 未提交（字段 {len(result.field_names)} 个，"
               f"加密 {len(result.encrypted_fields)} 个）")
@@ -196,7 +265,7 @@ def _print_result(result: SubmitResult, bundle, *, show_credentials: bool) -> No
         print(f"  用户名: {bundle.username}")
         if show_credentials:
             print(f"  密码:   {bundle.password}")
-        print(f"  保存到: {result.path}")
+        print(f"  保存到: {output_path}")
     if result.kind == "unknown":
         print("  警告：结果未知；请先登录 https://u.4399.com/ 确认，"
               "不要立即重跑 --yes")
@@ -244,6 +313,11 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
+    captured: dict = {}
+
+    def _capture_response(response) -> None:
+        captured["response"] = response
+
     try:
         bundle = prepare_registration(
             profile,
@@ -265,10 +339,17 @@ def main(argv: list[str] | None = None) -> int:
             timeout=args.timeout,
             dry_run=not args.yes,
             retry_policy=policy,
+            on_response=_capture_response if args.diagnose else None,
         )
     except (Gen4399Error, TypeError, ValueError, OSError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 2
+
+    if args.diagnose:
+        if "response" in captured:
+            _diagnose_response(captured["response"], bundle, args.response_file)
+        else:
+            print("# [诊断] dry-run 未发送注册 POST，没有响应可诊断", file=sys.stderr)
 
     if args.json:
         payload = {
@@ -278,7 +359,9 @@ def main(argv: list[str] | None = None) -> int:
         }
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
-        _print_result(result, bundle, show_credentials=True)
+        _print_result(
+            result, bundle, show_credentials=True, output_path=args.output
+        )
         print(f"  身份证: {bundle.masked_idcard()}")
 
     if result.kind in ("success", "unknown"):

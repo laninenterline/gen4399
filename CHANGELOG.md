@@ -23,6 +23,9 @@
     账号到 `accounts.json`（默认 dry-run，`--yes` 才真实提交；单次运行只处理一个身份）。
     身份文件中的无效行默认跳过并打印行号（`--strict` 遇错即停），`--index N`
     选择第 N 条有效身份；编码自动 UTF-8-SIG → GB18030 回退。
+  - 新增诊断能力：`submit_registration(..., on_response=...)` 回调；脚本
+    `--diagnose` 保存 4399 注册响应（status/URL/可见文本/常见原因 + 脱敏 HTML，
+    0600）。不改变提交/判定行为，不绕过验证码/风控。
 - 文档：`docs/submit.md` 增加 web 协议/字段/DES/判定/PII 对比章节；
   README、`docs/rules.md`、`docs/project-overview.md`、SECURITY 同步。
 

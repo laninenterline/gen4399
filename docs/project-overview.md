@@ -2,7 +2,7 @@
 
 - **对象**：`gen4399` 2.2.0（tag `v2.2.0`，2026-11-07）
 - **内容**：项目定位与边界、仓库地图、分层架构、4399 规则快照、各模块职责、关键数据流、API/CLI 速查、工程质量实测、PII 治理、演进史与已知问题清单。
-- **方法**：通读全部源码（5,993 行，含 remote 包与 2.1.0/2.2.0 新增的 submit/_aes/_des）+ 14 个测试文件 + 全部文档；实跑 pytest / coverage / doctest；CLI 与 API 定向探针验证。
+- **方法**：通读全部源码（6,010 行，含 remote 包与 2.1.0/2.2.0 新增的 submit/_aes/_des）+ 15 个测试文件 + 全部文档；实跑 pytest / coverage / doctest；CLI 与 API 定向探针验证。
 - **时效**：基于 2026-11-07 工作区快照，规则版本 `4399-2026-11`；行号引用以该版本源码为准。
 
 ---
@@ -68,9 +68,9 @@ lead-workspace/
 │   ├── _rules.py      35 行  # 规则快照版本/来源/关键字
 │   ├── _width.py      50 行  # CJK 终端显示宽度（表格对齐）
 │   └── py.typed              # 类型标记（随包分发）
-├── tests/            15 个文件，4,919 行，512 个用例 + 457 subtests（含 test_aes/test_des/test_submit/test_submit_http/test_make_account*）
+├── tests/            15 个文件，4,979 行，518 个用例 + 457 subtests（含 test_aes/test_des/test_submit/test_submit_http/test_make_account*）
 ├── scripts/verify_rules.py   # 规则页面关键词冒烟检查（GET + 子串匹配）
-├── scripts/make_account.py   # 便捷脚本：每次运行准备并（--yes 时）提交一个账号，追加 accounts.json（0600）；无效身份行默认跳过（--index/--strict）
+├── scripts/make_account.py   # 便捷脚本：每次运行准备并（--yes 时）提交一个账号，追加 accounts.json（0600）；无效身份行默认跳过（--index/--strict）；--diagnose 保存脱敏响应
 ├── docs/rules.md             # 规则快照、复核流程、改规则清单、提交协议摘要
 ├── docs/submit.md            # 2.1.0/2.2.0：web/unified 提交协议/字段/AES/DES/判定/安全/未验证项
 ├── .github/workflows/ci.yml  # 3.10–3.13 矩阵 × 7 道门禁
@@ -194,6 +194,8 @@ registration.py ──→ forms.py ──→ identity.py ──→ core.py
   - `SubmitResult`（frozen，`repr`/`to_dict()` 脱敏）：`ok/kind/message/username/path/app_id/endpoint/http_status/final_url/encrypted_fields/login_cookies/field_names/dry_run/elapsed`；`__bool__` 等价 `ok`；web 的 `app_id` 为空串；`login_cookies` 只存 Cookie **名字**，`final_url` 去掉 query/fragment。
   - 判定（启发式）：unified 见 `_classify_response()`；web 见 `_classify_web_response()`。**两条路径成功响应均未实测**。服务端文案中的密码/身份证/姓名会被替换为 `***`。
   - 注册 POST **不自动重试**；`retry_policy` 只作用于 GET。
+  - `on_response` 回调（2.2.0）：注册 POST 后收到原始 `HttpResponse`，用于诊断
+    （脚本 `--diagnose` 会脱敏保存响应），不改变判定/提交行为。
 
 ### 5.7 `cli.py` —— 双模式 CLI（2.0 子命令 + 1.x flag 兼容）
 - **入口 `main()`**：仅当 `argv[0]` 是子命令名时走子命令 parser，否则走 legacy parser；最后统一按固定优先级 dispatch。
@@ -300,8 +302,8 @@ check_username(name)
 
 | 门禁 | 命令 | 实测结果 | 判定 |
 |---|---|---|---|
-| 全量测试 | `pytest -q` | **512 passed, 1 skipped, 457 subtests passed, ~1.5s** | ✅ |
-| 覆盖率 | `coverage run --branch -m pytest` + `report` | **TOTAL 94%**（2234 stmts / 91 miss / 840 branch / 74 brpart），阈值 90 满足 | ✅ |
+| 全量测试 | `pytest -q` | **518 passed, 1 skipped, 457 subtests passed, ~2.0s** | ✅ |
+| 覆盖率 | `coverage run --branch -m pytest` + `report` | **TOTAL 94%**（2240 stmts / 91 miss / 844 branch / 73 brpart），阈值 90 满足 | ✅ |
 | doctest | `pytest --doctest-modules gen4399 -q` | **11 passed, 5 skipped**（skip 均为源码 `# doctest: +SKIP` 的网络/IO 示例） | ✅ |
 | ruff | `ruff check .` | 本机未安装（离线不可装） | ⏭️ NOT-RUN |
 | mypy | `mypy gen4399` | 未安装；CI 中本身是 `continue-on-error` 观察项 | ⏭️ NOT-RUN |
@@ -411,7 +413,7 @@ check_username(name)
 
 ```bash
 pip install -e ".[dev]"          # 安装（运行时零依赖）
-python -m pytest                 # 512 项测试
+python -m pytest                 # 518 项测试
 python -m pytest --doctest-modules gen4399 -q
 python -m coverage run --branch -m pytest -q && python -m coverage report
 ```
@@ -449,7 +451,7 @@ python -m gen4399 rules                          # 规则版本与来源
 **优点**：
 - 领域边界清晰、目标克制（默认只准备、提交必须显式开启），规则来源与维护流程有记录；
 - 分层干净、单向依赖、`__init__` 门面 + 72 个导出、`py.typed`，API 文档与 doctest 齐全；
-- 工程配套成熟：零运行时依赖（新增提交层仍只用标准库）、512 测试、94% 覆盖、CI 7 道门禁、MIT、语义化版本、CHANGELOG、SECURITY/CONTRIBUTING、pre-commit；
+- 工程配套成熟：零运行时依赖（新增提交层仍只用标准库）、518 测试、94% 覆盖、CI 7 道门禁、MIT、语义化版本、CHANGELOG、SECURITY/CONTRIBUTING、pre-commit；
 - 远程层做了真实工程化：重试策略对象、抖动、Retry-After、总预算、结构化错误、HTML 解析健壮性、结构化可用性结果，以及 CookieJar 会话 + 单次 POST；
 - 提交层在安全上保守：默认不自动提交（CLI 默认 dry-run）、注册 POST 不自动重试、结果对象脱敏、只发往 4399 官方端点，并把「成功响应未实测」「web PII 弱于 unified」写进文档；
 - PII 安全意识整体在线（repr 打码、0600、权限警告、日志去 query）。
