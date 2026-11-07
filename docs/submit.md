@@ -527,12 +527,15 @@ POST /ptlogin/register.do（回传了 UNIFIED_DROP_FIELDS 中的字段）
 | `unified` 空白「4399提示」页根因 | ✅ 已定位并修复：回传 13 个隐藏域导致；按 `UNIFIED_DROP_FIELDS` 剔除后同一数据建号成功（不是风控封 IP） |
 | `unified` 默认字段集 | ✅ 实测 23 个字段；`encrypted_fields == ("password","passwordveri","realname","idcard")` |
 | `unified` `UNIFIED_SEND_REALNAME=False` | ✅ 可建「不实名」账号：21 字段、`encrypted_fields` 2 个（实测 `abkeq7xvesft`） |
+| `unified` 注册后复核（`SubmitResult.verified`） | ✅ 实测 `verified=True`（`kj4ygdleg80f`，同会话访问 `u.4399.com` 命中用户名） |
+| `unified` 限流（`202` + 「请稍后再试~」） | ✅ 实测 `kind="throttled"`，不建号、不落盘 |
+| `unified` 图形验证码（`fCaptcha` → 重提交） | ⚠️ 链路已实测打通（拿到 captcha 页 → 取图 → 提交 `fCaptcha` → 重提交），但**还没在限流窗口内解对一次**；逻辑由 8 个离线用例覆盖 |
 | `web` 手机验证码（`code=360`） | ⚠️ 从 `web_reg.js` 推断，未实际触发 |
 | `web` 的 `validateState` 具体语义 | ⚠️ 从 JS 推断（非 2 时提示可能需激活/补充信息；实测成功值为 2） |
 | 浏览器 JSONP GET vs 本库 POST body | ✅ 服务端实测均接受 |
 | `appId` / `level` 不同取值的服务端差异 | ⚠️ 只验证了表单能拉取，未验证提交效果 |
 | 实名/身份证服务端核验细节（`realNameVerify.do` 等） | ⚠️ 未纳入本库 |
-| 图形验证码图片样式/有效期、风控升级、频率限制 | ⚠️ 未系统验证；遇到即 `captcha`、`unknown` 或网络错误 |
+| 图形验证码图片样式/有效期、风控升级、频率限制 | ⚠️ 部分验证：限流已能识别为 `throttled`；验证码有效期为单会话，多轮重试需重新取图 |
 | ToS/协议文本是否随流程变化 | ⚠️ 以 `getUserAgreements.do` 实际下发为准 |
 
 ## 6. 代码位置与用法
