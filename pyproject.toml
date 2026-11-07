@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gen4399"
 dynamic = ["version"]
-description = "生成与校验符合 4399 注册规则的密码与账号名"
+description = "4399 账号数据生成、校验与注册提交（零运行时依赖）"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "gen4399" }]
-keywords = ["4399", "password", "generator", "validator"]
+keywords = ["4399", "password", "generator", "validator", "registration"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",

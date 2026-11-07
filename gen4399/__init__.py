@@ -24,16 +24,23 @@
     generate_available_username()   # 本地生成 + 服务端确认可注册
     generate_account()              # 返回 Account(username, password)
 
-    # 注册表单：字段定义 + 提交前本地校验（不联网、不代提交）
+    # 注册表单：字段定义 + 提交前本地校验（不联网）
     from gen4399 import check_registration_form, get_form
     print([f.name for f in get_form("web").fields])
     profile = RegistrationProfile("张三", "460206194611192084", qq="123456789")
     check_registration_form("abc12345", "Abc123456", profile=profile)
     build_registration_fields("abc12345", "Abc123456", profile=profile)
 
-    # 一键准备好整套注册数据（仍不代提交）
-    bundle = prepare_registration(profile)
+    # 一键准备好整套注册数据
+    bundle = prepare_registration(profile, path="unified", verify_username=False)
     print(bundle.as_text())
+
+    # 2.1.0：真正的 POST 提交（仅 unified 路径；库不会自动提交）
+    #   - dry_run=True  只拉表单、组装/加密，不发 POST，不创建账号（推荐先跑）
+    #   - dry_run=False 调用即真实提交（请仅使用本人真实身份，遵守 4399 用户协议）
+    #   - CLI 默认 dry-run，必须加 --yes 才发送 POST
+    result = submit_registration(bundle, dry_run=True)   # doctest: +SKIP
+    print(result.kind)                                   # doctest: +SKIP
 
     is_valid("Abc12345")            # True
     validate("123456")              # [Violation(code='all_digits', ...)]
@@ -68,6 +75,11 @@ from .registration import (
     RegistrationBundle,
     RegistrationError,
     prepare_registration,
+)
+from .submit import (
+    SubmitError,
+    SubmitResult,
+    submit_registration,
 )
 from .remote import (
     DEFAULT_APP_ID,
@@ -118,7 +130,7 @@ from .core import (
     validate_username,
 )
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 __all__ = [
     "RULES_VERSION",
@@ -182,6 +194,9 @@ __all__ = [
     "RegistrationBundle",
     "RegistrationError",
     "prepare_registration",
+    "SubmitResult",
+    "SubmitError",
+    "submit_registration",
     "fetch_suggested_username",
     "fetch_suggested_usernames",
     "check_username",

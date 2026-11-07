@@ -11,7 +11,8 @@ from unittest import mock
 
 from gen4399 import cli
 from gen4399.core import validate, validate_username
-from gen4399.remote import Account, UsernameAvailability
+from gen4399.remote import Account, RemoteError, UsernameAvailability
+from gen4399.submit import SubmitResult
 
 VALID_ID = "460206194611192084"
 
@@ -563,6 +564,202 @@ class TestSubcommands(unittest.TestCase):
         code, out, _ = run(["version"])
         self.assertEqual(code, 0)
         self.assertIn("gen4399", out)
+
+
+def _submit_result(**kwargs):
+    base = dict(
+        ok=False,
+        kind="dry_run",
+        message="dry-run：未发送 POST",
+        username="abc12345",
+        path="unified",
+        app_id="u4399",
+        endpoint="https://ptlogin.4399.com/ptlogin/register.do",
+        encrypted_fields=("password", "passwordveri", "realname", "idcard"),
+        login_cookies=(),
+        field_names=("username", "password"),
+        dry_run=True,
+    )
+    base.update(kwargs)
+    return SubmitResult(**base)
+
+
+class TestSubmitParser(unittest.TestCase):
+    def test_subcommand_defaults(self):
+        args = cli.build_subcommand_parser().parse_args(["submit"])
+        self.assertTrue(args.submit)
+        self.assertEqual(args.form_path, "unified")
+        self.assertFalse(args.yes)
+        self.assertIsNone(args.app_id)
+        self.assertEqual(args.level, 4)
+
+    def test_legacy_flags(self):
+        args = cli.build_parser().parse_args(["--submit", "--yes"])
+        self.assertTrue(args.submit)
+        self.assertTrue(args.yes)
+        self.assertEqual(args.level, 4)
+        self.assertIsNone(args.app_id)
+
+    def test_help(self):
+        with self.assertRaises(SystemExit) as ctx:
+            with contextlib.redirect_stdout(io.StringIO()):
+                cli.build_subcommand_parser().parse_args(["submit", "--help"])
+        self.assertEqual(ctx.exception.code, 0)
+
+
+class TestSubmitCommand(unittest.TestCase):
+    def setUp(self):
+        p1 = mock.patch(
+            "gen4399.cli.prepare_registration", return_value=mock.Mock()
+        )
+        self.prepare = p1.start()
+        self.addCleanup(p1.stop)
+        p2 = mock.patch(
+            "gen4399.cli.submit_registration", return_value=_submit_result()
+        )
+        self.submit = p2.start()
+        self.addCleanup(p2.stop)
+
+    def _identity_args(self):
+        return ["--realname", "张三", "--idcard", VALID_ID]
+
+    def test_default_is_dry_run(self):
+        code, out, err = run(["submit", "--offline", *self._identity_args()])
+        self.assertEqual(code, 0)
+        self.submit.assert_called_once()
+        self.assertTrue(self.submit.call_args.kwargs["dry_run"])
+        self.assertIn("DRY-RUN", out)
+        self.assertIn("DRY-RUN", err)
+        self.prepare.assert_called_once()
+
+    def test_yes_really_submits(self):
+        code, out, err = run(
+            ["submit", "--offline", "--yes", *self._identity_args()]
+        )
+        self.assertEqual(code, 0)
+        self.assertFalse(self.submit.call_args.kwargs["dry_run"])
+        self.assertIn("警告", err)
+
+    def test_success(self):
+        self.submit.return_value = _submit_result(
+            ok=True, kind="success", message="注册成功", dry_run=False
+        )
+        code, out, _ = run(
+            ["submit", "--offline", "--yes", *self._identity_args()]
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("OK: 注册成功", out)
+
+    def test_rejected_exit_1(self):
+        self.submit.return_value = _submit_result(
+            ok=False, kind="rejected", message="用户名已被注册", dry_run=False
+        )
+        code, out, _ = run(
+            ["submit", "--offline", "--yes", *self._identity_args()]
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL[rejected]", out)
+        self.assertIn("用户名已被注册", out)
+
+    def test_unknown_exit_1(self):
+        self.submit.return_value = _submit_result(
+            ok=False, kind="unknown", message="无法确定", dry_run=False
+        )
+        code, out, _ = run(
+            ["submit", "--offline", "--yes", *self._identity_args()]
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL[unknown]", out)
+
+    def test_remote_error_exit_2(self):
+        self.submit.side_effect = RemoteError("网络错误")
+        code, _, err = run(
+            ["submit", "--offline", "--yes", *self._identity_args()]
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("错误", err)
+
+    def test_bad_retry_args_exit_2(self):
+        for extra in (
+            ["--retries", "0"],
+            ["--retry-delay", "-1"],
+            ["--max-total-timeout", "0"],
+        ):
+            with self.subTest(extra=extra):
+                code, _, err = run(
+                    ["submit", "--offline", *extra, *self._identity_args()]
+                )
+                self.assertEqual(code, 2)
+                self.assertNotIn("Traceback", err)
+                self.assertIn("错误", err)
+                self.submit.assert_not_called()
+                self.prepare.assert_not_called()
+
+    def test_identity_missing_exit_2(self):
+        code, _, err = run(["submit", "--offline"])
+        self.assertEqual(code, 2)
+        self.assertIn("错误", err)
+        self.submit.assert_not_called()
+
+    def test_legacy_submit(self):
+        self.submit.return_value = _submit_result(
+            ok=True, kind="success", message="注册成功", dry_run=False
+        )
+        code, out, _ = run([
+            "--submit", "--offline", "--yes", "--form-path", "unified",
+            *self._identity_args(),
+        ])
+        self.assertEqual(code, 0)
+        self.assertIn("OK", out)
+        self.submit.assert_called_once()
+
+    def test_legacy_web_path_rejected(self):
+        code, _, err = run(["--submit", "--yes", *self._identity_args()])
+        self.assertEqual(code, 2)
+        self.assertIn("unified", err)
+        self.submit.assert_not_called()
+
+    def test_json_output(self):
+        code, out, _ = run(
+            ["submit", "--offline", "--json", *self._identity_args()]
+        )
+        self.assertEqual(code, 0)
+        data = json.loads(out)
+        self.assertEqual(data["kind"], "dry_run")
+        self.assertNotIn("password", data)
+
+    def test_dry_run_does_not_print_pii(self):
+        code, out, _ = run(["submit", "--offline", *self._identity_args()])
+        self.assertEqual(code, 0)
+        self.assertNotIn(VALID_ID, out)
+        self.assertNotIn("张三", out)
+
+    def test_output_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, _, err = run([
+                "submit", "--offline", "--output", tmp,
+                *self._identity_args(),
+            ])
+            path = Path(tmp) / "submit.json"
+            self.assertEqual(code, 0)
+            self.assertTrue(path.exists())
+            self.assertIn("submit.json", err)
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(data["kind"], "dry_run")
+
+    def test_batch_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ids.txt"
+            path.write_text(
+                "张三|" + VALID_ID + "\n李四|11010119900101004X\n",
+                encoding="utf-8",
+            )
+            code, _, err = run([
+                "submit", "--offline", "--profile-file", str(path),
+            ])
+        self.assertEqual(code, 0)
+        self.assertEqual(self.submit.call_count, 2)
+        self.assertIn("2 个身份", err)
 
 
 class TestMisc(unittest.TestCase):

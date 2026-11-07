@@ -8,7 +8,8 @@
 4. 按 4399 真实规则整表校验
 5. 组装成页面字段清单 + 注册页地址
 
-最后一步「点提交」必须由你在浏览器手动完成。
+2.1.0 起提供 :func:`gen4399.submit_registration` 做真实 POST 提交，但
+:func:`prepare_registration` 本身仍然不会自动提交；提交必须由调用方显式触发。
 """
 
 from __future__ import annotations
@@ -194,7 +195,11 @@ class RegistrationBundle:
             for w in self.warnings:
                 lines.append(f"# 提示: {w}")
         lines.append("")
-        lines.append("# 本清单仅供手动填表，库不会提交注册请求")
+        lines.append(
+            "# 手动填表，或调用 submit_registration(dry_run=False) / "
+            "`python -m gen4399 submit --yes` 提交"
+        )
+        lines.append("# 仅限本人真实身份；提交前请确认遵守 4399 用户协议")
         return "\n".join(lines)
 
 
@@ -215,8 +220,9 @@ def prepare_registration(
 ) -> RegistrationBundle:
     """准备一套 4399 注册数据（生成 + 查重 + 校验 + 组装字段）。
 
-    只做本地准备与官方查重，**不会提交注册**。拿到结果后请打开
-    ``bundle.url``，按 ``bundle.fields`` 逐项填写并自行提交。
+    只做本地准备与官方查重，**不会提交注册**。拿到结果后可以打开
+    ``bundle.url`` 按 ``bundle.fields`` 逐项填写并自行提交，或显式调用
+    :func:`gen4399.submit_registration` 提交（仅限本人真实身份）。
 
     Args:
         profile: 身份信息（姓名、身份证、可选 QQ）。

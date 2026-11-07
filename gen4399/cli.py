@@ -16,6 +16,7 @@
     python -m gen4399 --build-form NAME PW --realname 张三 --idcard ...
     python -m gen4399 --prepare --realname 张三 --idcard ...   一键准备注册数据
     python -m gen4399 --prepare --profile-file ids.txt       从 txt 批量准备
+    python -m gen4399 submit --realname 张三 --idcard ... --yes  真实 POST 提交注册
     python -m gen4399 --check-available "abc12345"
     python -m gen4399 --entropy -p abc
 
@@ -39,6 +40,7 @@ from . import __version__
 from ._rules import RULES_CHECKED_AT, RULES_SOURCES, RULES_VERSION
 from ._width import pad
 from .registration import prepare_registration
+from .submit import submit_registration
 from .forms import (
     RegistrationProfile,
     build_registration_fields,
@@ -47,6 +49,7 @@ from .forms import (
     load_profiles,
 )
 from .remote import (
+    DEFAULT_APP_ID,
     DEFAULT_TIMEOUT,
     RemoteError,
     RetryPolicy,
@@ -96,6 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
             '  python -m gen4399 --check-available "abc12345"\n'
             "  python -m gen4399 --entropy -p abc      查看熵\n"
             "  python -m gen4399 --prepare --profile-file ids.txt   批量准备\n"
+            "  python -m gen4399 submit --realname 张三 --idcard ... --yes\n"
             "  python -m gen4399 --prepare --profile-file ids.txt --json --output out/\n"
         ),
     )
@@ -131,7 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-verify", action="store_true",
                    help="配合 --account / --prepare 使用，跳过在线查重（离线可用）")
     p.add_argument("--offline", action="store_true",
-                   help="全局离线模式：等价于 --no-verify；对必须联网的命令报错")
+                   help="跳过在线查重（--prepare/--account 等）；"
+                        "提交类命令仍需联网")
     p.add_argument("--check-available", metavar="NAME", default=None,
                    help="调用 4399 官方 isExist.do 查询用户名是否还能注册")
     p.add_argument("--form-fields", choices=["web", "unified"], default=None,
@@ -161,6 +166,15 @@ def build_parser() -> argparse.ArgumentParser:
                    help="生成填表清单（参数名=值），不提交")
     p.add_argument("--prepare", action="store_true",
                    help="一键准备注册数据（生成用户名+密码、查重、校验、输出填表清单；不提交）")
+    p.add_argument("--submit", action="store_true",
+                   help="准备并真实提交注册（POST，仅 --form-path unified；"
+                        "默认 dry-run，需同时加 --yes 才会发送请求）")
+    p.add_argument("--yes", action="store_true",
+                   help="确认真正提交注册（--submit 不加此参数时只做 dry-run）")
+    p.add_argument("--app-id", default=None, metavar="APPID",
+                   help="提交/查重使用的 appId，默认 u4399")
+    p.add_argument("--level", type=int, default=4, metavar="N",
+                   help="注册等级 level，默认 4")
     p.add_argument("--show-pii", action="store_true",
                    help="显示明文身份证号/密码/QQ（默认打码）")
     p.add_argument("--entropy", action="store_true",
@@ -471,6 +485,117 @@ def _cmd_prepare(args) -> int:
     return 0
 
 
+def _cmd_submit(args) -> int:
+    """准备并（在 --yes 时）真实提交注册；默认 dry-run。"""
+    try:
+        policy = _retry_policy(args)
+        timeout = DEFAULT_TIMEOUT if args.timeout is None else args.timeout
+    except (TypeError, ValueError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+    app_id = getattr(args, "app_id", None) or DEFAULT_APP_ID
+    level = getattr(args, "level", 4)
+    if args.form_path != "unified":
+        print(
+            "错误：提交目前只支持 unified 路径，请加 --form-path unified"
+            "（web 提交端点未实测，请继续用浏览器手动提交）",
+            file=sys.stderr,
+        )
+        return 2
+
+    confirmed = bool(getattr(args, "yes", False))
+    if confirmed:
+        print(
+            "# 警告：即将真实提交注册请求，仅限本人真实身份，"
+            "请确认已阅读并遵守 4399 用户协议；不要批量注册他人账号",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "# DRY-RUN：未加 --yes，不会真正提交注册（加 --yes 才发送 POST）",
+            file=sys.stderr,
+        )
+
+    try:
+        profiles = _load_identity_profiles(args)
+    except (Gen4399Error, TypeError, ValueError, OSError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+
+    if len(profiles) > 1:
+        print(
+            f"# 警告：共 {len(profiles)} 个身份，将依次提交；"
+            "请确保均为本人或已获授权，禁止批量注册他人账号",
+            file=sys.stderr,
+        )
+
+    results = []
+    rc = 0
+    for profile in profiles:
+        try:
+            bundle = prepare_registration(
+                profile,
+                path=args.form_path,
+                username_length=args.username_length
+                or DEFAULT_USERNAME_LENGTH,
+                password_length=args.password_length
+                or args.length or DEFAULT_LENGTH,
+                prefix=args.prefix,
+                suffix=args.suffix,
+                verify_username=not _offline(args),
+                timeout=timeout,
+                retry_delay=args.retry_delay or 0.0,
+                retry_policy=policy,
+            )
+            result = submit_registration(
+                bundle,
+                app_id=app_id,
+                level=level,
+                timeout=timeout,
+                dry_run=not confirmed,
+                retry_policy=policy,
+            )
+        except (Gen4399Error, TypeError, ValueError, OSError) as exc:
+            print(f"错误：{exc}", file=sys.stderr)
+            rc = 2
+            continue
+        results.append(result)
+        if result.kind not in ("success", "dry_run"):
+            rc = max(rc, 1)
+        _sleep_between(args)
+
+    if args.json:
+        if len(results) == 1:
+            _emit_json(results[0].to_dict())
+        else:
+            _emit_json([r.to_dict() for r in results])
+    else:
+        for idx, result in enumerate(results, 1):
+            if len(results) > 1:
+                if idx > 1:
+                    print()
+                print(f"# 身份 {idx}/{len(results)}")
+            if result.kind == "dry_run":
+                print(
+                    f"DRY-RUN: {result.username} 未提交"
+                    f"（字段 {len(result.field_names)} 个，"
+                    f"加密 {len(result.encrypted_fields)} 个）"
+                )
+                print(f"  端点: {result.endpoint or '(未发送 POST)'}")
+                print("  加 --yes 才会真正提交注册")
+            elif result.kind == "success":
+                print(f"OK: 注册成功 {result.username}")
+                print(f"  说明: {result.message}")
+            else:
+                print(f"FAIL[{result.kind}]: {result.username} → {result.message}")
+    if args.output:
+        payload = results[0].to_dict() if len(results) == 1 else [
+            r.to_dict() for r in results
+        ]
+        _maybe_output(args, "submit.json", payload)
+    return rc
+
+
 def _cmd_build_form(args) -> int:
     username, password = args.build_form
     try:
@@ -531,7 +656,11 @@ def _cmd_build_form(args) -> int:
     else:
         print("\n# 提示：身份证/密码/QQ 默认打码，需要明文请加 --show-pii",
               file=sys.stderr)
-        print("# 提示：本命令只生成清单，不会提交注册", file=sys.stderr)
+        print(
+            "# 提示：本命令只生成清单；真实提交用 `gen4399 submit --yes`"
+            "（仅限本人真实身份）",
+            file=sys.stderr,
+        )
     if args.output:
         _maybe_output(args, "form-fields.json", payload)
     return 0
@@ -725,7 +854,7 @@ def _cmd_generate(args) -> int:
 
 _SUBCOMMANDS = {
     "generate", "check", "account", "fetch", "available",
-    "form", "prepare", "profile", "rules", "version",
+    "form", "prepare", "submit", "profile", "rules", "version",
 }
 
 _LEGACY_DEFAULTS: dict | None = None
@@ -855,6 +984,26 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
     _add_identity_opts(fb)
     _add_io_opts(fb)
 
+    subcmd = new("submit", "准备并提交注册（POST；默认 dry-run，需 --yes）")
+    subcmd.add_argument("--form-path", choices=["unified"], default="unified")
+    subcmd.add_argument("--app-id", default=None, metavar="APPID")
+    subcmd.add_argument("--level", type=int, default=4, metavar="N")
+    subcmd.add_argument("-p", "--prefix", default="")
+    subcmd.add_argument("-s", "--suffix", default="")
+    subcmd.add_argument("--password-length", type=int, default=None)
+    subcmd.add_argument("--username-length", type=int, default=None)
+    subcmd.add_argument("--no-verify", action="store_true")
+    subcmd.add_argument(
+        "--offline", action="store_true",
+        help="跳过用户名在线查重（dry-run/提交本身仍需联网）",
+    )
+    subcmd.add_argument("--yes", action="store_true",
+                        help="确认真正发送 POST；不加时只做 dry-run")
+    _add_identity_opts(subcmd)
+    _add_io_opts(subcmd)
+    _add_remote_opts(subcmd)
+    subcmd.set_defaults(submit=True, form_path="unified")
+
     pr = new("prepare", "一键准备注册数据")
     pr.add_argument("--form-path", choices=["web", "unified"], default="web")
     pr.add_argument("-p", "--prefix", default="")
@@ -943,6 +1092,8 @@ def _normalize_subcommand(args) -> None:
             args.build_form = [args.username, args.password]
     elif cmd == "prepare":
         args.prepare = True
+    elif cmd == "submit":
+        args.submit = True
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -978,6 +1129,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_form_fields(args)
     if args.check_form is not None:
         return _cmd_check_form(args)
+    if getattr(args, "submit", False):
+        return _cmd_submit(args)
     if args.prepare:
         return _cmd_prepare(args)
     if args.build_form is not None:

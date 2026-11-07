@@ -1,0 +1,451 @@
+"""gen4399.submit 的单元测试：全部打桩，不联网、不创建真实账号。"""
+
+import json
+import unittest
+from unittest import mock
+
+from gen4399._aes import decrypt_aes
+from gen4399.registration import prepare_registration
+from gen4399.forms import RegistrationProfile
+from gen4399.remote import DEFAULT_TIMEOUT, RemoteError, RetryPolicy
+from gen4399.remote import _http
+from gen4399.submit import (
+    SubmitError,
+    SubmitResult,
+    _extract_error_message,
+    _page_excerpt,
+    _safe_url,
+    submit_registration,
+)
+
+VALID_ID = "460206194611192084"
+PROFILE = RegistrationProfile("张三", VALID_ID, qq="123456789")
+ENDPOINT = "https://ptlogin.4399.com/ptlogin/register.do"
+
+REG_FORM_HTML = """<!DOCTYPE html>
+<html><head><script>var appId='u4399';</script></head><body>
+<form onSubmit="return check_reg_new('Msg');" id="reg_form" name="reg_form"
+      method="post" action="/ptlogin/register.do">
+    <input type="hidden" name="postLoginHandler" value="refreshParent"/>
+    <input type="hidden" name="displayMode" value="embed"/>
+    <input type="hidden" name="appId" value="u4399"/>
+    <input type="hidden" name="regMode" value="reg_normal"/>
+    <input type="hidden" name="level" value="4"/>
+    <input type="hidden" name="mainDivId" value="popup_reg_div"/>
+    <input type="hidden" name="sec" value="1"/>
+    <input type="hidden" name="password" value=""/>
+    <input type="hidden" name="passwordveri" value=""/>
+    <input type="hidden" name="realname" value=""/>
+    <input type="hidden" name="idcard" value=""/>
+    <input type="text" id="j-username" name="username" value="4257237567"/>
+    <input type="checkbox" id="reg_eula_agree" name="reg_eula_agree"/>
+</form>
+</body></html>"""
+
+REJECT_HTML = (
+    '<html><body><div id="Msg" class="login_hor login_err_tip">'
+    "用户名格式错误</div></body></html>"
+)
+SUCCESS_HTML = (
+    "<html><script>window.parent.isAutoRegSuccess=true;</script></html>"
+)
+CAPTCHA_HTML = "<html><body>请输入验证码</body></html>"
+UNKNOWN_HTML = "<html><body>系统繁忙，请稍后再试</body></html>"
+
+
+class FakeSession:
+    """替身 RemoteSession：记录 GET/POST，可按测试注入响应与 Cookie。"""
+
+    get_response = None
+    post_response = None
+    post_cookies: dict[str, str] = {}
+    instances: list["FakeSession"] = []
+
+    def __init__(self, *, timeout: float = DEFAULT_TIMEOUT, policy=None) -> None:
+        self.timeout = timeout
+        self.policy = policy
+        self.cookies: dict[str, str] = {}
+        self.get_calls: list[str] = []
+        self.post_calls: list[tuple[str, dict[str, str]]] = []
+        FakeSession.instances.append(self)
+
+    def get(self, url: str):
+        self.get_calls.append(url)
+        response = self.get_response
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    def post(self, url: str, data):
+        self.post_calls.append((url, dict(data)))
+        response = self.post_response
+        if isinstance(response, Exception):
+            raise response
+        self.cookies.update(self.post_cookies)
+        return response
+
+
+def response(body: str, *, status: int = 200, url: str = ENDPOINT):
+    return _http.HttpResponse(
+        status=status, url=url, headers={"Content-Type": "text/html"}, body=body
+    )
+
+
+class SubmitTestBase(unittest.TestCase):
+    def setUp(self):
+        FakeSession.instances = []
+        FakeSession.post_cookies = {}
+        self.session_patch = mock.patch(
+            "gen4399.submit._http.RemoteSession", FakeSession
+        )
+        self.session_patch.start()
+        self.addCleanup(self.session_patch.stop)
+        self.bundle = prepare_registration(
+            PROFILE, path="unified", verify_username=False
+        )
+        FakeSession.get_response = response(REG_FORM_HTML)
+        FakeSession.post_response = response(SUCCESS_HTML)
+
+    @property
+    def session(self) -> FakeSession:
+        return FakeSession.instances[-1]
+
+
+class TestSubmitResult(unittest.TestCase):
+    def make(self, **kwargs):
+        base = dict(
+            ok=True,
+            kind="success",
+            message="注册成功",
+            username="abc12345",
+            path="unified",
+            app_id="u4399",
+            endpoint=ENDPOINT,
+            encrypted_fields=("password",),
+            login_cookies=("Pauth",),
+            field_names=("username", "password"),
+        )
+        base.update(kwargs)
+        return SubmitResult(**base)
+
+    def test_bool(self):
+        self.assertTrue(self.make())
+        self.assertFalse(self.make(ok=False, kind="rejected"))
+
+    def test_repr_is_masked(self):
+        text = repr(self.make())
+        self.assertIn("SubmitResult", text)
+        self.assertNotIn("secret", text)
+
+    def test_to_dict_is_json_safe(self):
+        data = self.make().to_dict()
+        self.assertEqual(data["kind"], "success")
+        self.assertEqual(data["login_cookies"], ["Pauth"])
+        json.dumps(data, ensure_ascii=False)
+
+    def test_to_dict_no_cookie_values(self):
+        result = self.make(login_cookies=("Pauth",))
+        self.assertNotIn("Pauth=", json.dumps(result.to_dict()))
+
+
+class TestValidation(SubmitTestBase):
+    def test_bundle_type(self):
+        with self.assertRaises(TypeError):
+            submit_registration("not-a-bundle")  # type: ignore[arg-type]
+
+    def test_web_path_rejected(self):
+        web = prepare_registration(
+            PROFILE, path="web", verify_username=False
+        )
+        with self.assertRaises(SubmitError) as ctx:
+            submit_registration(web, dry_run=True)
+        self.assertIn("unified", str(ctx.exception))
+
+    def test_bad_app_id(self):
+        with self.assertRaises(ValueError):
+            submit_registration(self.bundle, app_id="", dry_run=True)
+
+    def test_bad_level(self):
+        with self.assertRaises(ValueError):
+            submit_registration(self.bundle, level=-1, dry_run=True)
+        with self.assertRaises(ValueError):
+            submit_registration(
+                self.bundle, level=True, dry_run=True  # type: ignore[arg-type]
+            )
+
+    def test_bad_timeout(self):
+        with self.assertRaises(ValueError):
+            submit_registration(self.bundle, timeout=0, dry_run=True)
+        with self.assertRaises(TypeError):
+            submit_registration(
+                self.bundle, timeout="x", dry_run=True  # type: ignore[arg-type]
+            )
+
+
+class TestDryRun(SubmitTestBase):
+    def test_no_post(self):
+        result = submit_registration(
+            self.bundle, dry_run=True, timeout=7.5
+        )
+        self.assertEqual(result.kind, "dry_run")
+        self.assertFalse(result.ok)
+        self.assertTrue(result.dry_run)
+        self.assertEqual(result.endpoint, ENDPOINT)
+        self.assertTrue(
+            self.session.get_calls[0].startswith(
+                "https://ptlogin.4399.com/ptlogin/regFrame.do?"
+            )
+        )
+        self.assertEqual(self.session.post_calls, [])
+        self.assertEqual(result.encrypted_fields,
+                         ("password", "passwordveri", "realname", "idcard"))
+        self.assertIn("username", result.field_names)
+        self.assertNotIn(self.bundle.password, json.dumps(result.to_dict()))
+
+    def test_session_options(self):
+        policy = RetryPolicy(attempts=2)
+        submit_registration(
+            self.bundle, dry_run=True, timeout=4.2, retry_policy=policy
+        )
+        self.assertEqual(self.session.timeout, 4.2)
+        self.assertIs(self.session.policy, policy)
+
+
+class TestPayloadBuilding(SubmitTestBase):
+    def test_hidden_fields_merged_and_overridden(self):
+        submit_registration(self.bundle)
+        url, data = self.session.post_calls[0]
+        self.assertEqual(url, ENDPOINT)
+        # 服务端隐藏域保留
+        self.assertEqual(data["postLoginHandler"], "refreshParent")
+        self.assertEqual(data["regMode"], "reg_normal")
+        self.assertEqual(data["mainDivId"], "popup_reg_div")
+        # 显式字段被覆盖
+        self.assertEqual(data["username"], self.bundle.username)
+        self.assertEqual(data["appId"], "u4399")
+        self.assertEqual(data["level"], "4")
+        self.assertEqual(data["email"], "123456789")
+        self.assertEqual(data["reg_eula_agree"], "on")
+        self.assertEqual(data["sec"], "1")
+
+    def test_sensitive_fields_encrypted(self):
+        submit_registration(self.bundle)
+        _, data = self.session.post_calls[0]
+        for name in ("password", "passwordveri", "realname", "idcard"):
+            self.assertNotEqual(data[name], "")
+            self.assertTrue(data[name].startswith("U2FsdGVkX1"), name)
+        self.assertEqual(decrypt_aes(data["password"]), self.bundle.password)
+        self.assertEqual(decrypt_aes(data["passwordveri"]), self.bundle.password)
+        self.assertEqual(decrypt_aes(data["realname"]), PROFILE.realname)
+        self.assertEqual(decrypt_aes(data["idcard"]), PROFILE.idcard)
+
+    def test_sec_zero_sends_plaintext(self):
+        FakeSession.get_response = response(
+            REG_FORM_HTML.replace('name="sec" value="1"',
+                                  'name="sec" value="0"')
+        )
+        submit_registration(self.bundle)
+        _, data = self.session.post_calls[0]
+        self.assertEqual(data["password"], self.bundle.password)
+        self.assertEqual(data["idcard"], PROFILE.idcard)
+        self.assertEqual(data["sec"], "0")
+
+    def test_app_id_and_level_options(self):
+        submit_registration(self.bundle, app_id="my", level=0)
+        url, data = self.session.post_calls[0]
+        self.assertIn("appId=my", self.session.get_calls[0])
+        self.assertIn("level=0", self.session.get_calls[0])
+        self.assertEqual(data["appId"], "my")
+        self.assertEqual(data["level"], "0")
+
+    def test_missing_sec_defaults_to_encrypt(self):
+        FakeSession.get_response = response(
+            REG_FORM_HTML.replace(
+                '<input type="hidden" name="sec" value="1"/>', ""
+            )
+        )
+        result = submit_registration(self.bundle, dry_run=True)
+        self.assertEqual(result.encrypted_fields,
+                         ("password", "passwordveri", "realname", "idcard"))
+
+
+class TestClassify(SubmitTestBase):
+    def test_rejected_message(self):
+        FakeSession.post_response = response(REJECT_HTML)
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.kind, "rejected")
+        self.assertFalse(result.ok)
+        self.assertEqual(result.message, "用户名格式错误")
+        self.assertEqual(result.http_status, 200)
+
+    def test_rejected_message_strips_nested_tags(self):
+        FakeSession.post_response = response(
+            '<div id="Msg">用户名<strong>格式</strong>错误</div>'
+        )
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.message, "用户名格式错误")
+
+    def test_success_marker(self):
+        FakeSession.post_response = response(SUCCESS_HTML)
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.kind, "success")
+        self.assertTrue(result.ok)
+        self.assertTrue(result)
+        self.assertIn("isAutoRegSuccess", result.message)
+
+    def test_success_login_cookie(self):
+        FakeSession.post_cookies = {"USESSIONID": "u", "Pauth": "secret"}
+        FakeSession.post_response = response("<html></html>")
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.kind, "success")
+        self.assertEqual(result.login_cookies, ("Pauth",))
+        self.assertNotIn("secret", json.dumps(result.to_dict()))
+
+    def test_success_redirect(self):
+        FakeSession.post_response = response(
+            "<html></html>", url="https://u.4399.com/"
+        )
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.kind, "success")
+        self.assertIn("u.4399.com", result.message)
+
+    def test_final_url_strips_query(self):
+        FakeSession.post_cookies = {"Pauth": "x"}
+        FakeSession.post_response = response(
+            "<html></html>",
+            url="https://u.4399.com/home?username=abc&token=secret",
+        )
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.final_url, "https://u.4399.com/home")
+        self.assertNotIn("secret", json.dumps(result.to_dict()))
+
+    def test_captcha(self):
+        FakeSession.post_response = response(CAPTCHA_HTML)
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.kind, "captcha")
+        self.assertFalse(result.ok)
+        self.assertIn("验证码", result.message)
+
+    def test_unknown(self):
+        FakeSession.post_response = response(UNKNOWN_HTML)
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.kind, "unknown")
+        self.assertFalse(result.ok)
+        self.assertIn("无法确定", result.message)
+        self.assertIn("系统繁忙", result.message)
+
+    def test_elapsed_and_fields(self):
+        FakeSession.post_response = response(SUCCESS_HTML)
+        result = submit_registration(self.bundle)
+        self.assertGreaterEqual(result.elapsed, 0.0)
+        self.assertIn("username", result.field_names)
+        self.assertEqual(result.path, "unified")
+        self.assertEqual(result.app_id, "u4399")
+
+
+    def test_success_marker_wins_over_msg_text(self):
+        FakeSession.post_response = response(
+            '<div id="Msg">注册成功，正在跳转…</div>'
+            "<script>window.parent.isAutoRegSuccess = true;</script>"
+        )
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.kind, "success")
+
+    def test_comparison_not_treated_as_success(self):
+        FakeSession.post_response = response(
+            '<div id="Msg"></div><script>var isAutoRegSuccess=false;'
+            "if (isAutoRegSuccess == true) {}</script>"
+        )
+        result = submit_registration(self.bundle)
+        self.assertNotEqual(result.kind, "success")
+
+    def test_emit_form_success(self):
+        FakeSession.post_response = response(
+            '<script>msnger.emit("isAutoRegSuccess",true);</script>'
+        )
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.kind, "success")
+
+    def test_captcha_before_redirect(self):
+        FakeSession.post_response = response(
+            "<html>请输入验证码</html>",
+            url="https://u.4399.com/captcha.html",
+        )
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.kind, "captcha")
+
+    def test_rejected_message_redacts_pii(self):
+        FakeSession.post_response = response(
+            f'<div id="Msg">身份证号 {VALID_ID} 格式错误</div>'
+        )
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.kind, "rejected")
+        self.assertNotIn(VALID_ID, result.message)
+        self.assertNotIn(VALID_ID, json.dumps(result.to_dict()))
+        self.assertIn("***", result.message)
+
+    def test_long_message_redacts_before_truncation(self):
+        FakeSession.post_response = response(
+            '<div id="Msg">' + "x" * 280 + f"身份证 {VALID_ID} 错误</div>"
+        )
+        result = submit_registration(self.bundle)
+        self.assertEqual(result.kind, "rejected")
+        self.assertNotIn("4602", result.message)
+        self.assertIn("***", result.message)
+
+
+class TestErrors(SubmitTestBase):
+    def test_get_error_propagates(self):
+        FakeSession.get_response = RemoteError("boom")
+        with self.assertRaises(RemoteError):
+            submit_registration(self.bundle)
+
+    def test_post_error_propagates(self):
+        FakeSession.post_response = RemoteError("boom")
+        with self.assertRaises(RemoteError):
+            submit_registration(self.bundle)
+        self.assertEqual(len(self.session.post_calls), 1)
+
+
+class TestHelpers(unittest.TestCase):
+    def test_safe_url_none(self):
+        self.assertIsNone(_safe_url(None))
+        self.assertIsNone(_safe_url(""))
+
+    def test_safe_url_strips_query_and_fragment(self):
+        self.assertEqual(
+            _safe_url("https://x.test/p?a=1#f"), "https://x.test/p"
+        )
+
+    def test_page_excerpt_truncates(self):
+        excerpt = _page_excerpt("<html><body>" + "长" * 200 + "</body></html>")
+        self.assertEqual(len(excerpt), 121)
+        self.assertTrue(excerpt.endswith("…"))
+
+    def test_page_excerpt_ignores_scripts(self):
+        excerpt = _page_excerpt(
+            "<script>var secret='x'</script><body>可见</body>"
+        )
+        self.assertEqual(excerpt, "可见")
+
+    def test_extract_error_message_absent(self):
+        self.assertEqual(_extract_error_message("<html></html>"), "")
+
+    def test_remote_package_reexports(self):
+        from gen4399.remote import (
+            REGISTER_URL,
+            HttpResponse,
+            RegFormSnapshot,
+            RemoteSession,
+            parse_registration_form,
+        )
+
+        self.assertTrue(REGISTER_URL.endswith("/ptlogin/register.do"))
+        self.assertEqual(HttpResponse.__name__, "HttpResponse")
+        self.assertEqual(RegFormSnapshot.__name__, "RegFormSnapshot")
+        self.assertTrue(callable(parse_registration_form))
+        self.assertEqual(RemoteSession.__name__, "RemoteSession")
+
+
+if __name__ == "__main__":
+    unittest.main()
