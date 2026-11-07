@@ -28,6 +28,28 @@
 > **已用于实名绑定的身份证再次注册会被服务端拒绝**（实测返回 `姓名身份证不匹配`）；
 > 本库无法仅凭响应区分「已绑定」与「实名不通过」，请只使用本人未绑定过 4399 的身份证。
 
+## API 分层
+
+日常只需要顶层这三个名字：
+
+```python
+from gen4399 import RegistrationProfile, prepare_registration, submit_registration
+```
+
+其余按域取，不必全从顶层 import（顶层 80+ 个名字仍然可用，2.x 全兼容）：
+
+| 模块 | 内容 |
+|---|---|
+| `gen4399.forms` | 表单字段定义、整表校验、`build_registration_fields()` |
+| `gen4399.identity` | `RegistrationProfile`、姓名/身份证/QQ 校验、txt 批量读取 |
+| `gen4399.remote` | 服务端分配账号 / 查重接口、`RetryPolicy`、远程错误类型 |
+| `gen4399.captcha` | `prompt` / `command` / `auto` / `save` 四种识别回调 |
+| `gen4399.submit` | `submit_registration()`、`SubmitResult`、提交端点常量 |
+| `gen4399.constants` | 规则版本、长度限制、端点 URL、`UNIFIED_DROP_FIELDS` 等纯常量 |
+
+> `gen4399.constants` 是常量的**完整**出口：`UNIFIED_DROP_FIELDS`、`VERIFY_URL`
+> 这类实现细节只在这里（以及 `gen4399.submit`）导出，不占顶层命名空间。
+
 ## 安装
 
 ```bash

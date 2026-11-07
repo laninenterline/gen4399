@@ -17,6 +17,16 @@
   `tesseract` 就用它（PNG 走 stdin、结果走 stdout），否则退回人工输入；
   `--captcha-cmd` 仍可指定任意识别命令。库依旧不内置验证码破解。
 
+### 新增（API 分层）
+
+- 新增 `gen4399.constants`：规则版本、长度限制、端点 URL、`UNIFIED_DROP_FIELDS` /
+  `UNIFIED_SEND_REALNAME` / `ENCRYPTED_FIELDS` 等常量的**完整**出口（顶层保持兼容）。
+- 新增 `gen4399.captcha`：`CaptchaSolver` / `CaptchaSolverError` / `prompt|command|auto_captcha_solver`
+  / `save_captcha_images` / `make_solver` 的公开别名（实现仍在 `_captcha`）。
+- `gen4399.forms` / `identity` / `remote` / `submit` 本就是模块，README 新增「API 分层」
+  一节说明「核心三个名字 + 按域取细节」。
+- 顶层补导出 `WEB_CHECK_USER_API`。
+
 ### 重构（内部，无 API 变化）
 
 - 提交层：4 处 `SubmitResult(...)` 组装合并成 `_dry_run_result()` / `_final_result()`
