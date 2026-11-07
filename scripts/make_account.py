@@ -7,10 +7,13 @@
     python scripts/make_account.py --yes              # 真实提交（需本人真实身份）
     python scripts/make_account.py --yes --form-path web
     python scripts/make_account.py --yes --profile-file ids.txt
+    python scripts/make_account.py --yes --index 2        # 用第 2 条有效身份
 
 身份文件默认为当前目录的 ``sfz.txt``，每行 ``姓名|身份证号[|QQ]``；本脚本每次
-只使用第一条身份。真实提交需要**本人**真实姓名与身份证号（4399 会做实名核验），
-使用他人/伪造身份可能违法，也违反 4399 用户协议。
+只使用一条身份（默认第 1 条有效记录，可用 ``--index`` 选择）。默认会**跳过**
+文件里的无效行并打印行号，``--strict`` 则遇错立即退出。真实提交需要**本人**
+真实姓名与身份证号（4399 会做实名核验），使用他人/伪造身份可能违法，也违反
+4399 用户协议。
 
 成功（或被判定为 unknown 但已发出 POST）时，账号会追加写入 ``accounts.json``
 （权限 0600，含明文密码，请妥善保管）。``unknown`` 表示服务端结果不确定，
@@ -24,7 +27,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
+import warnings
 from datetime import datetime
 from pathlib import Path
 
@@ -70,6 +75,10 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="身份文件，默认 ./sfz.txt")
     p.add_argument("--profile-encoding", default=None, metavar="ENCODING",
                    help="身份文件编码；默认自动（UTF-8-SIG，失败回退 GB18030）")
+    p.add_argument("--index", type=int, default=1, metavar="N",
+                   help="使用第 N 条有效身份（1-based），默认 1")
+    p.add_argument("--strict", action="store_true",
+                   help="身份文件有无效行时立即报错（默认跳过并打印行号）")
     p.add_argument("--username", default=None, help="指定用户名（默认自动生成并查重）")
     p.add_argument("--username-length", type=int, default=None, help="自动用户名长度，默认 12")
     p.add_argument("--password-length", type=int, default=None, help="密码长度，默认 16")
@@ -87,26 +96,63 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _load_profile(path: str, encoding: str | None) -> RegistrationProfile:
-    if encoding:
-        profiles = load_profiles(path, encoding=encoding)
-    else:
+def _load_profile(
+    path: str,
+    encoding: str | None,
+    *,
+    index: int = 1,
+    strict: bool = False,
+) -> RegistrationProfile:
+    """读取身份文件并取第 ``index`` 条有效身份（默认跳过无效行）。"""
+    errors = "raise" if strict else "skip"
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         try:
-            profiles = load_profiles(path, encoding="utf-8-sig")
+            if encoding:
+                profiles = load_profiles(path, encoding=encoding, errors=errors)
+            else:
+                try:
+                    profiles = load_profiles(
+                        path, encoding="utf-8-sig", errors=errors
+                    )
+                except UnicodeDecodeError:
+                    print(
+                        "# 提示：身份文件不是 UTF-8，已按 GB18030 读取",
+                        file=sys.stderr,
+                    )
+                    profiles = load_profiles(
+                        path, encoding="gb18030", errors=errors
+                    )
         except UnicodeDecodeError:
-            profiles = load_profiles(path, encoding="gb18030")
-            print(
-                "# 提示：身份文件不是 UTF-8，已按 GB18030 读取",
-                file=sys.stderr,
-            )
-    if not profiles:
-        raise ValueError(f"{path} 中没有有效身份")
-    if len(profiles) > 1:
+            raise
+
+    skipped = [
+        str(item.message) for item in caught if "跳过" in str(item.message)
+    ]
+    if skipped:
+        lines = re.findall(r"第 (\d+) 行", " ".join(skipped))
+        shown = ", ".join(lines[:5])
+        if len(lines) > 5:
+            shown += " …"
+        detail = f"（行号：{shown}）" if shown else ""
         print(
-            f"# 注意：{path} 有 {len(profiles)} 条身份，本脚本只使用第 1 条",
+            f"# 注意：已跳过 {len(skipped)} 行无效身份{detail}；"
+            "如需严格模式请加 --strict",
             file=sys.stderr,
         )
-    return profiles[0]
+
+    if not profiles:
+        raise ValueError(f"{path} 中没有有效身份（无效行已跳过）")
+    if index < 1 or index > len(profiles):
+        raise ValueError(
+            f"{path} 只有 {len(profiles)} 条有效身份，--index {index} 越界"
+        )
+    if len(profiles) > 1:
+        print(
+            f"# 身份文件共 {len(profiles)} 条有效身份，本次使用第 {index} 条",
+            file=sys.stderr,
+        )
+    return profiles[index - 1]
 
 
 def _append_account(path: Path, record: dict) -> None:
@@ -178,7 +224,12 @@ def main(argv: list[str] | None = None) -> int:
         policy = None
         if args.retries is not None:
             policy = RetryPolicy(attempts=max(1, args.retries))
-        profile = _load_profile(args.profile_file, args.profile_encoding)
+        profile = _load_profile(
+            args.profile_file,
+            args.profile_encoding,
+            index=args.index,
+            strict=args.strict,
+        )
     except (Gen4399Error, TypeError, ValueError, OSError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 2

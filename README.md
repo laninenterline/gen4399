@@ -418,6 +418,9 @@ python scripts/make_account.py --json
 
 - 身份文件编码默认 UTF-8（失败自动回退 GB18030）；`sfz.txt` / `accounts.json`
   已在 `.gitignore` 中，避免 PII/账号误提交。
+- **无效行容错**：身份文件里若有格式/校验不通过的行，脚本默认**跳过**并打印行号
+  （例如 `行号：2`），继续用第 1 条有效身份；`--strict` 改为遇错立即退出；
+  多行文件可用 `--index N` 指定用第 N 条有效身份。
 - 成功或被判定为 `unknown` 时会追加到 `accounts.json`（默认 0600，含明文密码，
   请妥善保管）；`unknown` 请先登录 `https://u.4399.com/` 确认，不要立刻重跑。
 - 退出码：0 成功/dry-run；1 被拒/验证码/未知；2 参数/网络/配置错误。

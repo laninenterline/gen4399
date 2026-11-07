@@ -134,6 +134,46 @@ class MakeAccountTest(unittest.TestCase):
         self.assertIn("GB18030", err)
         self.assertEqual(self.prepare.call_count, 1)
 
+    def test_skips_invalid_lines_by_default(self):
+        Path("sfz.txt").write_text(
+            "bad|not-an-id\n李四|11010119900101004X\n", encoding="utf-8"
+        )
+        self.submit.return_value = _result(
+            ok=False, kind="dry_run", message="dry-run", http_status=None
+        )
+        code, _, err = run([])
+        self.assertEqual(code, 0)
+        self.assertIn("已跳过 1 行", err)
+        self.assertIn("行号：1", err)
+        self.assertEqual(self.prepare.call_args.args[0].realname, "李四")
+
+    def test_strict_mode_errors_on_invalid_line(self):
+        Path("sfz.txt").write_text(
+            "bad|not-an-id\n李四|11010119900101004X\n", encoding="utf-8"
+        )
+        code, _, err = run(["--strict"])
+        self.assertEqual(code, 2)
+        self.assertIn("错误", err)
+        self.prepare.assert_not_called()
+
+    def test_index_selects_second_valid_profile(self):
+        Path("sfz.txt").write_text(
+            "张三|" + VALID_ID + "\n李四|11010119900101004X\n",
+            encoding="utf-8",
+        )
+        self.submit.return_value = _result(
+            ok=False, kind="dry_run", message="dry-run", http_status=None
+        )
+        code, _, err = run(["--index", "2"])
+        self.assertEqual(code, 0)
+        self.assertIn("使用第 2 条", err)
+        self.assertEqual(self.prepare.call_args.args[0].realname, "李四")
+
+    def test_index_out_of_range(self):
+        code, _, err = run(["--index", "9"])
+        self.assertEqual(code, 2)
+        self.assertIn("越界", err)
+
     def test_missing_profile_exit_2(self):
         Path("sfz.txt").unlink()
         code, _, err = run([])

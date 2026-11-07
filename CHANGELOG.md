@@ -21,6 +21,8 @@
     增加 web 路径的 payload、DES 加密、JSONP 判定、退出码覆盖。
   - 新增 `scripts/make_account.py`：每次运行读取身份 → 准备 → 提交并追加保存
     账号到 `accounts.json`（默认 dry-run，`--yes` 才真实提交；单次运行只处理一个身份）。
+    身份文件中的无效行默认跳过并打印行号（`--strict` 遇错即停），`--index N`
+    选择第 N 条有效身份；编码自动 UTF-8-SIG → GB18030 回退。
 - 文档：`docs/submit.md` 增加 web 协议/字段/DES/判定/PII 对比章节；
   README、`docs/rules.md`、`docs/project-overview.md`、SECURITY 同步。
 
