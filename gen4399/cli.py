@@ -15,6 +15,7 @@
     python -m gen4399 --check-form NAME PW --realname 张三 --idcard ...
     python -m gen4399 --build-form NAME PW --realname 张三 --idcard ...
     python -m gen4399 --prepare --realname 张三 --idcard ...   一键准备注册数据
+    python -m gen4399 --prepare --profile-file ids.txt       从 txt 批量准备
     python -m gen4399 --check-available "abc12345"
     python -m gen4399 --entropy -p abc
 """
@@ -29,6 +30,7 @@ from . import __version__
 from .registration import prepare_registration
 from .forms import (
     RegistrationProfile,
+    load_profiles,
     build_registration_fields,
     check_registration_form,
     get_form,
@@ -79,6 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  python -m gen4399 --account             生成一套账号名+密码（自动查重）\n"
             '  python -m gen4399 --check-available "abc12345"\n'
             "  python -m gen4399 --entropy -p abc      查看熵\n"
+            "  python -m gen4399 --prepare --profile-file ids.txt   批量准备\n"
         ),
     )
     p.add_argument("-n", "--length", type=int, default=None,
@@ -118,11 +121,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--form-path", choices=["web", "unified"], default="web",
                    help="--check-form 使用的注册路径，默认 web")
     p.add_argument("--realname", default=None, metavar="NAME",
-                   help="--check-form 的真实姓名")
+                   help="真实姓名（用于 --check-form / --build-form / --prepare；"
+                        "也可改用 --profile-file）")
     p.add_argument("--idcard", default=None, metavar="ID",
-                   help="--check-form 的身份证号")
+                   help="身份证号（用于 --check-form / --build-form / --prepare；"
+                        "也可改用 --profile-file）")
     p.add_argument("--qq", default=None, metavar="QQ",
-                   help="--check-form 的 QQ 号（选填）")
+                   help="QQ 号（选填，配合 --realname/--idcard 使用）")
+    p.add_argument("--profile-file", metavar="FILE", default=None,
+                   help="身份信息 txt：每行「姓名|身份证号[|QQ]」，"
+                        "空行和 # 注释跳过；可多行批量，用于 "
+                        "--prepare / --build-form / --check-form")
     p.add_argument("--build-form", nargs=2, default=None,
                    metavar=("USERNAME", "PASSWORD"),
                    help="生成填表清单（参数名=值），不提交")
@@ -150,6 +159,44 @@ def _report(violations, raw: str) -> int:
     for v in violations:
         print(f"  - [{v.code}] {v.message}", file=sys.stderr)
     return 1
+
+
+def _print_form_result(res) -> bool:
+    """打印表单校验结果，返回是否通过。"""
+    for warning in res.warnings:
+        print(f"# 提示: {warning}", file=sys.stderr)
+    if res.ok:
+        print("OK: 表单全部通过")
+        return True
+    print("FAIL:", file=sys.stderr)
+    for msg in res.messages():
+        print(f"  - {msg}", file=sys.stderr)
+    return False
+
+
+def _load_identity_profiles(args):
+    """按 --profile-file 或 --realname/--idcard 取得身份信息列表。
+
+    Raises:
+        ValueError: 参数缺失或互相冲突。
+        OSError: 身份文件无法读取。
+        InvalidProfileError: 身份信息不合法。
+    """
+    if args.profile_file is not None:
+        if args.realname or args.idcard:
+            raise ValueError(
+                "--profile-file 不能与 --realname/--idcard 同时使用"
+            )
+        return load_profiles(args.profile_file)
+    if not (args.realname and args.idcard):
+        raise ValueError(
+            "需要同时提供 --realname 和 --idcard，或使用 --profile-file"
+        )
+    return [
+        RegistrationProfile(
+            args.realname, args.idcard, qq=args.qq
+        ).require_valid()
+    ]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -184,6 +231,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     # 校验注册表单
     if args.check_form is not None:
         username, password = args.check_form
+        if args.profile_file is not None:
+            try:
+                profiles = _load_identity_profiles(args)
+            except (Gen4399Error, TypeError, ValueError, OSError) as exc:
+                print(f"错误：{exc}", file=sys.stderr)
+                return 2
+            failed = False
+            for idx, profile in enumerate(profiles, 1):
+                if len(profiles) > 1:
+                    print(f"# 身份 {idx}/{len(profiles)}")
+                res = check_registration_form(
+                    username, password, path=args.form_path, profile=profile
+                )
+                if not _print_form_result(res):
+                    failed = True
+            return 1 if failed else 0
         res = check_registration_form(
             username,
             password,
@@ -192,77 +255,76 @@ def main(argv: Sequence[str] | None = None) -> int:
             idcard=args.idcard,
             qq=args.qq,
         )
-        for w in res.warnings:
-            print(f"# 提示: {w}", file=sys.stderr)
-        if res.ok:
-            print("OK: 表单全部通过")
-            return 0
-        print("FAIL:", file=sys.stderr)
-        for msg in res.messages():
-            print(f"  - {msg}", file=sys.stderr)
-        return 1
+        return 0 if _print_form_result(res) else 1
 
     # 一键准备注册数据
     if args.prepare:
-        if not (args.realname and args.idcard):
-            print("错误：--prepare 需要同时提供 --realname 和 --idcard",
-                  file=sys.stderr)
-            return 2
         try:
-            profile = RegistrationProfile(
-                args.realname, args.idcard, qq=args.qq
-            ).require_valid()
-            bundle = prepare_registration(
-                profile,
-                path=args.form_path,
-                username_length=args.username_length
-                or DEFAULT_USERNAME_LENGTH,
-                password_length=args.length or DEFAULT_LENGTH,
-                prefix=args.prefix,
-                suffix=args.suffix,
-                verify_username=not args.no_verify,
-                timeout=timeout,
-            )
-        except (Gen4399Error, TypeError, ValueError) as exc:
+            profiles = _load_identity_profiles(args)
+            bundles = [
+                prepare_registration(
+                    profile,
+                    path=args.form_path,
+                    username_length=args.username_length
+                    or DEFAULT_USERNAME_LENGTH,
+                    password_length=args.length or DEFAULT_LENGTH,
+                    prefix=args.prefix,
+                    suffix=args.suffix,
+                    verify_username=not args.no_verify,
+                    timeout=timeout,
+                )
+                for profile in profiles
+            ]
+        except (Gen4399Error, TypeError, ValueError, OSError) as exc:
             print(f"错误：{exc}", file=sys.stderr)
             return 2
-        print(bundle.as_text(show_pii=args.show_pii))
+        for idx, bundle in enumerate(bundles, 1):
+            if len(bundles) > 1:
+                if idx > 1:
+                    print()
+                print(f"# 身份 {idx}/{len(bundles)}")
+            print(bundle.as_text(show_pii=args.show_pii))
         return 0
 
     # 生成填表清单
     if args.build_form is not None:
         username, password = args.build_form
-        if not (args.realname and args.idcard):
-            print("错误：--build-form 需要同时提供 --realname 和 --idcard",
-                  file=sys.stderr)
-            return 2
         try:
-            profile = RegistrationProfile(
-                args.realname, args.idcard, qq=args.qq
-            ).require_valid()
-            fields = build_registration_fields(
-                username, password, path=args.form_path, profile=profile
-            )
-        except (Gen4399Error, TypeError, ValueError) as exc:
+            profiles = _load_identity_profiles(args)
+            form = get_form(args.form_path)
+        except (Gen4399Error, TypeError, ValueError, OSError) as exc:
             print(f"错误：{exc}", file=sys.stderr)
             return 2
 
-        form = get_form(args.form_path)
         labels = {f.name: f.label for f in form.fields}
-        print(f"{form.title}  ({form.path})")
-        print(f"页面: {form.url}")
-        print(f"{'参数名':<18}{'标签':<12}值")
-        print("-" * 70)
-        for name, value in fields.items():
-            shown = value
-            if name in ("sfz", "idcard") and not args.show_pii:
-                shown = profile.masked_idcard()
-            elif name in ("login_password", "password",
-                          "relogin_pwd", "passwordveri") and not args.show_pii:
-                shown = "*" * len(value)
-            elif name in ("qq", "email") and not args.show_pii:
-                shown = value[:2] + "*" * max(0, len(value) - 2) if value else value
-            print(f"{name:<18}{labels.get(name, ''):<12}{shown}")
+        for idx, profile in enumerate(profiles, 1):
+            try:
+                fields = build_registration_fields(
+                    username, password, path=args.form_path, profile=profile
+                )
+            except (Gen4399Error, TypeError, ValueError) as exc:
+                print(f"错误：{exc}", file=sys.stderr)
+                return 2
+            if idx > 1:
+                print()
+            if len(profiles) > 1:
+                print(f"# 身份 {idx}/{len(profiles)}")
+            print(f"{form.title}  ({form.path})")
+            print(f"页面: {form.url}")
+            print(f"{'参数名':<18}{'标签':<12}值")
+            print("-" * 70)
+            for name, value in fields.items():
+                shown = value
+                if name in ("sfz", "idcard") and not args.show_pii:
+                    shown = profile.masked_idcard()
+                elif name in ("login_password", "password",
+                              "relogin_pwd", "passwordveri") and not args.show_pii:
+                    shown = "*" * len(value)
+                elif name in ("qq", "email") and not args.show_pii:
+                    shown = (
+                        value[:2] + "*" * max(0, len(value) - 2) if value else value
+                    )
+                print(f"{name:<18}{labels.get(name, ''):<12}{shown}")
         print("\n# 提示：身份证/密码/QQ 默认打码，需要明文请加 --show-pii",
               file=sys.stderr)
         print("# 提示：本命令只生成清单，不会提交注册", file=sys.stderr)

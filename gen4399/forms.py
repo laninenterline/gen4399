@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -39,6 +40,8 @@ __all__ = [
     "check_registration_form",
     "RegistrationProfile",
     "InvalidProfileError",
+    "parse_profile_line",
+    "load_profiles",
     "build_registration_fields",
 ]
 
@@ -465,6 +468,112 @@ class RegistrationProfile:
         if self.qq:
             parts.append("qq=" + self.qq[:2] + "*" * max(0, len(self.qq) - 2))
         return " ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# 从文本文件读取身份信息
+# ---------------------------------------------------------------------------
+
+#: 身份信息行支持的分隔符：ASCII 竖线 / 全角竖线
+_PROFILE_SEPARATORS = re.compile(r"[|｜]")
+
+#: 格式提示
+_PROFILE_FORMAT_HINT = "每行格式：真实姓名|身份证号[|QQ]"
+
+
+def parse_profile_line(
+    line: str, *, line_number: int | None = None
+) -> RegistrationProfile:
+    """解析一行身份信息。
+
+    行格式为 ``真实姓名|身份证号``，可选的第三列是 QQ 号，
+    即 ``真实姓名|身份证号|QQ``。也接受全角竖线 ``｜``。
+
+    Args:
+        line: 一行文本（可含首尾空白）。
+        line_number: 行号，仅用于错误信息。
+
+    Returns:
+        校验通过的 :class:`RegistrationProfile`。
+
+    Raises:
+        TypeError: ``line`` 不是 ``str``。
+        InvalidProfileError: 格式或字段内容不合法。
+
+    Examples:
+        >>> p = parse_profile_line("张三|460206194611192084")
+        >>> p.qq is None
+        True
+        >>> parse_profile_line("张三|460206194611192084|123456789").qq
+        '123456789'
+    """
+    if not isinstance(line, str):
+        raise TypeError(f"line 必须是 str，收到 {type(line).__name__}")
+    where = f"第 {line_number} 行" if line_number is not None else "该行"
+    text = line.lstrip("\ufeff").strip()
+    if not text or text.startswith("#"):
+        raise InvalidProfileError(f"{where}：空行/注释行不是有效身份信息")
+
+    parts = [part.strip() for part in _PROFILE_SEPARATORS.split(text)]
+    if len(parts) < 2:
+        raise InvalidProfileError(
+            f"{where}：格式错误，应为「真实姓名|身份证号[|QQ]」，当前 {text!r}"
+        )
+    if len(parts) > 3:
+        raise InvalidProfileError(
+            f"{where}：字段过多（应为 2~3 列），当前 {len(parts)} 列：{text!r}"
+        )
+
+    realname, idcard = parts[0], parts[1]
+    qq = parts[2] if len(parts) == 3 and parts[2] else None
+    profile = RegistrationProfile(realname, idcard, qq=qq)
+    errs = profile.errors()
+    if errs:
+        detail = "；".join(
+            f"{k}: {m}" for k, msgs in errs.items() for m in msgs
+        )
+        raise InvalidProfileError(f"{where}：{detail}")
+    return profile
+
+
+def load_profiles(
+    path: str | os.PathLike[str], *, encoding: str = "utf-8-sig"
+) -> list[RegistrationProfile]:
+    """从 txt 文件读取一批身份信息。
+
+    - 每行一个身份：``真实姓名|身份证号`` 或 ``真实姓名|身份证号|QQ``
+    - 空行与 ``#`` 开头的注释行会被跳过
+    - 支持 UTF-8 BOM（默认 ``utf-8-sig``）和全角竖线 ``｜``
+    - 任一行不合法就整体报错（错误信息带行号）
+
+    Args:
+        path: 文本文件路径。
+        encoding: 文件编码，默认 ``utf-8-sig``（兼容带 BOM 的 UTF-8）。
+
+    Returns:
+        校验通过的身份信息列表，顺序与文件一致。
+
+    Raises:
+        FileNotFoundError: 文件不存在。
+        InvalidProfileError: 某行格式/内容不合法，或文件里没有有效行。
+
+    Examples:
+        >>> profiles = load_profiles("ids.txt")      # doctest: +SKIP
+        >>> profiles[0].realname                     # doctest: +SKIP
+        '张三'
+    """
+    profiles: list[RegistrationProfile] = []
+    with open(path, "r", encoding=encoding) as fh:
+        for lineno, line in enumerate(fh, 1):
+            text = line.strip()
+            if not text or text.startswith("#"):
+                continue
+            profiles.append(parse_profile_line(line, line_number=lineno))
+    if not profiles:
+        raise InvalidProfileError(
+            f"文件 {path!s} 中没有找到有效身份信息（{_PROFILE_FORMAT_HINT}）"
+        )
+    return profiles
 
 
 def build_registration_fields(

@@ -2,6 +2,23 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.10.0] - 2026-11-07
+
+### 新增
+
+- `load_profiles(path)`：从 txt 批量读取身份信息，返回逐行校验过的
+  `RegistrationProfile` 列表；支持空行 / `#` 注释 / UTF-8 BOM / 全角竖线 `｜`。
+- `parse_profile_line(line)`：解析单行身份信息，
+  格式 `真实姓名|身份证号[|QQ]`（2~3 列）。
+- CLI 新增 `--profile-file FILE`：`--prepare` / `--build-form` / `--check-form`
+  均可用，且支持**多行批量**（每个身份输出一段，带 `# 身份 i/n` 标号）。
+- 身份文件任一行不合法时整体报错，错误信息带行号；文件不存在/不可读时
+  统一退出码 2，不再出现 traceback。
+
+### 变更
+
+- `--profile-file` 与 `--realname/--idcard` 互斥（同时使用会报错退出码 2）。
+
 ## [1.9.0] - 2026-11-07
 
 ### 修复

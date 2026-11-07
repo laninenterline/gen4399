@@ -51,6 +51,8 @@ from .forms import (
     RegistrationForm,
     check_registration_form,
     get_form,
+    load_profiles,
+    parse_profile_line,
     validate_idcard,
     validate_qq,
     validate_realname,
@@ -107,7 +109,7 @@ from .core import (
     validate_username,
 )
 
-__version__ = "1.9.0"
+__version__ = "1.10.0"
 
 __all__ = [
     "CHARSET",
@@ -158,6 +160,8 @@ __all__ = [
     "check_registration_form",
     "RegistrationProfile",
     "InvalidProfileError",
+    "parse_profile_line",
+    "load_profiles",
     "build_registration_fields",
     "RegistrationBundle",
     "RegistrationError",

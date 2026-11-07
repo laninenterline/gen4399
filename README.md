@@ -8,6 +8,7 @@
   - `check_username()` / `is_username_available()` —— 查询用户名是否可注册
 - 表单：两条注册路径的字段定义 + 提交前本地整表校验（不联网、不代提交）
 - 编排：`prepare_registration()` 一键准备好「可照着填」的注册数据
+- 身份信息：可从 `姓名|身份证号[|QQ]` 格式的 txt 批量读取
 
 > **本库不会提交注册请求**。最后一步「点提交」请在浏览器手动完成。
 > 请只使用你本人的真实身份信息，并遵守 4399 的用户协议。
@@ -210,6 +211,41 @@ bundle = prepare_registration(profile, verify_username=False)
 
 > 长度 `-n` 是**总长度**，前缀和后缀都算在内；固定部分越长，随机部分越短。
 
+### 从 txt 批量读取身份信息
+
+`ids.txt` 每行一个身份：`真实姓名|身份证号`，可选第三列 QQ；
+空行与 `#` 开头的注释会跳过，支持全角竖线 `｜` 和 UTF-8 BOM：
+
+```text
+# 我的身份
+张三|460206194611192084
+李四|440106198101010155|123456789
+```
+
+```python
+from gen4399 import load_profiles, parse_profile_line
+
+profiles = load_profiles("ids.txt")      # list[RegistrationProfile]，已逐行校验
+profiles[0].masked()                     # 可安全打印
+
+parse_profile_line("张三|460206194611192084|123456789")   # 单行解析
+
+for profile in profiles:
+    bundle = prepare_registration(profile, verify_username=False)
+    print(bundle.as_text())
+```
+
+CLI 也支持批量（每个身份输出一段）：
+
+```bash
+python -m gen4399 --prepare --no-verify --profile-file ids.txt
+python -m gen4399 --build-form abc12345 Abc123456 --profile-file ids.txt
+python -m gen4399 --check-form abc12345 Abc123456 --profile-file ids.txt
+```
+
+> `--profile-file` 与 `--realname/--idcard` 互斥；某行格式/内容不合法时整体报错，
+> 错误信息带行号（退出码 2）。
+
 ## CLI
 
 ```bash
@@ -232,6 +268,7 @@ python -m gen4399 --check-form NAME PW --realname 张三 --idcard 46020619461119
 python -m gen4399 --build-form NAME PW --realname 张三 --idcard ... --show-pii
 python -m gen4399 --prepare --realname 张三 --idcard 460206194611192084 -p u -s gz
 python -m gen4399 --prepare --no-verify --realname 张三 --idcard ...
+python -m gen4399 --prepare --no-verify --profile-file ids.txt   # 批量
 python -m gen4399 --check-available "abc12345"
 python -m gen4399 --timeout 3 --check-available "abc12345"
 ```

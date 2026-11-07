@@ -2,7 +2,9 @@
 
 import contextlib
 import io
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from gen4399 import cli
@@ -166,6 +168,90 @@ class TestFormCommands(unittest.TestCase):
         ])
         self.assertEqual(code, 2)
         self.assertIn("错误", err)
+
+
+class TestProfileFile(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def _write(self, content, name="ids.txt"):
+        path = self.root / name
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def test_prepare_batch(self):
+        path = self._write(
+            "张三|" + VALID_ID + "\n李四|440106198101010155|123456789\n"
+        )
+        code, out, _ = run(
+            ["--prepare", "--no-verify", "--profile-file", str(path)]
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("# 身份 1/2", out)
+        self.assertIn("# 身份 2/2", out)
+        self.assertEqual(out.count("login_name"), 2)
+        self.assertNotIn(VALID_ID, out)
+
+    def test_build_form_batch(self):
+        path = self._write(
+            "张三|" + VALID_ID + "\n李四|440106198101010155\n"
+        )
+        code, out, _ = run([
+            "--build-form", "abc12345", "Abc123456",
+            "--profile-file", str(path),
+        ])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.count("login_name"), 2)
+        self.assertIn("# 身份 2/2", out)
+        self.assertNotIn(VALID_ID, out)
+
+    def test_check_form_batch(self):
+        path = self._write(
+            "张三|" + VALID_ID + "\n李四|440106198101010155\n"
+        )
+        code, out, _ = run([
+            "--check-form", "abc12345", "Abc123456",
+            "--profile-file", str(path),
+        ])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.count("OK: 表单全部通过"), 2)
+
+    def test_single_line_no_group_header(self):
+        path = self._write("张三|" + VALID_ID + "\n")
+        code, out, _ = run(
+            ["--prepare", "--no-verify", "--profile-file", str(path)]
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("login_name", out)
+        self.assertNotIn("# 身份", out)
+
+    def test_conflict_with_realname(self):
+        path = self._write("张三|" + VALID_ID + "\n")
+        code, _, err = run([
+            "--prepare", "--no-verify", "--profile-file", str(path),
+            "--realname", "张三",
+        ])
+        self.assertEqual(code, 2)
+        self.assertIn("不能与", err)
+
+    def test_missing_file(self):
+        code, _, err = run([
+            "--prepare", "--no-verify",
+            "--profile-file", str(self.root / "nope.txt"),
+        ])
+        self.assertEqual(code, 2)
+        self.assertIn("错误", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_bad_line_reports_number(self):
+        path = self._write("张三|" + VALID_ID + "\n坏行\n", name="bad.txt")
+        code, _, err = run(
+            ["--prepare", "--no-verify", "--profile-file", str(path)]
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("第 2 行", err)
 
 
 class TestAccount(unittest.TestCase):
