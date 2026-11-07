@@ -106,8 +106,6 @@ UNIFIED_DROP_FIELDS = frozenset({
     "userNameLabel",
     "iframeId",
     "email",
-    "realname",
-    "idcard",
     "reg_eula_agree",
     "autoLogin",
     "fCaptcha",
@@ -115,10 +113,13 @@ UNIFIED_DROP_FIELDS = frozenset({
 
 #: unified 路径是否把实名信息（``realname`` / ``idcard``）一起提交。
 #:
-#: 默认 ``False``：实测带上实名字段后 ``register.do`` 会返回空白提示页
-#: （实名/风控分支），**注册不成功**。只有确认手中是能通过 4399 实名核验的
-#: 真实身份时才建议改成 ``True``（该组合未实测通过）。
-UNIFIED_SEND_REALNAME = False
+#: 默认 ``True``：实测（2026-11-08）21 字段 + ``realname``/``idcard``（AES）
+#: 可以正常建号。注意**必须连带剔除** :data:`UNIFIED_DROP_FIELDS` 里的
+#: ``reg_eula_agree`` / ``autoLogin`` / ``fCaptcha``——这三个一起回传时服务端
+#: 会改走空白「4399提示」页。
+#:
+#: 想要「不实名」的账号可以改成 ``False``（只提交用户名/密码）。
+UNIFIED_SEND_REALNAME = True
 
 #: 登录成功后 4399 会下发的 Cookie 名（只看名字，不看值）
 _LOGIN_COOKIE_NAMES = (
@@ -357,6 +358,10 @@ def _build_payload(
     if UNIFIED_SEND_REALNAME:
         payload["realname"] = bundle.realname
         payload["idcard"] = bundle.idcard
+    else:
+        # 表单隐藏域里本来就有空的 realname/idcard，关掉开关时要显式去掉
+        payload.pop("realname", None)
+        payload.pop("idcard", None)
     payload["appId"] = app_id
     payload["level"] = str(level)
     payload.setdefault("regMode", "reg_normal")

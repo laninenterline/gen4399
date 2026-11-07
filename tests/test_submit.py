@@ -214,7 +214,7 @@ class TestDryRun(SubmitTestBase):
         )
         self.assertEqual(self.session.post_calls, [])
         self.assertEqual(result.encrypted_fields,
-                         ("password", "passwordveri"))
+                         ("password", "passwordveri", "realname", "idcard"))
         self.assertIn("username", result.field_names)
         self.assertNotIn(self.bundle.password, json.dumps(result.to_dict()))
 
@@ -253,29 +253,27 @@ class TestPayloadBuilding(SubmitTestBase):
         _, data = self.session.post_calls[0]
         for name in UNIFIED_DROP_FIELDS:
             self.assertNotIn(name, data, name)
-        for name in ("username", "password", "passwordveri"):
+        for name in ("username", "password", "passwordveri", "realname", "idcard"):
             self.assertIn(name, data, name)
-        # 默认不提交实名（见 UNIFIED_SEND_REALNAME）
-        self.assertNotIn("realname", data)
-        self.assertNotIn("idcard", data)
 
     def test_sensitive_fields_encrypted(self):
         submit_registration(self.bundle)
         _, data = self.session.post_calls[0]
-        for name in ("password", "passwordveri"):
+        for name in ("password", "passwordveri", "realname", "idcard"):
             self.assertNotEqual(data[name], "")
             self.assertTrue(data[name].startswith("U2FsdGVkX1"), name)
         self.assertEqual(decrypt_aes(data["password"]), self.bundle.password)
         self.assertEqual(decrypt_aes(data["passwordveri"]), self.bundle.password)
+        self.assertEqual(decrypt_aes(data["realname"]), PROFILE.realname)
+        self.assertEqual(decrypt_aes(data["idcard"]), PROFILE.idcard)
 
-    def test_send_realname_switch(self):
-        """打开 UNIFIED_SEND_REALNAME 后才带实名信息（默认不带）。"""
-        with mock.patch("gen4399.submit.UNIFIED_SEND_REALNAME", True):
+    def test_send_realname_switch_off(self):
+        """把 UNIFIED_SEND_REALNAME 关掉就只发用户名/密码（默认是开）。"""
+        with mock.patch("gen4399.submit.UNIFIED_SEND_REALNAME", False):
             result = submit_registration(self.bundle, dry_run=True)
-        self.assertIn("realname", result.field_names)
-        self.assertIn("idcard", result.field_names)
-        self.assertEqual(result.encrypted_fields,
-                         ("password", "passwordveri", "realname", "idcard"))
+        self.assertNotIn("realname", result.field_names)
+        self.assertNotIn("idcard", result.field_names)
+        self.assertEqual(result.encrypted_fields, ("password", "passwordveri"))
 
     def test_sec_zero_sends_plaintext(self):
         FakeSession.get_response = response(
@@ -285,7 +283,7 @@ class TestPayloadBuilding(SubmitTestBase):
         submit_registration(self.bundle)
         _, data = self.session.post_calls[0]
         self.assertEqual(data["password"], self.bundle.password)
-        self.assertNotIn("idcard", data)
+        self.assertEqual(data["idcard"], PROFILE.idcard)
         self.assertEqual(data["sec"], "0")
 
     def test_app_id_and_level_options(self):
@@ -304,7 +302,7 @@ class TestPayloadBuilding(SubmitTestBase):
         )
         result = submit_registration(self.bundle, dry_run=True)
         self.assertEqual(result.encrypted_fields,
-                         ("password", "passwordveri"))
+                         ("password", "passwordveri", "realname", "idcard"))
 
 
 class TestClassify(SubmitTestBase):
