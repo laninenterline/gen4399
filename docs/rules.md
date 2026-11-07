@@ -75,17 +75,16 @@ python scripts/verify_rules.py
 | 布局 / 防沉迷 / 前端开关（9） | `crossDomainUrl`、`mainDivId`、`showRegInfo`、`includeFcmInfo`、`expandFcmInput`、`fcmFakeValidate`、`realnameValidate`、`userNameLabel`、`iframeId` |
 | 实名与协议（6） | `email`、`realname`、`idcard`、`reg_eula_agree`、`autoLogin`、`fCaptcha` |
 
-- 常量：`gen4399.submit.UNIFIED_DROP_FIELDS`（frozenset）、
-  `gen4399.submit.UNIFIED_SEND_REALNAME`（默认 False）。
-- 本地仍要求 `RegistrationProfile` 提供合法姓名/身份证（用于本地校验）；
-  unified 默认只是**不把它们发出去**。
+- 常量：`gen4399.submit.UNIFIED_DROP_FIELDS`（frozenset，13 个）、
+  `gen4399.submit.UNIFIED_SEND_REALNAME`（默认 **True**）。
+- `realname`/`idcard` 默认与密码一起 AES 加密后提交（账号即为实名账号）；
+  设为 `False` 则只发用户名/密码。
 
 ### sec 与 AES
 
-- `sec=1` 时默认只加密 `password` / `passwordveri`
-  （`encrypted_fields == ("password", "passwordveri")`）。
-- 只有 `UNIFIED_SEND_REALNAME=True` 时才会把 `realname`/`idcard` 加回 payload 并加密；
-  该组合实测仍返回空白提示页，**未跑通**。
+- `sec=1` 时加密 4 个字段：`password` / `passwordveri` / `realname` / `idcard`
+  （`encrypted_fields == ("password","passwordveri","realname","idcard")`）。
+- 关掉 `UNIFIED_SEND_REALNAME` 时不发实名，只剩 2 个加密字段。
 - 格式：CryptoJS 口令模式 —— `EVP_BytesToKey(MD5, 8 字节 salt)` →
   AES-256-CBC + PKCS#7 → `Base64("Salted__" + salt + ciphertext)`；
   密文以 `U2FsdGVkX1` 开头，每次 salt 随机。

@@ -7,7 +7,7 @@ unified 两条路径**都做了真实建号实测（web 走通图形验证码；
 
 2.1.0 支持 `unified`（ptlogin）路径，2.2.0 起也支持 `web`（web.4399.com 用户中心）
 路径，2.3.0 起 web 路径支持**图形验证码**，2.4.0 起 unified 修复了空白提示页问题
-并默认**不发送实名信息**。
+并默认**提交实名信息**（AES 加密）。
 
 > **实测状态**
 >
@@ -15,12 +15,12 @@ unified 两条路径**都做了真实建号实测（web 走通图形验证码；
 >   首次 POST 返回 `code=200` → 取验证码图 → 识别 → `verifyCode` 通过 →
 >   带 `chk_code` 重提交 → `state=true, code=300, validateState=2, toUrl=/hall.html`，
 >   并下发登录 Cookie。`SubmitResult.captcha_attempts` 即实测轮次。
-> - `unified` 路径**已实测建号成功（2026-11-08）**：把 `regFrame.do` 的 15 个隐藏域
+> - `unified` 路径**已实测建号成功（2026-11-08）**：把 `regFrame.do` 的 13 个隐藏域
 >   原样回传会让 `register.do` 返回空白「4399提示」页（`info_page` 壳）；按
 >   `UNIFIED_DROP_FIELDS` 剔除后，同一套数据即可建号，成功页含
 >   `msnger.emit("isAutoRegSuccess",true)` 与 `Pauth`/`Uauth`/`Xauth` 等 Cookie
->   （实测账号用户名 `abkeq7xvesft`，密码不记录）。unified 默认不发送实名信息
->   （`UNIFIED_SEND_REALNAME=False`）。
+>   （实测账号用户名 `abkeq7xvesft`、`abnsm4uw2s77`，密码不记录）。unified 默认
+>   提交实名信息（`UNIFIED_SEND_REALNAME=True`，`realname`/`idcard` 走 AES）。
 >
 > **边界**：图形验证码必须由调用方提供识别回调（`captcha=Callable[[bytes], str]`），
 > **本库不内置破解、不内置 OCR**；`web` 路径的完整流程是「按协议取图 → 交给调用方识别
@@ -37,11 +37,11 @@ unified 两条路径**都做了真实建号实测（web 走通图形验证码；
 | 提交接口 | `POST https://web.4399.com/user/?_c=reg`（浏览器用 JSONP GET） | `POST https://ptlogin.4399.com/ptlogin/register.do` |
 | 前置请求 | `GET /user/?_c=login&_a=checkUser` 取 `encryptCode` | `GET /ptlogin/regFrame.do` 取隐藏域/Cookie |
 | 密码加密 | `encode_4399()`：DES/3DES-ECB + 零填充 + `0x`+hex | `encryptAES()`：AES-256-CBC（CryptoJS 口令模式） |
-| 其他 PII | `true_name` / `sfz` **明文**在 HTTPS POST body | **默认不发送** `realname`/`idcard`/`email`（`UNIFIED_SEND_REALNAME=False`） |
+| 其他 PII | `true_name` / `sfz` **明文**在 HTTPS POST body | **AES 加密** `realname`/`idcard`（`UNIFIED_SEND_REALNAME=True` 默认） |
 | 响应格式 | JSONP `{state, code, msg, validateState}` | HTML（`<div id="Msg">` / `isAutoRegSuccess` / Cookie） |
-| 本库加密字段 | `login_password`、`relogin_pwd`（DES） | `password`、`passwordveri`（AES）；`UNIFIED_SEND_REALNAME=True` 时加 `realname`/`idcard`（该组合未跑通） |
+| 本库加密字段 | `login_password`、`relogin_pwd`（DES） | `password`、`passwordveri`、`realname`、`idcard`（AES） |
 | 图形验证码 | `code=200` → 取图/识别/`verifyCode`/带 `chk_code` 重提交（2.3.0） | 未纳入：unified 实测未触发图形验证码 |
-| 本库实测状态 | ✅ 2026-11-08 建号成功（含图形验证码全流程） | ✅ 2026-11-08 建号成功（剔除 15 个隐藏域、默认不发实名） |
+| 本库实测状态 | ✅ 2026-11-08 建号成功（含图形验证码全流程） | ✅ 2026-11-08 建号成功（剔除 13 个隐藏域、默认提交实名） |
 
 > **PII 取舍**：`web` 路径的密码只有页面同款 DES（公开算法，无现代机密性），
 > 姓名/身份证是明文（HTTPS 保护传输，但服务端可见）。`unified` 路径默认只提交
@@ -282,8 +282,8 @@ body: …（同首次）…&chk_code=<code>
 |---|---|---|
 | 1 | `GET https://ptlogin.4399.com/ptlogin/regFrame.do?…` | 取注册表单 HTML；下发会话 Cookie `USESSIONID`（域 `4399.com`）与风控埋点 `phlogact` |
 | 2 | 解析表单 | 取 `<form action>`、全部 `type=hidden` 隐藏域、`sec` 开关 |
-| 3 | **过滤隐藏域（2.4.0）** | 按 `UNIFIED_DROP_FIELDS` 剔除 15 个字段（见 2.3）；这些字段原样回传会触发空白「4399提示」页 |
-| 4 | 组装字段 | 以剩余 hidden 为基线，覆盖 `username`/`password`/`passwordveri`/`appId`/`level`/`sec`（共 21 个，见 2.2） |
+| 3 | **过滤隐藏域（2.4.0）** | 按 `UNIFIED_DROP_FIELDS` 剔除 13 个字段（见 2.3）；这些字段原样回传会触发空白「4399提示」页 |
+| 4 | 组装字段 | 以剩余 hidden 为基线，覆盖 `username`/`password`/`passwordveri`/`realname`/`idcard`/`appId`/`level`/`sec`（共 23 个，见 2.2） |
 | 5 | 加密 | `sec == "1"` 时用 AES 加密 `password` / `passwordveri`；默认不含 `realname`/`idcard` |
 | 6 | `POST https://ptlogin.4399.com/ptlogin/register.do` | `application/x-www-form-urlencoded`，带同一会话 Cookie |
 | 7 | 解析响应 | 成功标记 → 错误文案 → 登录 Cookie → 验证码 → `info_page` → 跳转（见第 3 节） |
@@ -312,11 +312,11 @@ v=<毫秒时间戳>
 表单里的 `sessionId` 通常为空，实际会话靠 Cookie 识别。因此
 `submit_registration()` 在同一个 `RemoteSession`（带 `CookieJar`）内先 GET 再 POST。
 
-### 2.2 实际提交字段（21 个）
+### 2.2 实际提交字段（23 个）
 
-`_build_payload()` 以过滤后的 hidden 为基线，写入/覆盖下列字段。实测 21 个：
+`_build_payload()` 以过滤后的 hidden 为基线，写入/覆盖下列字段。实测 23 个：
 
-**本库显式写入（6 个）**：
+**本库显式写入（8 个）**：
 
 | 字段 | 本库取值 | 说明 |
 |---|---|---|
@@ -325,7 +325,9 @@ v=<毫秒时间戳>
 | `passwordveri` | 同 `password` | 确认密码；`sec=1` 时加密 |
 | `appId` | 参数，默认 `u4399` | 业务方标识 |
 | `level` | 参数，默认 `4` | 注册等级 |
-| `sec` | 服务端表单值；缺失按 `1` | `1` = 密码字段 AES 加密；其它 = 明文 |
+| `realname` | `bundle.realname` | 真实姓名；`sec=1` 时加密（`UNIFIED_SEND_REALNAME` 默认开） |
+| `idcard` | `bundle.idcard` | 18 位身份证；`sec=1` 时加密 |
+| `sec` | 服务端表单值；缺失按 `1` | `1` = 密码与实名字段 AES 加密；其它 = 明文 |
 
 **原样回传的 hidden 域（15 个）**：
 
@@ -336,7 +338,7 @@ v=<毫秒时间戳>
 > 这些值不猜测，按服务端 `regFrame.do` 返回原样回传；只有 `regMode` 缺失时补
 > `reg_normal`。`sessionId` 通常为空，会话靠 `USESSIONID` Cookie。
 
-### 2.3 被剔除的 15 个字段（`UNIFIED_DROP_FIELDS`）
+### 2.3 被剔除的 13 个字段（`UNIFIED_DROP_FIELDS`）
 
 2026-11-08 实测：把下面这些隐藏域**原样回传**时，`POST register.do` 稳定返回空白
 「4399提示」页（`info_page` 壳：无 `<div id="Msg">`、无登录 Cookie，注册不发生）。
@@ -345,12 +347,12 @@ v=<毫秒时间戳>
 | 类别 | 字段 | 说明 |
 |---|---|---|
 | 布局 / 防沉迷 / 前端开关（9 个） | `crossDomainUrl`、`mainDivId`、`showRegInfo`、`includeFcmInfo`、`expandFcmInput`、`fcmFakeValidate`、`realnameValidate`、`userNameLabel`、`iframeId` | 弹窗容器/跨域 iframe/是否展示注册信息/前端校验开关；服务端有默认值，不需要回传 |
-| 实名与协议（6 个） | `email`、`realname`、`idcard`、`reg_eula_agree`、`autoLogin`、`fCaptcha` | 实名/协议相关；一并回传会进入实名/风控分支并返回同一张空白提示页 |
+| 协议开关（4 个） | `email`、`reg_eula_agree`、`autoLogin`、`fCaptcha` | 与实名一起回传时服务端会另起分支，返回同一张空白提示页（26 字段版实测失败） |
 
 - 常量：`from gen4399.submit import UNIFIED_DROP_FIELDS`（`frozenset`，可导入）。
-- 注意：`crossDomainUrl` 被剔除，但 `crossDomainIFrame` **保留**（属于 21 个字段之一）。
-- 注意：`realname`/`idcard` 即使不发送，本地仍要求 `RegistrationProfile` 提供合法值
-  （用于本地校验与 `prepare_registration()`）；unified 只是不把它们发出去。
+- 注意：`crossDomainUrl` 被剔除，但 `crossDomainIFrame` **保留**（属于 21 个基础字段之一）。
+- `realname`/`idcard` **不再被剔除**：它们作为本库显式写入的字段参与提交（AES 加密），
+  详见 2.5。
 
 ### 2.4 AES 加密（`sec=1`）
 
@@ -374,8 +376,9 @@ AES-256-CBC + PKCS#7 填充
 Base64("Salted__" + salt + ciphertext)  # 密文以 U2FsdGVkX1 开头
 ```
 
-- 默认加密字段只有 `password`、`passwordveri`（`encrypted_fields == ("password", "passwordveri")`）。
-- 只有 `UNIFIED_SEND_REALNAME=True` 时才会把 `realname`/`idcard` 加进 payload 并加密。
+- 默认加密 4 个字段：`password`、`passwordveri`、`realname`、`idcard`
+  （`encrypted_fields == ("password", "passwordveri", "realname", "idcard")`）。
+- 关掉 `UNIFIED_SEND_REALNAME` 时不发实名，只剩 2 个加密字段。
 - 每次加密使用**新的随机 salt**，同一明文两次密文不同。
 - 已知互操作样本：`U2FsdGVkX1+XT5RHET9nj1g596L2dfzHBYuZLXYyWJI=`
   解密为明文 `123456`（已用 pycryptodome 交叉核对）。
@@ -383,19 +386,19 @@ Base64("Salted__" + salt + ciphertext)  # 密文以 U2FsdGVkX1 开头
   不新增运行时依赖；`encrypt_aes()` 用于提交，`decrypt_aes()` 仅用于互操作验证。
 - 这不是安全存储/保密方案：口令公开、实现只用于构造符合协议的表单字段。
 
-### 2.5 `UNIFIED_SEND_REALNAME`（默认 `False`）
+### 2.5 `UNIFIED_SEND_REALNAME`（默认 `True`）
 
 | 取值 | POST body | `encrypted_fields` | 实测结果 |
 |---|---|---|---|
-| `False`（默认） | 不含 `realname`/`idcard`/`email`/`reg_eula_agree` | `("password", "passwordveri")` | ✅ 建号成功（2026-11-08） |
-| `True` | 加回 `realname`/`idcard` 并 AES 加密 | `("password", "passwordveri", "realname", "idcard")` | ❌ 仍返回空白「4399提示」页，**未跑通** |
+| `True`（默认） | 含 `realname`/`idcard`（AES 加密） | `("password", "passwordveri", "realname", "idcard")` | ✅ 建号成功（2026-11-08，账号 `abnsm4uw2s77`） |
+| `False` | 不含 `realname`/`idcard` | `("password", "passwordveri")` | ✅ 建号成功（2026-11-08，账号 `abkeq7xvesft`） |
 
-- 常量：`from gen4399.submit import UNIFIED_SEND_REALNAME`（模块级 `bool`，默认 `False`）。
-  运行期要改必须改**模块属性**（`gen4399.submit.UNIFIED_SEND_REALNAME = True`）；
+- 常量：`from gen4399.submit import UNIFIED_SEND_REALNAME`（模块级 `bool`，默认 `True`）。
+  运行期要改必须改**模块属性**（`gen4399.submit.UNIFIED_SEND_REALNAME = False`）；
   给 `from ... import` 进来的名字重新赋值不会影响模块里的值。
-- 默认值即「不上传实名信息」：注册仍可成功，但账号在 4399 侧的实名状态取决于官方后续
-  策略/页面（本库未验证，也不代为实名）。
-- 打开前请确认是能通过 4399 实名核验的**本人**真实身份，并了解该组合实测未跑通。
+- 注意：`reg_eula_agree` / `autoLogin` / `fCaptcha` 无论开关如何都**必须剔除**——
+  它们与实名一起回传时服务端会返回空白提示页（26 字段版实测失败）。
+- 请只使用**本人**、未绑定过 4399 的真实身份；使用他人身份可能违法，也违反用户协议。
 
 ### 2.6 实测样本（2026-11-08，已脱敏）
 
@@ -405,7 +408,7 @@ Base64("Salted__" + salt + ciphertext)  # 密文以 U2FsdGVkX1 开头
 POST https://ptlogin.4399.com/ptlogin/register.do
 body: appId=u4399&regMode=reg_normal&level=4&username=abkeq7xvesft&password=U2FsdGVkX1…&
       passwordveri=U2FsdGVkX1…&sessionId=&sec=1&postLoginHandler=refreshParent&…
-      （共 21 个字段；不含 realname/idcard/email/reg_eula_agree）
+      （共 23 个字段；含 realname/idcard，均 AES 加密）
 → 200 text/html（约 4 KB）
   脚本：msnger.emit("isAutoRegSuccess",true)
   可见文本：注册成功 请一定记住您注册的用户名和密码！用户名：abkeq7xvesft 密码：<略>
@@ -454,7 +457,7 @@ POST /ptlogin/register.do（回传了 UNIFIED_DROP_FIELDS 中的字段）
 | 3 | 提交后新增登录 Cookie（完整名单 `_LOGIN_COOKIE_NAMES`：`Pauth` / `Pauths` / `Uauth` / `Xauth` / `Puser` / `Pnick` / `Qnick` / `user_4399` / `ck_accname` / `ptusertype`） | `success` | `True` |
 | 4 | 页面含「验证码」或 `captcha` | `captcha` | `False` |
 | 5 | 最终 URL 跳离 `ptlogin.4399.com`（且 2xx/3xx） | `success` | `True` |
-| 6 | 页面是 `info_page` 空白「4399提示」壳 | `unknown` | `False`（专用提示：常见于回传了 `UNIFIED_DROP_FIELDS` / 启用 `UNIFIED_SEND_REALNAME=True`） |
+| 6 | 页面是 `info_page` 空白「4399提示」壳 | `unknown` | `False`（专用提示：常见于回传了 `UNIFIED_DROP_FIELDS` 里的字段） |
 | 7 | 其它 | `unknown` | `False` |
 
 - 第 1/3 条已在 2026-11-08 实测命中：成功页同时含 `isAutoRegSuccess` 与登录 Cookie。
@@ -494,8 +497,9 @@ POST /ptlogin/register.do（回传了 UNIFIED_DROP_FIELDS 中的字段）
   **不提供机密性保护**。`unified` 默认只发用户名+密码（`password`/`passwordveri`
   AES 加密），**不发送** `realname`/`idcard`/`email`/`reg_eula_agree`；`web` 的
   `true_name`/`sfz` 是明文（HTTPS body）。
-- **实名信息默认不上传**：`UNIFIED_SEND_REALNAME=False` 是隐私默认值。打开它会把
-  `realname`/`idcard` 加回并 AES 加密，但该组合**实测仍返回空白提示页、未跑通**；
+- **实名信息默认上传**：`UNIFIED_SEND_REALNAME=True` 时 `realname`/`idcard` 与密码
+  一起 AES-256-CBC 加密（实测可正常建号）；不想上传就把该常量设为 `False`。
+  `web` 路径的 `true_name`/`sfz` 则是明文（仅 HTTPS 保护）；
   是否启用请自行评估。
 - **注册 POST 不自动重试**：超时 / 5xx / 429 均直接抛错，防止重复注册。
   图形验证码的「重提交」只在 `verifyCode` 通过后发生，最多 `captcha_attempts` 轮。
@@ -514,9 +518,9 @@ POST /ptlogin/register.do（回传了 UNIFIED_DROP_FIELDS 中的字段）
 | 已绑定身份证再次注册 | ✅ 实测被拒（`msg="姓名身份证不匹配"`；该文案无法区分「已绑定」与「实名不通过」） |
 | 姓名与身份证不匹配 | ✅ 实测 `kind="rejected"`，`msg="姓名身份证不匹配"` |
 | `unified` `register.do` **成功响应** | ✅ 2026-11-08 实测建号成功（约 4 KB 成功页：`msnger.emit("isAutoRegSuccess",true)` + 登录 Cookie，实测账号 `abkeq7xvesft`） |
-| `unified` 空白「4399提示」页根因 | ✅ 已定位并修复：回传 15 个隐藏域导致；按 `UNIFIED_DROP_FIELDS` 剔除后同一数据建号成功（不是风控封 IP） |
-| `unified` 默认字段集 | ✅ 实测 21 个字段；`encrypted_fields == ("password","passwordveri")`；默认不含 `realname`/`idcard` |
-| `unified` `UNIFIED_SEND_REALNAME=True` | ❌ 未跑通：加回 `realname`/`idcard` 并 AES 加密后，实测仍返回空白提示页 |
+| `unified` 空白「4399提示」页根因 | ✅ 已定位并修复：回传 13 个隐藏域导致；按 `UNIFIED_DROP_FIELDS` 剔除后同一数据建号成功（不是风控封 IP） |
+| `unified` 默认字段集 | ✅ 实测 23 个字段；`encrypted_fields == ("password","passwordveri","realname","idcard")` |
+| `unified` `UNIFIED_SEND_REALNAME=False` | ✅ 可建「不实名」账号：21 字段、`encrypted_fields` 2 个（实测 `abkeq7xvesft`） |
 | `web` 手机验证码（`code=360`） | ⚠️ 从 `web_reg.js` 推断，未实际触发 |
 | `web` 的 `validateState` 具体语义 | ⚠️ 从 JS 推断（非 2 时提示可能需激活/补充信息；实测成功值为 2） |
 | 浏览器 JSONP GET vs 本库 POST body | ✅ 服务端实测均接受 |
@@ -566,16 +570,16 @@ r = submit_registration(
 print(r.kind, r.ok, r.captcha_attempts, r.message)
 # 成功示例：success True 1 web 注册成功（第 1 轮验证码后通过；…）
 
-# unified 路径（2.1.0；2.4.0 已实测跑通；默认不发实名）
+# unified 路径（2.1.0；2.4.0 已实测跑通；默认提交实名）
 uni = prepare_registration(profile, path="unified")
 r = submit_registration(uni, dry_run=True)       # 只 GET regFrame.do + 本地 AES
-print(r.kind, r.endpoint, r.encrypted_fields)    # dry_run … ('password','passwordveri')
-print(len(r.field_names))                        # 21
-# 真实提交：默认只提交用户名+密码；姓名/身份证留在本地
+print(r.kind, r.endpoint, r.encrypted_fields)    # dry_run … 4 个 AES 字段
+print(len(r.field_names))                        # 23
+# 真实提交：默认连实名一起提交（realname/idcard 也 AES 加密，实测可建号）
 # r = submit_registration(uni, dry_run=False)
-# 需要连实名一起提交（实测未跑通，谨慎）：
+# 只想建「不实名」账号时再关掉：
 # import gen4399.submit as submit_mod
-# submit_mod.UNIFIED_SEND_REALNAME = True   # 注意：该组合仍返回空白提示页
+# submit_mod.UNIFIED_SEND_REALNAME = False  # → 21 字段 / 2 个加密字段
 ```
 
 ### CLI
@@ -591,7 +595,7 @@ gen4399 submit --form-path web --realname 张三 --idcard 460206194611192084 --y
 gen4399 submit --form-path web --realname 张三 --idcard 460206194611192084 --yes \
     --captcha-cmd "tesseract stdin stdout -l eng --psm 8" --captcha-attempts 5
 
-# unified 路径（默认；2.4.0 已实测跑通，默认不发实名）
+# unified 路径（默认；2.4.0 已实测跑通，默认提交实名）
 gen4399 submit --realname 张三 --idcard 460206194611192084                            # dry-run
 gen4399 submit --realname 张三 --idcard 460206194611192084 --yes                      # 真实提交
 

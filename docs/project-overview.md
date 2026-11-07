@@ -19,7 +19,7 @@
 > 字段，不是风控封 IP**；按 `UNIFIED_DROP_FIELDS` 剔除后同一套数据正常建号（实际提交
 > 21 个字段）。新增 `UNIFIED_SEND_REALNAME`（默认 `False`）：unified 默认**不发送**
 > `realname`/`idcard`，`encrypted_fields` 只有 `("password","passwordveri")`；
-> 打开它会加回实名并 AES 加密，但该组合实测仍返回空白提示页、**未跑通**。
+> 默认即提交实名（`realname`/`idcard` 与密码一起 AES 加密），实测可正常建号。
 > 已用于实名绑定的身份证再次注册会被服务端拒绝（实测 `msg="姓名身份证不匹配"`，
 > 无法区分「已绑定」与「实名不通过」）。下面 2.2.0 时代的行号与「成功响应未实测」
 > 表述以此说明为准。
@@ -35,8 +35,8 @@ gen4399 是一个**零运行时依赖**（只用标准库）的 Python 工具库
 3. **注册表单知识库**：定义 web / unified 两条注册路径的字段、必填、提交地址，并做**提交前本地整表校验**；
 4. **注册数据编排**：把「身份信息 → 生成用户名 → 在线查重 → 生成密码 → 整表校验 → 组装字段」串成 `prepare_registration()`，输出一份可以照着填的清单；
 5. **真实提交（2.1.0–2.4.0）**：`submit_registration()` / `gen4399 submit` 支持两条路径：
-   `unified` POST 到 `ptlogin/register.do`（2.4.0 剔除 15 个隐藏域后已实测跑通，
-   默认不发实名，`sec=1` 时只 AES 加密 `password`/`passwordveri`）；
+   `unified` POST 到 `ptlogin/register.do`（2.4.0 剔除 13 个隐藏域后已实测跑通，
+   默认提交实名，`sec=1` 时 AES 加密 `password`/`passwordveri`/`realname`/`idcard`）；
    `web` 先取 `encryptCode`、用 `encode_4399()`（DES）加密密码，再 POST
    `web.4399.com/user/?_c=reg`（2.3.0 起支持图形验证码）。
    **库不会自动提交**：CLI 默认 dry-run（需 `--yes`）；
@@ -46,8 +46,8 @@ gen4399 是一个**零运行时依赖**（只用标准库）的 Python 工具库
 
 > **核心边界**：库**默认不提交注册**；`prepare_registration()` 只准备数据，真实提交必须显式开启。
 > 2.2.0 起 `web` / `unified` 两条路径都可提交；2.3.0 起 web 支持图形验证码，
-> 2.4.0 起 unified 也在剔除 15 个隐藏域后**实测建号成功（2026-11-08）**，且默认
-> **不发送实名信息**（`UNIFIED_SEND_REALNAME=False`）。`web` 路径只有密码用 DES，
+> 2.4.0 起 unified 也在剔除 13 个隐藏域后**实测建号成功（2026-11-08）**，且默认
+> **提交实名信息**（`UNIFIED_SEND_REALNAME=True`，AES 加密）。`web` 路径只有密码用 DES，
 > 姓名/身份证是明文在 HTTPS body；unified 默认只上传用户名+密码（两个字段 AES）。
 > 图形验证码必须由调用方提供识别回调，库不内置破解；只应使用本人真实身份。
 > 定位是「半自动填表/提交助手 + 规则库」，不是批量注册器。
@@ -212,7 +212,7 @@ registration.py ──→ forms.py ──→ identity.py ──→ core.py
   - 同样**不是机密性方案**；DES 已过时，只用于协议互操作。
 - **`submit.py`**：提交用例层，支持两条路径。
   - `submit_registration(bundle, *, app_id="u4399", level=4, timeout=10.0, dry_run=False, retry_policy=None, on_response=None, captcha=None, captcha_attempts=3) -> SubmitResult`；`bundle.path` 为 `web` 或 `unified`（其它路径抛 `SubmitError`）。`app_id` / `level` 仅 unified 使用。
-  - **unified（2.4.0）**：`RemoteSession` GET `regFrame.do`（拿 Cookie + hidden/action）→ `_build_payload()` 先按 `UNIFIED_DROP_FIELDS` 剔除 15 个隐藏域，再以剩余 hidden 为基线覆盖 `username`/`password`/`passwordveri`/`appId`/`level`/`sec`（共 21 个）→ `sec=="1"` 时默认只对 `password`/`passwordveri` 各自 `encrypt_aes()`（`UNIFIED_SEND_REALNAME=True` 时才加 `realname`/`idcard` 并加密，该组合未跑通）→ 同一会话 POST `form.action` → `_classify_response()` 判定。
+  - **unified（2.4.0）**：`RemoteSession` GET `regFrame.do`（拿 Cookie + hidden/action）→ `_build_payload()` 先按 `UNIFIED_DROP_FIELDS` 剔除 13 个隐藏域，再以剩余 hidden 为基线覆盖 `username`/`password`/`passwordveri`/`realname`/`idcard`/`appId`/`level`/`sec`（共 23 个；开关关闭时 21 个）→ `sec=="1"` 时对 4 个字段各自 `encrypt_aes()` → 同一会话 POST `form.action` → 若响应页带 `captchaId` 且有 `captcha` 回调则带 `fCaptcha` 重提交 → `_classify_response()` 判定。
   - **web**：GET `user/?_c=login&_a=checkUser` 取 `encryptCode`（JSONP）→ `_build_web_payload()` 用 `encode_4399()` 加密两个密码字段、填写 `cid=3000`/`true_name`/`sfz`/`encrypt=1` → POST `user/?_c=reg`（JSONP 响应）→ `_classify_web_response()` 按 `state/code/msg/validateState` 判定。
   - **web 图形验证码（2.3.0）**：`code=200` 且传了 `captcha` 回调时，循环「`GET /util/?_c=code&t=reg` 取 PNG → `captcha(image)` 识别 → `GET /_a=verifyCode&code=…` 校验 → 带 `chk_code` 重提交」，最多 `captcha_attempts` 轮；识别空串跳过 `verifyCode`。未传回调则直接返回 `kind="captcha"`。
   - `dry_run=True` 仍会 GET（unified 拉表单 / web 取 key），组装/加密后**不发注册 POST**，返回 `kind="dry_run"`。
@@ -234,7 +234,7 @@ registration.py ──→ forms.py ──→ identity.py ──→ core.py
 - **入口 `main()`**：仅当 `argv[0]` 是子命令名时走子命令 parser，否则走 legacy parser；最后统一按固定优先级 dispatch。
 - **legacy flag 模式**：`-n/-c/-p/-s/-u/--check/--check-username/--fetch-username/--verify/--account/--no-verify/--offline/--check-available/--form-fields/--check-form/--form-path/--realname/--idcard/--qq/--profile-file/--profile-encoding/--build-form/--prepare/--submit/--yes/--app-id/--level/--show-pii/--entropy/--timeout/--retries/--retry-delay/--max-total-timeout/--min-interval/--output/--json/-v/-V/--rules-version`，全部在同一个 parser 里（**无互斥检查**，多命令同时给时按优先级静默取第一个；`--submit` 在 `--prepare` 之前 dispatch）。
 - **子命令模式**：`generate / check / account / fetch / available / form fields|check|build / prepare / submit / profile check / rules / version`；共享 helper 加 `--timeout/--retries/--retry-delay/--max-total-timeout/--min-interval`、`--json/--output`、身份 opts。
-- **`submit` 子命令**：`--form-path web|unified`（默认 unified）；默认 dry-run，`--yes` 才发 POST；`--app-id` / `--level`（仅 unified）、身份参数、`--json/--output`（写 `submit.json`）；2.3.0 起加 `--captcha-prompt` / `--captcha-cmd` / `--captcha-dir` / `--captcha-attempts`（仅 web 生效，命令失败退出码 2，成功多打印「验证码轮次」）；2.4.0 起 unified 已实测跑通（默认不发实名）。多身份时 stderr 警告「仅限本人真实身份、勿批量注册」。legacy `--submit` 默认走 web。
+- **`submit` 子命令**：`--form-path web|unified`（默认 unified）；默认 dry-run，`--yes` 才发 POST；`--app-id` / `--level`（仅 unified）、身份参数、`--json/--output`（写 `submit.json`）；2.3.0 起加 `--captcha-prompt` / `--captcha-cmd` / `--captcha-dir` / `--captcha-attempts`（仅 web 生效，命令失败退出码 2，成功多打印「验证码轮次」）；2.4.0 起 unified 已实测跑通（默认提交实名）。多身份时 stderr 警告「仅限本人真实身份、勿批量注册」。legacy `--submit` 默认走 web。
 - **身份来源**：`--profile-file` / `--realname + --idcard`；两者都没给（且无 `--qq`）时
   默认读取当前目录 `sfz.txt`，不存在则退出码 2。`profile check` 的 `--profile-file` 可选，
   默认同上。编码默认 UTF-8-SIG，解码失败自动回退 GB18030（兼容 GBK）；
@@ -295,7 +295,7 @@ submit_registration(bundle, dry_run=...)
         │   │    └─ 剔除 UNIFIED_DROP_FIELDS（15 个）→ 21 字段         │
         │   ├─ sec=="1" ? encrypt_aes(password, passwordveri)           │
         │   │    （UNIFIED_SEND_REALNAME=True 时再加 realname/idcard，   │
-        │   │      该组合未跑通）                                       │
+        │   │      默认 True，实测可建号）                               │
         │   ├─ dry_run → SubmitResult(kind="dry_run")（不发 POST）      │
         │   └─ POST form.action（register.do，单次不重试）             │
         │        └─ _classify_response: isAutoRegSuccess → Msg →       │
@@ -319,9 +319,9 @@ submit_registration(bundle, dry_run=...)
 ```
 
 > **web** `_c=reg` 与 **unified** `register.do` 的成功响应均已**实测建号成功**
-> （2026-11-08）：web 含图形验证码流程；unified 剔除 15 个隐藏域后成功
+> （2026-11-08）：web 含图形验证码流程；unified 剔除 13 个隐藏域后成功
 > （成功页约 4 KB，`msnger.emit("isAutoRegSuccess",true)` + 登录 Cookie）。
-> unified 默认不发实名信息（`UNIFIED_SEND_REALNAME=False`），打开后实测仍未跑通。
+> unified 默认提交实名信息（`UNIFIED_SEND_REALNAME=True`），`realname`/`idcard` 同样 AES 加密。
 > `unknown` 不代表失败，以登录 `https://u.4399.com/` 为准。详见
 > [docs/submit.md](submit.md)。
 
@@ -398,7 +398,7 @@ check_username(name)
 | 2.1.0 | **真实提交（unified）**：`submit_registration()` / `SubmitResult` / `SubmitError` + `gen4399 submit` 子命令 + legacy `--submit/--yes`；`gen4399/_aes.py`（CryptoJS 兼容 AES-256-CBC，纯标准库）；`RemoteSession`（CookieJar，GET 重试/POST 单次）+ `parse_registration_form()`；`docs/submit.md`；库不自动提交（API 调用即提交、CLI 默认 dry-run）、成功判定为推断、POST 不自动重试 |
 | 2.2.0 | **web 路径提交**：`_des.py`（4399 页面同款 DES/3DES `encode_4399()`，纯标准库）；`submit.py` 增加 web 流程（checkUser 取 key → DES 加密码 → POST `user/?_c=reg` → JSONP 判定）；CLI `submit --form-path web\|unified`、legacy `--submit` 默认 web；CLI 未指定身份来源时默认读 `./sfz.txt`；文档/测试同步；成功判定仍为推断、POST 不重试；web 的姓名/身份证明文在 HTTPS body |
 | 2.3.0 | **web 图形验证码 + 实测建号**：`code=200` → 取图 → 调用方 `captcha` 回调识别 → `verifyCode` → 带 `chk_code` 重提交（最多 `captcha_attempts` 轮）；`SubmitResult.captcha_attempts`；`HttpResponse.raw` / `is_binary`；`_captcha.py`（人工/外部命令/落盘）+ `CaptchaSolverError`；CLI/脚本验证码参数；**web 实测建号成功（2026-11-08）** |
-| 2.4.0 | **unified 修复 + 实测建号**：定位空白「4399提示」页根因（回传 15 个隐藏域，非风控封 IP），新增 `UNIFIED_DROP_FIELDS` 并剔除，实际提交 21 字段；新增 `UNIFIED_SEND_REALNAME`（默认 False，unified 默认不发实名，`encrypted_fields` 只有 2 个；打开后实测未跑通）；**unified 实测建号成功（2026-11-08，账号 `abkeq7xvesft`）** |
+| 2.4.0 | **unified 修复 + 实测建号**：定位空白「4399提示」页根因（回传 13 个隐藏域，非风控封 IP），新增 `UNIFIED_DROP_FIELDS` 并剔除；新增 `UNIFIED_SEND_REALNAME`（默认 **True**，实际提交 23 字段、4 个 AES 字段）；**unified 实测建号成功（2026-11-08，账号 `abnsm4uw2s77` 含实名、`abkeq7xvesft` 不含实名）** |
 
 `REVIEW.md`（1.8.1 审查）与 `SUGGESTIONS.md`（1.10.0 评估）是两轮「审查 → 修复 → 验证」的记录，文件头均标注了闭环状态；本次深读也核对了其中大部分 P0/P1 确实已在代码中修复（如 `unknown` 抛解析错、`validate_fixed_part` 公开、Bundle MappingProxyType、`unique` 凑满、CLI 子命令等）。项目在单日内完成 16 次提交、从 1.8.1 演进到 2.0.0，属于典型的「先做对、再补工程质量」路径；2.1.0 补上 unified 真实提交层，2.2.0 又补齐 web 路径提交。
 
@@ -434,7 +434,7 @@ check_username(name)
 | # | 问题 | 证据/位置 | 影响与建议 |
 |---|---|---|---|
 | 14 | **成功判定仍是启发式（两条路径都已实测建号）** | `submit._classify_response()` / `_classify_web_response()`；2026-11-08 两条路径均实测成功 | `success` 仍靠成功标记/Cookie/JSONP 判定，可能误判/漏判；以登录 `u.4399.com` 为准。unified 的空壳 `info_page` 已定位为隐藏域回传问题（2.4.0 修复），`UNIFIED_SEND_REALNAME=True` 仍会触发 |
-| 15 | **web 路径 PII 处理弱于 unified** | `_build_web_payload()`；`_des.encode_4399()`；`UNIFIED_SEND_REALNAME=False` | 密码只有 DES（公开算法，无现代机密性），`true_name`/`sfz` 明文在 HTTPS POST body；unified 默认只 AES 加密密码、**不发实名**。更在意 PII 时优先用 unified。浏览器原流程是 JSONP GET（PII 在 query），本库改用 POST body 降低 URL 日志泄露 |
+| 15 | **web 路径 PII 处理弱于 unified** | `_build_web_payload()`；`_des.encode_4399()` | 密码只有 DES（公开算法，无现代机密性），`true_name`/`sfz` 明文在 HTTPS POST body；unified 把姓名/身份证与密码一起 AES-256-CBC 加密（4 个字段）。更在意 PII 时优先用 unified。浏览器原流程是 JSONP GET（PII 在 query），本库改用 POST body 降低 URL 日志泄露 |
 | 16 | **POST 不自动重试，超时后结果不确定** | `RemoteSession.post()` 单次；`submit.py` 注释 | 超时/5xx 时服务端可能已建号；重跑 `--yes` 有重复注册风险。建议先登录确认，必要时人工处理 |
 | 17 | **dry-run 仍会联网 GET** | unified `GET regFrame.do`；web `GET checkUser`（只带用户名） | 完全离线环境不可 dry-run；不过 GET 不含姓名/身份证，且不会发注册 POST |
 | 18 | **依赖服务端表单/接口结构** | unified：hidden 域/`sec`/action；web：checkUser `data`/JSONP `state/code` | 4399 前端改版即可能失效；已提供 `docs/submit.md` 的 dry-run 复核清单，但无自动结构断言 |
@@ -504,11 +504,11 @@ python -m gen4399 rules                          # 规则版本与来源
 - CLI 2.0 双模式是最大维护瓶颈（1,192 行、两套 parser、`set_defaults` hack），出现 `-v` 失效、`--offline` 漏判、能力不对称、多命令静默优先级等一批一致性问题；
 - PII 打码口径不统一（密码默认明文、姓名/QQ 漏遮、`to_dict` 顶层 qq 漏遮），与自身文档冲突；
 - 远程分类启发式仍偏「宽容」（未知响应→taken 的兜底、with_availability 可返回 taken）；
-- 提交能力边界：web 与 unified 均已实测建号成功（web 含图形验证码；unified 剔除隐藏域后跑通），但都依赖 4399 表单/接口结构；unified 默认不发实名，web 的姓名/身份证明文在 POST body；`UNIFIED_SEND_REALNAME=True` 仍未跑通；
+- 提交能力边界：web 与 unified 均已实测建号成功（web 含图形验证码；unified 剔除隐藏域后跑通），但都依赖 4399 表单/接口结构；unified 默认提交实名（AES 加密），web 的姓名/身份证明文在 POST body；
 - 覆盖率过线靠 TOTAL，CLI/HTTP 细节分支是薄弱面；
 - 规则与提交协议都依赖 4399 前端，存在天然过期风险（已提供复核脚本/ dry-run 复核清单但只能冒烟）。
 
-**一句话**：这是一个「小而完整、工程质量高于同类脚本」的领域工具库——核心规则/表单/远程/编排设计扎实，2.0 补齐工程化，2.1.0–2.4.0 补上 unified / web 两条真实提交路径（2.4.0 两条均实测建号成功），并把边界（库不自动提交 / CLI 默认 dry-run、成功判定仍为启发式、POST 不重试、unified 默认不发实名、web 路径 PII 处理更弱）写得很清楚；当前最值得做的仍是**收敛 CLI 双模式与统一 PII 打码**，并持续用 dry-run 复核提交协议（上面 🔴/🟠 清单）。
+**一句话**：这是一个「小而完整、工程质量高于同类脚本」的领域工具库——核心规则/表单/远程/编排设计扎实，2.0 补齐工程化，2.1.0–2.4.0 补上 unified / web 两条真实提交路径（2.4.0 两条均实测建号成功），并把边界（库不自动提交 / CLI 默认 dry-run、成功判定仍为启发式、POST 不重试、unified 默认提交实名、web 路径 PII 处理更弱）写得很清楚；当前最值得做的仍是**收敛 CLI 双模式与统一 PII 打码**，并持续用 dry-run 复核提交协议（上面 🔴/🟠 清单）。
 
 ---
 

@@ -18,8 +18,8 @@
 - **unified 路径空白「4399提示」页**：把 `regFrame.do` 的隐藏域原样回传时，
   `POST /ptlogin/register.do` 会稳定返回 `info_page` 空壳（无 `<div id="Msg">`、
   无登录 Cookie，注册不发生）——**根因是这些字段，不是风控封 IP**。
-  新增 `gen4399.submit.UNIFIED_DROP_FIELDS`（`frozenset`，15 个字段）并在
-  `_build_payload()` 中剔除；同一套数据可正常建号，实际提交 21 个字段。
+  新增 `gen4399.submit.UNIFIED_DROP_FIELDS`（`frozenset`，13 个字段）并在
+  `_build_payload()` 中剔除；同一套数据可正常建号，实际提交 23 个字段（含实名）。
 - **unified 成功页回显明文密码**：成功页可见文本含「…用户名：… 密码：…」，
   `_redact_text()` 在解析前把密码/身份证/姓名替换为 `***`，不会进入
   `SubmitResult.message` / `to_dict()` / CLI/JSON 输出。
@@ -28,41 +28,41 @@
 ### 新增
 
 - `gen4399.submit.UNIFIED_DROP_FIELDS`（`frozenset`，可导入）：unified 必须从
-  hidden 基线中剔除的 15 个字段——布局/防沉迷/前端开关 9 个
+  hidden 基线中剔除的 13 个字段——布局/防沉迷/前端开关 9 个
   （`crossDomainUrl`、`mainDivId`、`showRegInfo`、`includeFcmInfo`、`expandFcmInput`、
-  `fcmFakeValidate`、`realnameValidate`、`userNameLabel`、`iframeId`）+ 实名与协议 6 个
-  （`email`、`realname`、`idcard`、`reg_eula_agree`、`autoLogin`、`fCaptcha`）。
-- `gen4399.submit.UNIFIED_SEND_REALNAME`（默认 `False`）：默认**不发送**实名信息；
-  设为 `True` 会把 `realname`/`idcard` 加回并 AES 加密，但该组合**实测仍返回空白
-  提示页、未跑通**。运行期修改需改模块属性（`gen4399.submit.UNIFIED_SEND_REALNAME = True`）。
-- 实测记录（2026-11-08）：unified 建号成功，实测账号用户名 `abkeq7xvesft`
-  （密码不记录）；成功页约 4 KB，`msnger.emit("isAutoRegSuccess",true)`，
-  下发 `Pauth`/`Uauth`/`Xauth`/`Puser`/`Pnick`/`Qnick`/`ck_accname`/`ptusertype`。
+  `fcmFakeValidate`、`realnameValidate`、`userNameLabel`、`iframeId`）+ 协议开关 4 个
+  （`email`、`reg_eula_agree`、`autoLogin`、`fCaptcha`）。**`realname`/`idcard` 不在其中**：
+  它们作为本库显式写入的字段参与提交。
+- `gen4399.submit.UNIFIED_SEND_REALNAME`（默认 `True`）：默认**一起提交实名信息**，
+  `realname`/`idcard` 与密码同样 AES 加密；设为 `False` 则只发用户名/密码。
+  运行期修改需改模块属性（`gen4399.submit.UNIFIED_SEND_REALNAME = False`）。
+- 实测记录（2026-11-08）：unified 两种形态都建号成功——含实名 `abnsm4uw2s77`
+  （23 字段 / 4 个 AES 字段）、不含实名 `abkeq7xvesft`（21 字段 / 2 个 AES 字段）。
+  成功页约 4 KB，`msnger.emit("isAutoRegSuccess",true)`，下发
+  `Pauth`/`Uauth`/`Xauth`/`Puser`/`Pnick`/`Qnick`/`ck_accname`/`ptusertype`。
 
 ### 变更（可能影响调用方）
 
-- unified 默认提交 21 个字段；`encrypted_fields == ("password", "passwordveri")`
-  （不再默认加密 `realname`/`idcard`），`field_names` 为 21 个。
-- unified 默认不再发送 `realname`/`idcard`/`email`/`reg_eula_agree`/`autoLogin`/
-  `fCaptcha` 及 9 个布局类 hidden；本地仍要求 `RegistrationProfile` 提供合法姓名/身份证
-  （用于本地校验），只是不把它们发出去。需要连实名提交时用 `UNIFIED_SEND_REALNAME`
-  （未跑通，谨慎）。
+- unified 默认提交 23 个字段；`encrypted_fields == ("password", "passwordveri",
+  "realname", "idcard")`，`field_names` 为 23 个。
+- unified 默认不再发送 `email`/`reg_eula_agree`/`autoLogin`/`fCaptcha` 及 9 个布局类
+  hidden（这些与实名一起回传会触发空白提示页）；`realname`/`idcard` **会发送**并 AES 加密。
+  想建「不实名」账号时把 `UNIFIED_SEND_REALNAME` 设为 `False`。
 - `__version__ = "2.4.0"`；仍为**零运行时依赖**。
 
 ### 文档
 
 - README、`docs/submit.md`、`docs/rules.md`、`docs/project-overview.md`、SECURITY.md
-  全面改写 unified 结论：从「空白风控页不可用」改为「剔除 15 个隐藏域后已实测建号」；
-  补充字段清单（21 个/15 个）、`UNIFIED_SEND_REALNAME` 默认不发实名、脱敏成功页样本、
+  全面改写 unified 结论：从「空白风控页不可用」改为「剔除 13 个隐藏域后已实测建号」；
+  补充字段清单（23 个/13 个）、`UNIFIED_SEND_REALNAME` 默认提交实名、脱敏成功页样本、
   两条路径均已实测的成功判定。
 - 收敛「同一身份证只能注册一个账号」的断言：实测是已绑定身份证再次注册被拒
   （`msg="姓名身份证不匹配"`），该文案无法区分「已绑定」与「实名不通过」。
 
 ### 安全
 
-- **unified 默认不发送实名信息**（`UNIFIED_SEND_REALNAME=False`）：只上传用户名与
-  两个 AES 加密的密码字段，姓名/身份证留在本地；打开开关会加回实名（未跑通），
-  请自行评估隐私与可用性。
+- **unified 默认提交实名信息**（`UNIFIED_SEND_REALNAME=True`）：姓名/身份证与密码一起
+  AES-256-CBC 加密（4 个字段），传输走 HTTPS；不想上传时把开关设为 `False`。
 - `unified` 成功页会回显明文密码，库在解析前替换为 `***`；结果对象/日志/JSON 不含明文。
 - 图形验证码仍只按协议交给调用方识别，本库不内置破解；注册 POST 仍单次不重试。
 
