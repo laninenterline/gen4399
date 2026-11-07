@@ -1,0 +1,359 @@
+# gen4399 项目全貌与架构说明
+
+- **对象**：`gen4399` 2.0.0（tag `v2.0.0`，2026-11-07）
+- **内容**：项目定位与边界、仓库地图、分层架构、4399 规则快照、各模块职责、关键数据流、API/CLI 速查、工程质量实测、PII 治理、演进史与已知问题清单。
+- **方法**：通读全部源码（3,716 行，含 remote 包）+ 9 个测试文件 + 全部文档；实跑 pytest / coverage / doctest；CLI 与 API 定向探针验证。
+- **时效**：基于 2026-11-07 工作区快照，规则版本 `4399-2026-11`；行号引用以该版本源码为准。
+
+---
+
+## 1. 一句话定位
+
+gen4399 是一个**零运行时依赖**（只用标准库）的 Python 工具库，围绕「4399 账号注册」这一件事，提供四层能力：
+
+1. **本地规则引擎**：按 4399 前端校验规则生成/校验密码与用户名，估算熵，批量去重生成；
+2. **官方接口封装**：调用 4399 两个公开 ptlogin 接口（`regFrame.do` 取分配账号、`isExist.do` 查用户名可注册性），带重试/退避/超时预算；
+3. **注册表单知识库**：定义 web / unified 两条注册路径的字段、必填、提交地址，并做**提交前本地整表校验**；
+4. **注册数据编排**：把「身份信息 → 生成用户名 → 在线查重 → 生成密码 → 整表校验 → 组装字段」串成 `prepare_registration()`，输出一份可以照着填的清单。
+
+> **核心边界**：库**只准备数据，永不提交注册**；不碰验证码/风控；只应使用本人真实身份。定位是「半自动填表助手 + 规则库」，不是批量注册器。
+
+---
+
+## 2. 项目边界（做什么 / 不做什么）
+
+| 做 | 不做（刻意） |
+|---|---|
+| 生成合规密码/用户名（可带前后缀、自定义字符集、去重批量） | 不发送注册 POST 请求（表单提交地址只作元数据） |
+| 校验密码/用户名并给出机器可读违规码 | 不绕过验证码、不逆向风控、不做协议级自动注册 |
+| 封装 `regFrame.do` / `isExist.do` 两个公开 GET 接口 | 不提供密码「预校验」接口（4399 没有，只有提交时校验） |
+| 定义两条注册路径的表单字段并做本地整表校验 | 不自动填写浏览器、不驱动浏览器（无 Selenium 依赖） |
+| 从 `姓名\|身份证[|QQ]` 的 txt 批量读身份、校验、打码、落盘 | 不把身份信息发送到除 4399 官方接口以外的任何服务器 |
+
+**合规与伦理**：README / SECURITY.md 均声明「仅限本人真实身份、遵守 4399 用户协议、不要批量注册他人账号」；测试与文档中的身份证号是合成的测试夹具。
+
+---
+
+## 3. 仓库地图
+
+```
+lead-workspace/
+├── gen4399/                  # 运行时包（零依赖）
+│   ├── __init__.py   193 行  # 公共门面：69 个导出、__version__ = "2.0.0"
+│   ├── __main__.py     6 行  # python -m gen4399 → cli.main()
+│   ├── core.py       661 行  # 生成/校验/熵/异常/常量（纯规则，无 IO）
+│   ├── identity.py   396 行  # 姓名/身份证/QQ 校验 + RegistrationProfile + txt 读取
+│   ├── forms.py      399 行  # 两条注册路径字段定义 + 整表校验 + 字段组装
+│   ├── registration.py 321行 # prepare_registration 编排 + RegistrationBundle
+│   ├── remote/
+│   │   ├── __init__.py 65 行 # 再导出（兼容旧 from gen4399.remote import ...）
+│   │   ├── _http.py  318 行  # 传输层：urllib、RetryPolicy、错误类型、HTML 解析
+│   │   └── _api.py   626 行  # 业务层：取号/查重/批量/Account/generate_*
+│   ├── _rules.py      35 行  # 规则快照版本/来源/关键字
+│   ├── _width.py      50 行  # CJK 终端显示宽度（表格对齐）
+│   └── py.typed              # 类型标记（随包分发）
+├── tests/            9 个文件，3,803 行，308 个用例 + 90 subtests
+├── scripts/verify_rules.py   # 规则页面关键词冒烟检查（GET + 子串匹配）
+├── docs/rules.md             # 规则快照、复核流程、改规则清单
+├── .github/workflows/ci.yml  # 3.10–3.13 矩阵 × 7 道门禁
+├── pyproject.toml            # 版本单一来源、pytest/coverage/ruff/mypy 配置、dev extras
+├── README.md / CHANGELOG.md / SECURITY.md / CONTRIBUTING.md / REVIEW.md / SUGGESTIONS.md
+└── dist/gen4399-2.0.0-py3-none-any.whl   # 与源码逐字节一致的构建产物
+```
+
+依赖关系（实际 import）：
+
+```
+cli.py / __main__.py
+      │
+ __init__.py（门面，re-export）
+      │
+registration.py ──→ forms.py ──→ identity.py ──→ core.py
+      │                │             (Gen4399Error)
+      │                └──→ core.py
+      │
+      └──→ remote/ ──→ _api.py ──→ _http.py ──→ core.py
+                (_http 无业务语义，_api 只做业务)
+_rules.py / _width.py 为叶子工具
+```
+
+分层要点：**core 是纯函数层**（无 IO、无网络、无全局状态）；identity/forms 是领域知识层；remote 拆成传输/业务两层；registration 只做编排；cli 只做参数翻译与输出；`__init__` 只做门面。依赖方向单向，无环。
+
+---
+
+## 4. 领域规则：4399 注册规则快照（`RULES_VERSION = "4399-2026-11"`，核对日 2026-11-07）
+
+| 项 | 规则 | 实现位置 |
+|---|---|---|
+| 密码 | 长度 6~20；仅 ASCII 字母数字；**不能**纯数字/纯小写/纯大写；区分大小写 | `core.validate` (`core.py:216-253`) |
+| 用户名 | 长度 6~20；仅 ASCII 字母数字；**允许纯数字**（4399 自动账号即 10 位纯数字） | `core.validate_username` (`core.py:261-300`) |
+| 真实姓名 | 2~30 位中文（含 `·`/`•`），或英文姓名（空格分隔） | `identity.validate_realname` (`identity.py:44-60`) |
+| 身份证 | 18 位；生日 1850~2050 且日历合法；GB 11643 加权校验码；**4399 拒绝 15 位** | `identity.validate_idcard` (`identity.py:76-100`) |
+| QQ | 选填；4~11 位数字；空串视为合法 | `identity.validate_qq` (`identity.py:103-117`) |
+
+规则来源：4399 前端 `validation.js` 的 `CheakPWD()` / `CheakUsername()` / `CheckRealname()` / `__checkIdcard()`（注意 4399 自己的拼写是 `Cheak`），以及两个注册页提示。**不是官方文档**——`docs/rules.md` 明确记录「可能随时过期」并给出复核流程。
+
+两条注册路径（`forms.py`）：
+
+| | `web`（网页用户名注册，推荐） | `unified`（ptlogin 统一注册面板） |
+|---|---|---|
+| 注册页 | `https://web.4399.com/user/reg.php` | `https://u.4399.com/register.html` |
+| 提交地址（仅元数据） | `POST /user/?_c=reg` | `POST /ptlogin/register.do` |
+| 字段数 | 8 | 15 |
+| 必填 | 6：login_name / login_password / relogin_pwd / true_name / sfz / agree | 8：username / password / passwordveri / realname / idcard / reg_eula_agree / regMode / appId |
+| 特殊点 | 无 email（页面注释掉）；cid 固定 3000 | 姓名/身份证是 hidden；有验证码字段 `fCaptcha`（风控弹窗才出现）、`autoLogin`、`level` 等固定隐藏域 |
+
+---
+
+## 5. 模块逐个解剖
+
+### 5.1 `core.py` —— 纯规则引擎
+- 常量：`CHARSET` = 62（`a-zA-Z0-9`）；密码 6~20、默认 16；`USERNAME_CHARSET` = 36（小写+数字，为了易读）；用户名 6~20、默认 12。
+- 异常族：`Gen4399Error` 基类 → `InvalidLengthError` / `InvalidFixedPartError`（→ `InvalidPrefixError` / `InvalidSuffixError`）/ `GenerationError`。`InvalidLengthError` 等同时继承 `ValueError`，便于调用方 `except ValueError`。
+- 校验：`validate()` **不短路**，按 length → charset → all_digits → all_lower → all_upper 顺序收集全部违规（空串同时报 length+charset）；`Violation` 是 frozen dataclass，`code` 用 `Literal` 约束（length/charset/all_digits/all_lower/all_upper）。
+- 生成：拒绝采样——`prefix + random_len × secrets.choice(charset) + suffix`，随机部分必须 ≥1 位；prefix/suffix 只允许 ASCII 字母数字且计入总长度；带 `max_attempts` 防死循环。用户名候选无需拒绝（候选必然合法），其重试循环实际是死代码。
+- 批量：`generate_many(unique=True)` / `generate_usernames(unique=True)` 用 `max_tries = max(100, count*20)`；**不做可用空间预估**，空间不足时抛 `GenerationError` 并报告「只得到 N 个」。
+- 熵：`entropy_bits(length, prefix_length, suffix_length, charset_size) = (length-prefix-suffix) * log2(charset_size)`；**不校验 6~20**（CLI 自行补校验），也不建模拒绝采样，对抗性固定部分会高估。
+- 安全性：用 `secrets.choice`（CSPRNG），不是 `random`。
+
+### 5.2 `identity.py` —— 身份信息与 txt 批量
+- `RegistrationProfile`（frozen dataclass）：`realname / idcard / qq`；`errors()` / `is_valid()` / `require_valid()`（抛 `InvalidProfileError`）/ `masked_idcard()`（前 6 后 4）/ `masked()`（可安全写日志）。
+- 身份证：GB 11643 加权因子 + `10X98765432` 映射；生日 1850~2050 且闰年正确；小写 `x` 先 `upper()` 接受并规范化。
+- `parse_profile_line`：`姓名|身份证号[|QQ]`，支持全角 `｜`、行首 BOM、两侧空白；空行/`#` 注释行报错；列数必须 2~3；错误消息带行号。
+- `load_profiles`：默认 `utf-8-sig`；`path="-"` 读 stdin（严格字符串比较）；自动识别首行表头（`姓名|身份证号` 等）；默认按身份证（upper）去重；`errors="skip"` 跳坏行；POSIX 下文件权限过宽（`& 0o077`）发 `chmod 600` 警告；全部无效行也抛 `InvalidProfileError`。
+- 风险点：`_REALNAME_RE` 英文分支 `(?=[a-zA-Z]{2,}(\s[a-zA-Z]+){1,2}).{2,30}` 的 `.{2,30}` 过宽（`"John Smith 123"` 能过）；`.isdigit()` + `int()` 接受全角数字，全角数字身份证能通过校验码。
+
+### 5.3 `forms.py` —— 表单知识库 + 本地整表校验
+- `FormField`（name/label/required/kind/maxlength/note）、`RegistrationForm`（path/title/url/submit_url/fields）、`FormCheckResult`（ok/errors/warnings，`__bool__`、`messages()`）。
+- `FORMS = MappingProxyType({...})` 只读；`get_form()` 未知道路抛 `ValueError`。
+- `check_registration_form()`：纯本地不联网；用户名套 `validate_username`，密码套 `validate`，确认密码做字符串比较，姓名/身份证/QQ 套 identity 校验；支持 `profile=` 回填（只在显式参数为 `None` 时回填，显式 `""` 会覆盖）；unified 恒定加一条「服务端要求 6~20」警告。**不读 `FormField.required`**（如 agree 不会被检查）。
+- `build_registration_fields()`：按表单字段顺序组装 `{参数名: 值}`，硬编码常量（cid=3000、agree=on、regMode=reg_normal、appId=u4399、level=4…）；**只组装不校验**，确认密码不一致也照填。
+
+### 5.4 `registration.py` —— 编排层
+`prepare_registration(profile, *, path="web", username=None, username_length=12, password_length=16, prefix="", suffix="", verify_username=True, app_id="u4399", timeout=10.0, retry_delay=0.0, retry_policy=None)`：
+
+1. `get_form(path)`（未知路径先抛 ValueError）→ 校验 profile 类型 → 拒绝「显式 username + 前后缀」组合；
+2. `profile.require_valid()`（不合规先抛，**不发网络**）；
+3. 用户名：显式 + verify → `check_username`；自动 + verify → `generate_available_username`；自动 + 离线 → `generate_username`；
+4. 密码：**永远本地生成**（4399 没有密码预校验接口）；
+5. 整表校验（此时数据应必然合规，异常说明参数组合有问题）；
+6. 组装字段 → 生成 warnings（未查重提示 + 「用 https 打开」提示）→ 返回 `RegistrationBundle`。
+
+`RegistrationBundle`：frozen、可 hash（fields 用 `frozenset`）、`fields` 是 `MappingProxyType` 只读；`repr` 遮 password/idcard；`masked_fields()` / `to_dict(include_secrets=)` / `save(path, show_pii=False, mode=0o600)` / `as_text(show_pii=False)`。默认 `save` 打码 + 0600。
+
+### 5.5 `remote/` —— 官方接口封装
+- **传输层 `_http.py`**：标准库 `urllib.request`；固定 Chrome UA + Referer + Accept-Language；无 Cookie；默认 10s 超时；响应最多读 512 KiB（静默截断）、`utf-8 errors="replace"`。
+- `RetryPolicy`（frozen）：`attempts/base_delay/max_delay/total_deadline/respect_retry_after`；指数退避 + ±25% 抖动 + 封顶（封顶在抖动前，实际最长 1.25×max_delay）+ 优先 `Retry-After`；`total_deadline` 只在两次尝试之间检查。
+- 重试类别：超时、网络错误、5xx、429；**其它 4xx（含 408）不重试**。
+- 错误族：`RemoteError`（带 `.url`）、`RemoteTimeoutError`、`RemoteHTTPError`（带 `.status/.retry_after`）、`RemoteParseError`。
+- **业务层 `_api.py`**：
+  - `fetch_suggested_username(...)`：GET `regFrame.do` → 解析 `<input id="j-username" value="...">`（先定位整标签再取 value，容忍属性顺序/单双引号/跨行）→ 可选 `check_username` 查重 → 外层最多 4 次、内层 HTTP 2 次、退避 5/10/20s（上限 60s）；`fallback_to_local` 可降级本地生成。
+  - `check_username(username, validate_input=False)`：GET `isExist.do`，把响应分类为 `available`（body `"0"`）/ `taken`（含「已被注册」等）/ `invalid`（含敏感/长度等关键词）/ `unknown`（空 body 或 HTML → **抛 `RemoteParseError`**）；`validate_input=True` 时明显非法名直接本地拦截不发请求。
+  - `generate_available_username()`：本地生成 + 服务端确认；`generate_account()`：账号+密码，显式 username 也会本地校验（不可用抛 `ValueError`/`RemoteError`）；`Account` 同理 frozen + repr 遮密码 + `to_dict/save`。
+  - `fetch_suggested_usernames(count, unique=True, with_availability=...)`：凑满数量，凑不满抛 `RemoteError`；`with_availability=True` 返回 `UsernameAvailability` 列表（但**可能包含 taken 项**，见风险）。
+- 远程默认参数较「礼貌」：`min_interval` CLI 可调，库自带重试带抖动与总预算。
+
+### 5.6 `cli.py` —— 双模式 CLI（2.0 子命令 + 1.x flag 兼容）
+- **入口 `main()`**：仅当 `argv[0]` 是子命令名时走子命令 parser，否则走 legacy parser；最后统一按固定优先级 dispatch。
+- **legacy flag 模式**：`-n/-c/-p/-s/-u/--check/--check-username/--fetch-username/--verify/--account/--no-verify/--offline/--check-available/--form-fields/--check-form/--form-path/--realname/--idcard/--qq/--profile-file/--profile-encoding/--build-form/--prepare/--show-pii/--entropy/--timeout/--retries/--retry-delay/--max-total-timeout/--min-interval/--output/--json/-v/-V/--rules-version`，全部在同一个 parser 里（**无互斥检查**，多命令同时给时按优先级静默取第一个）。
+- **子命令模式**：`generate / check / account / fetch / available / form fields|check|build / prepare / profile check / rules / version`；共享 helper 加 `--timeout/--retries/--retry-delay/--max-total-timeout/--min-interval`、`--json/--output`、身份 opts。
+- 退出码约定：**0 成功；1 校验失败（check/check-form/available-unavailable）；2 参数/网络/配置错误**。
+- 输出：文本（`OK:`/`FAIL:`/`错误：`/`# 提示:`）与 `--json` 机器可读；`--output DIR` 写 0600 JSON（`bundle-XX.json` / `account-XX.json` / `generated.json` 等）。
+
+### 5.7 其余
+- `__init__.py`：69 个顶层导出 + `__version__`，门面式 re-export；`py.typed` 随包。
+- `__main__.py`：`raise SystemExit(main())`。
+- `_rules.py`：`RULES_VERSION` / `RULES_CHECKED_AT` / `RULES_SOURCES` / `RULE_KEYWORDS`（含 `CheakPWD` 原拼写）。
+- `_width.py`：`display_width()`（EAW 的 W/F 记 2 列）+ `pad()`，用于 `as_text()` 与 `--form-fields` 的 CJK 表格对齐。
+- `scripts/verify_rules.py`：GET 3 个规则页面（最多 2 MiB，UA，15s 超时），检查 4 个关键字符串是否还在；退出码 0/1/2。**只 GET，不提交**。
+
+---
+
+## 6. 关键数据流
+
+### 6.1 `prepare_registration` 端到端（离线/在线两路）
+
+```
+RegistrationProfile(realname, idcard, qq)
+        │  require_valid()
+        ▼
+ [username] ──显式──────────────────────────┐
+        │                                   │
+        ├─ verify=True → check_username() ───┤ 不可用 → RegistrationError
+        │                                   │
+        └─ 自动 ─ verify=True → generate_available_username()
+                 └ verify=False → generate_username()
+        ▼
+ [password] = generate(length=16)           # 本地，无远程校验
+        ▼
+ check_registration_form(username, password, profile)   # 本地整表校验
+        ▼
+ build_registration_fields(...)             # 字段组装（不提交）
+        ▼
+ RegistrationBundle(path,url,username,password,profile,fields,warnings)
+        │
+        ├── as_text()           # 照着填的清单（默认打码）
+        ├── to_dict()/save()    # JSON（默认打码 + 0600）
+        └── 用户自己打开 bundle.url 在浏览器提交 ← 库到此为止
+```
+
+### 6.2 一次远程查询的内部链路
+
+```
+check_username(name)
+  → _http_get(IS_EXIST_URL?username=...&appId=...&regMode=reg_normal)
+      → _http_get_once: urllib.request.urlopen(req, timeout=10)
+          → HTTPError/URLError/socket.timeout 映射为 Remote*Error
+      → 失败按 RetryPolicy 重试（指数退避+抖动，优先 Retry-After，可带总预算）
+  → _classify_availability(body): "0"→available / 关键词→invalid / 空或HTML→unknown
+      unknown → 抛 RemoteParseError（1.9.0 起不再静默当 taken）
+  → UsernameAvailability(username, available, kind, message)
+```
+
+---
+
+## 7. 工程质量实测（2026-11-07，Python 3.14.8 / Termux aarch64）
+
+| 门禁 | 命令 | 实测结果 | 判定 |
+|---|---|---|---|
+| 全量测试 | `pytest -q` | **308 passed, 1 skipped, 90 subtests passed, ~0.5s** | ✅ |
+| 覆盖率 | `coverage run --branch -m pytest` + `report` | **TOTAL 92%**（1459 stmts / 93 miss / 592 branch / 62 brpart），阈值 90 满足 | ✅ |
+| doctest | `pytest --doctest-modules gen4399 -q` | **10 passed, 5 skipped**（skip 均为源码 `# doctest: +SKIP` 的网络/IO 示例） | ✅ |
+| ruff | `ruff check .` | 本机未安装（离线不可装） | ⏭️ NOT-RUN |
+| mypy | `mypy gen4399` | 未安装；CI 中本身是 `continue-on-error` 观察项 | ⏭️ NOT-RUN |
+| 打包 | `python -m build` / `twine check` | build/twine 未安装；回退 `pip wheel` 52883 B、`build_sdist` 65419 B 均成功；现有 wheel 与源码逐字节一致 | ✅（回退） |
+| 安装 | `pip show gen4399` | 2.0.0 editable，console script 正常 | ✅ |
+
+覆盖率结构（薄弱面）：`cli.py` 88%、`remote/_http.py` 86%、`__main__.py` 0%；`forms.py` 97%、`registration.py` 97%、`core.py` 95%、`identity.py` 94%、`remote/_api.py` 95%；4 个文件 100%（`__init__` / `_rules` / `_width` / `remote/__init__`）。总阈值只卡 TOTAL，故仍通过。
+
+测试风格：纯 `unittest.TestCase` + `unittest.mock.patch`（约 70 处，remote 43/最重）+ `tempfile`；90 个 subtests 来自 `subTest` 参数化；无 pytest fixture/monkeypatch/临时目录/subprocess；hypothesis 属性测试模块因未装依赖整体 skip（非缺陷）。**测试不联网**（全部桩掉 HTTP）。
+
+工程配置：`pyproject.toml` 版本单一来源（`attr = "gen4399.__version__"`）、pytest/coverage/ruff/mypy 配置、dev extras；CI 矩阵 **3.10–3.13**，7 道门禁（ruff 硬门禁 → mypy 观察 → pytest → coverage 90 → doctest → build+twine）；`.pre-commit-config.yaml` 带 ruff + whitespace/EOF/yaml/toml 检查；MIT License；`py.typed` 随包。
+
+文档链完整：README（安装/API/CLI/安全/FAQ）、`docs/rules.md`（规则快照 + 复核流程）、CHANGELOG（1.8.1 → 2.0.0 逐版本）、SECURITY.md（PII 边界）、CONTRIBUTING.md、REVIEW.md 与 SUGGESTIONS.md（前两轮自审记录，均已标注闭环）。
+
+---
+
+## 8. 安全与 PII 治理（设计 vs 实际）
+
+设计意图（README/SECURITY/CONTRIBUTING 都写了）：**默认打码、不写日志、落盘 0600、只准备不提交**。
+
+实际做到：
+- `Account` / `RegistrationBundle` 的 `repr` 遮蔽密码与身份证；
+- `prepare` / `form build` 默认遮身份证、密码、QQ；`--show-pii` 才显明文（会打印警告）；
+- `--output` 文件 0600；身份文件权限过宽会 warning；错误/日志里的 URL 用 `_safe_url` 去 query；
+- 远程库自带重试/限速，`check_username(validate_input=True)` 明显非法名不联网。
+
+实测缺口（详见第 10 节风险表）：
+- `--account` **默认就地打印明文密码**（无 `--show-pii` 概念、无警告），`--json/--output` 同样明文；
+- `realname`（中文姓名）在 `prepare`/`form build`/`profile check --json` 输出中**始终明文**，`--show-pii` 管不到；
+- `RegistrationBundle.to_dict(include_secrets=False)` 的**顶层 `qq` 字段仍明文**（fields 里已打码，顶层漏了）；
+- `RemoteError.url` 保留 `isExist.do?username=...`，打印异常对象可能带出用户名；
+- `parse_profile_line` 的格式错误消息里带原始整行（可能含身份证号）；
+- 所有 `save()`/`--output` 都是「先按 umask 建文件 → 再 chmod 0600」，有短暂权限窗口，且非原子写。
+
+---
+
+## 9. 演进史与自审闭环
+
+| 版本 | 内容 |
+|---|---|
+| 1.8.1 | 初始基线：生成/校验、远程、表单、prepare、CLI |
+| 1.9.0 | 修 REVIEW.md 的 P0：响应结构化（kind）、HTML 解析健壮性、批量凑满、CLI 异常兜底、QQ strip、Bundle 只读、repr 打码；加 unique 批量、License/CI/CHANGELOG/类型 |
+| 1.10.0 | 身份文件 `load_profiles/parse_profile_line` + CLI `--profile-file` 批量 |
+| 2.0.0 | 子命令 CLI + 全局增强（--json/--offline/--output/重试参数）、`RetryPolicy`、类型收紧、模块拆分（remote 拆包、identity 拆出）、规则版本 + verify_rules、property 测试、CI 门禁、SECURITY/CONTRIBUTING/pre-commit、`requires-python>=3.10` |
+
+`REVIEW.md`（1.8.1 审查）与 `SUGGESTIONS.md`（1.10.0 评估）是两轮「审查 → 修复 → 验证」的记录，文件头均标注了闭环状态；本次深读也核对了其中大部分 P0/P1 确实已在代码中修复（如 `unknown` 抛解析错、`validate_fixed_part` 公开、Bundle MappingProxyType、`unique` 凑满、CLI 子命令等）。项目在单日内完成 16 次提交、从 1.8.1 演进到 2.0.0，属于典型的「先做对、再补工程质量」路径。
+
+---
+
+## 10. 已知问题与风险（按影响排序，均来自源码/实测）
+
+### 🔴 高（行为与文档承诺不一致，涉及安全/隐私）
+
+| # | 问题 | 证据/位置 | 影响与建议 |
+|---|---|---|---|
+| 1 | **子命令模式 `-v/--verbose` 完全失效** | `main` 只按 `argv[0]` 判模式（`cli.py:957`）；子 parser 不认 `-v`，且 `set_defaults(**legacy_defaults)` 会把 verbose 覆盖为 False（`cli.py:734-738,792-795`）。实测 `-v generate`、`generate -v` 均 exit 2 | 2.0 主打模式的排障日志不可用；README「全局 flag」表述不成立。建议父 parser 支持 `-v` 并子 parser 不覆盖 |
+| 2 | **`--offline` 不阻止 `-u --verify`** | `_cmd_generate` 不检查 `_offline`（`cli.py:666-675`）；`generate` 子命令也没有 `--offline` | 用户以为离线却真的发出 `isExist.do` 请求（实测一次）。建议 generate 路径统一走 `_offline()` 判断并补旗标 |
+| 3 | **`--account` 默认明文密码 + `--json/--output` 明文** | `cli.py:563-570`、`Account.to_dict/save`（`_api.py:529-544`） | 与 README「默认打码」矛盾；终端/日志/文件直接泄露密码。建议默认打码 + `--show-pii` 显式开启 |
+| 4 | **realname 打码缺失 + `to_dict(False)` 顶层 qq 泄露** | `masked_fields()` 不遮 `true_name/realname`；`to_dict(include_secrets=False)` 的 `"qq": self.qq` 恒明文（`registration.py:130-150`）；`form build`/`profile check --json` 同样 | PII 治理口径不一致（身份证/密码打码、姓名/QQ 漏掉）。建议统一打码函数并补测试 |
+
+### 🟠 中（易用性 / 正确性 / 一致性）
+
+| # | 问题 | 证据/位置 |
+|---|---|---|
+| 5 | `--account -c 0/-1` 静默 exit 0、空输出 | 不校验 count（`cli.py:543-558`），对比 generate 走 core 校验 |
+| 6 | `--min-interval` 最后一项后仍 sleep；`fetch` 完全不用它 | `_sleep_between` 在循环体内（`cli.py:445,558,675`）；实测 `-c 3 --min-interval 1` → 3 次 sleep |
+| 7 | `--output` 被 `check`/`check-form`/`form-fields` 忽略；legacy 多命令同时给时静默取第一个 | 实测；dispatch 优先级 `cli.py:975-991` |
+| 8 | `generate --verify` 忽略 `--timeout/--retry-delay`（子命令定义但 no-op）；`fetch` 的 `--retries` 同时作用于外层取号与内层 HTTP；`--max-total-timeout` 双重语义 | `cli.py:669-674`、`:624-627` |
+| 9 | `check_username` 把「非 0、非空、非 HTML、无 invalid 关键词」的响应一律判 `taken`（如 `"1"`、JSON 错误体） | `_api.py:88-101`；`unknown` 实际只覆盖空/HTML，接口异常可能误报「已被注册」 |
+| 10 | `fetch_suggested_usernames(with_availability=True)` 可返回 `available=False/taken` 的项（不重试），且 `verify_available` 被静默忽略 | `_api.py:320,330-339` |
+| 11 | `verify_rules.py` 网络错误立即 return 2（跳过后续 URL）；非法 URL 的 ValueError 未捕获 → 退出码可能 1；干净 checkout 未安装包时 `sys.path[0]=scripts` 可能 ImportError | `scripts/verify_rules.py:32-48` |
+| 12 | 覆盖率薄弱点 `cli 88% / _http 86% / __main__ 0%`，若未来加 per-file 阈值会先卡住 | quality-runner 实测 |
+| 13 | 文档漂移：README 写 `pytest --cov=gen4399`，CI 实际用 `coverage run/report`；README「全局 flag」与子命令实际能力不对称；本机 Python 3.14 不在 CI 矩阵/classifier 中 | README、ci.yml、pyproject |
+
+### 🟡 低（健壮性 / 边界 / 可维护性）
+
+- `identity._REALNAME_RE` 英文分支过宽（`"John Smith 123"` 通过）；`\d`+`int()` 接受全角数字，全角数字身份证可过校验码。
+- `entropy_bits` 不建模拒绝采样（对抗性固定部分高估，如实测 5.95 vs 实际 5.17 bit）；不校验 6~20 属有意设计。
+- 用户名生成的重试循环是死代码（候选必然合法）；`generate_many(unique=True)` 无可用空间预估（`length=6, prefix="abcde"` 空间仅 36，`count=40` 即 `GenerationError`）。
+- `_width.pad` 未知 `align` 静默 left；多字符 `fill` 会超宽；Ambiguous 宽度按 1 计。
+- HTTP：408 不重试；`Retry-After` 分支无抖动；封顶在抖动前（实际 1.25×）；`total_deadline` 粒度粗；512 KiB 静默截断；无 Content-Type 校验；重定向默认跟随。
+- `save()` 非原子写 + chmod 失败静默；`_http_get` 用 `assert`；`fallback_to_local` 在总预算耗尽时不生效、且不传 `retry_policy`。
+- CLI 异常捕获不一致（`_cmd_check_available` 只 catch RemoteError；未知异常会 traceback）；`-n` 的 `or` 会把显式 0 吞成默认值；打码逻辑三处重复且细节不一致。
+- 构建不可复现（zip 时间戳，正常）；sdist 不含 docs/、scripts/、.github/；无 MANIFEST。
+- 规则本身可能过期（依赖 4399 前端改版），`verify_rules.py` 只是关键词冒烟，非结构校验。
+
+---
+
+## 11. 上手路径与常用命令
+
+```bash
+pip install -e ".[dev]"          # 安装（运行时零依赖）
+python -m pytest                 # 308 项测试
+python -m pytest --doctest-modules gen4399 -q
+python -m coverage run --branch -m pytest -q && python -m coverage report
+```
+
+```python
+from gen4399 import *
+generate()                                # 16 位合规密码
+generate_many(5, unique=True)             # 5 个互不相同
+validate("123456")                        # [Violation(code='all_digits', ...)]
+generate_username(length=12)              # 小写+数字
+check_username("abc12345")                # UsernameAvailability(available/kind/...)
+prepare_registration(profile)             # 一键准备（默认会在线查重）
+```
+
+```bash
+python -m gen4399 generate -n 20 -c 5
+python -m gen4399 check password "Abc12345"      # 退出码 0/1
+python -m gen4399 account --offline -c 3
+python -m gen4399 prepare --profile-file ids.txt --json --output out/
+python -m gen4399 form build abc12345 Abc123456 --realname 张三 --idcard ...
+python -m gen4399 rules                          # 规则版本与来源
+```
+
+---
+
+## 12. 总体评价
+
+**优点**：
+- 领域边界清晰、目标克制（只准备不提交），规则来源与维护流程有记录；
+- 分层干净、单向依赖、`__init__` 门面 + 69 个导出、`py.typed`，API 文档与 doctest 齐全；
+- 工程配套成熟：零运行时依赖、308 测试、92% 分支覆盖、CI 7 道门禁、MIT、语义化版本、CHANGELOG、SECURITY/CONTRIBUTING、pre-commit；
+- 远程层做了真实工程化：重试策略对象、抖动、Retry-After、总预算、结构化错误、HTML 解析健壮性、结构化可用性结果；
+- PII 安全意识整体在线（repr 打码、0600、权限警告、日志去 query）。
+
+**主要短板**：
+- CLI 2.0 双模式是最大维护瓶颈（995 行、两套 parser、`set_defaults` hack），出现 `-v` 失效、`--offline` 漏判、能力不对称、多命令静默优先级等一批一致性问题；
+- PII 打码口径不统一（密码默认明文、姓名/QQ 漏遮、`to_dict` 顶层 qq 漏遮），与自身文档冲突；
+- 远程分类启发式仍偏「宽容」（未知响应→taken 的兜底、with_availability 可返回 taken）；
+- 覆盖率过线靠 TOTAL，CLI/HTTP 细节分支是薄弱面；
+- 规则依赖 4399 前端，存在天然过期风险（已提供复核脚本但只能冒烟）。
+
+**一句话**：这是一个「小而完整、工程质量高于同类脚本」的领域工具库——核心规则/表单/远程/编排设计扎实，2.0 的工程化基本补齐；当前最值得做的不是加功能，而是**收敛 CLI 双模式与统一 PII 打码**（上面 🔴/🟠 清单）。
+
+---
+
+*本文基于 2026-11-07 工作区快照；规则版本 `4399-2026-11`。若源码更新，行号与个别结论可能需要复核。*

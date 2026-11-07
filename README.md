@@ -374,3 +374,5 @@ python -m build && python -m twine check dist/*  # 打包检查
 ```
 
 版本历史见 [CHANGELOG.md](CHANGELOG.md)，许可证为 [MIT](LICENSE)。
+
+项目全貌（架构、规则、API、质量与已知问题）见 [docs/project-overview.md](docs/project-overview.md)。
