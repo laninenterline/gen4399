@@ -4,6 +4,15 @@
 
 ## [2.4.0] - 2026-11-08
 
+### 新增
+
+- **unified 路径图形验证码**（`fCaptcha`）：服务端风控把 `register.do` 的响应重渲染成
+  带验证码的表单时（`<div id="Msg">验证码错误`、`inputCaptcha`、
+  `captcha.do?captchaId=…`），`submit_registration(..., captcha=...)` 会自动
+  「取图 → 识别 → 带 `fCaptcha` 重提交」，最多 `captcha_attempts` 轮；
+  识别结果写入 `SubmitResult.captcha_attempts`。未传回调时返回 `kind="captcha"`
+  并提示传 `captcha=`。重提交会用响应页表单的新隐藏域做基线，密码密文沿用首次 payload。
+
 ### 修复
 
 - **unified 路径空白「4399提示」页**：把 `regFrame.do` 的隐藏域原样回传时，

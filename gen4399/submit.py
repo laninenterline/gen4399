@@ -132,6 +132,9 @@ WEB_REG_API = "https://web.4399.com/user/?_c=reg"
 #: web 路径取密码加密 key 的接口
 WEB_CHECK_USER_API = "https://web.4399.com/user/?_c=login&_a=checkUser"
 
+#: unified 路径图形验证码图片（绑定当前会话的 ``USESSIONID`` / 页面 captchaId）
+UNIFIED_CAPTCHA_API = "https://ptlogin.4399.com/ptlogin/captcha.do"
+
 #: web 路径图形验证码图片（绑定当前会话的 ``WEBSESSION`` Cookie）
 WEB_CAPTCHA_API = "https://web.4399.com/util/?_c=code&t=reg"
 
@@ -162,6 +165,9 @@ _SUCCESS_RE = re.compile(
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 _SCRIPT_RE = re.compile(r"<(script|style)\b.*?</\1>", re.I | re.S)
+
+#: 服务端重渲染表单里的图形验证码 id（``captcha.do?captchaId=…``）
+_CAPTCHA_ID_RE = re.compile(r"captchaId=([A-Za-z0-9]+)")
 
 #: 4399 的「提示」页外壳（``<body id="info_page">``）。实测 unified 路径在风控
 #: 触发时返回这种空壳页：没有 ``#Msg``、没有登录 Cookie，内容由 JS/App 渲染，
@@ -572,6 +578,49 @@ def _validate_args(
         raise ValueError("captcha_attempts 必须是 >= 1 的 int")
 
 
+def _unified_captcha_id(body: str) -> str:
+    """从服务端重渲染的注册表单里取图形验证码的 ``captchaId``（没有则空串）。"""
+    if "fCaptcha" not in body and "inputCaptcha" not in body:
+        return ""
+    match = _CAPTCHA_ID_RE.search(body)
+    return match.group(1) if match else ""
+
+
+def _fetch_unified_captcha(
+    session: "_http.RemoteSession", captcha_id: str
+) -> bytes:
+    """拉一张 unified 图形验证码（JPEG/PNG 原始字节，绑定当前会话）。"""
+    url = f"{UNIFIED_CAPTCHA_API}?captchaId={urllib.parse.quote(captcha_id)}"
+    response = session.get(url)
+    image = response.raw or response.body.encode("utf-8", errors="replace")
+    if not image:
+        raise RemoteParseError("验证码接口没有返回图片数据")
+    return image
+
+
+def _captcha_retry_payload(
+    payload: dict[str, str], body: str, code: str
+) -> dict[str, str]:
+    """带 ``fCaptcha`` 的重提交字段：优先用响应页表单的新隐藏域做基线。"""
+    retry = dict(payload)
+    try:
+        form = _http.parse_registration_form(body)
+    except Exception:  # pragma: no cover - 解析失败就退回原 payload
+        form = None
+    if form is not None and form.hidden:
+        base = {
+            name: value
+            for name, value in form.hidden.items()
+            if name not in UNIFIED_DROP_FIELDS
+        }
+        for name in ("username", "password", "passwordveri"):
+            if name in payload:
+                base[name] = payload[name]
+        retry = base
+    retry["fCaptcha"] = code
+    return retry
+
+
 def _submit_unified(
     bundle: RegistrationBundle,
     *,
@@ -582,8 +631,15 @@ def _submit_unified(
     retry_policy: RetryPolicy | None,
     started: float,
     on_response: ResponseHook | None = None,
+    captcha: CaptchaSolver | None = None,
+    captcha_attempts: int = 3,
 ) -> SubmitResult:
-    """unified 路径：regFrame.do -> AES 加密 -> POST register.do。"""
+    """unified 路径：regFrame.do -> AES 加密 -> POST register.do。
+
+    服务端在风控判定下会改渲染带图形验证码的表单（``inputCaptcha`` +
+    ``captcha.do?captchaId=…``），此时若提供了 ``captcha`` 回调，就取图识别后
+    带 ``fCaptcha`` 重提交，最多 ``captcha_attempts`` 轮。
+    """
     session = _http.RemoteSession(timeout=timeout, policy=retry_policy)
     form_page = session.get(_form_url(app_id, level))
     form = _http.parse_registration_form(form_page.body)
@@ -607,28 +663,65 @@ def _submit_unified(
             elapsed=time.monotonic() - started,
         )
 
-    before = set(session.cookies)
-    response = session.post(action, payload)
-    if on_response is not None:
-        on_response(response)
-    after = set(session.cookies)
-    login_cookies = tuple(
-        name for name in _LOGIN_COOKIE_NAMES if name in after and name not in before
-    )
+    def _post(
+        data: dict[str, str],
+    ) -> tuple["_http.HttpResponse", tuple[str, ...]]:
+        before = set(session.cookies)
+        resp = session.post(action, data)
+        if on_response is not None:
+            on_response(resp)
+        new_login = tuple(
+            name
+            for name in _LOGIN_COOKIE_NAMES
+            if name in session.cookies and name not in before
+        )
+        return resp, new_login
+
+    def _classify(resp, new_login):
+        return _classify_response(
+            status=resp.status,
+            body=_redact_text(resp.body, bundle),
+            request_url=action,
+            final_url=resp.url,
+            login_cookies=new_login,
+        )
+
+    response, login_cookies = _post(payload)
+    kind, ok, message = _classify(response, login_cookies)
+
+    rounds = 0
+    while not ok and captcha is not None and rounds < captcha_attempts:
+        captcha_id = _unified_captcha_id(response.body)
+        if not captcha_id:
+            break
+        rounds += 1
+        image = _fetch_unified_captcha(session, captcha_id)
+        code = str(captcha(image) or "").strip()
+        if not code:
+            continue
+        retry_payload = _captcha_retry_payload(payload, response.body, code)
+        response, login_cookies = _post(retry_payload)
+        kind, ok, message = _classify(response, login_cookies)
+        if ok:
+            message = f"注册成功（第 {rounds} 轮图形验证码后通过；{message}）"
+
+    if not ok and _unified_captcha_id(response.body):
+        kind = "captcha"
+        if captcha is None:
+            message = (
+                "服务端要求图形验证码（fCaptcha）：请通过 captcha= 传入识别"
+                f"回调后重试；服务端提示：{message}"
+            )
+        elif rounds:
+            message = f"图形验证码 {rounds} 轮仍未通过（最后提示：{message}）"
+
     present_login = tuple(
-        name for name in _LOGIN_COOKIE_NAMES if name in after
-    )
-    kind, ok, message = _classify_response(
-        status=response.status,
-        body=_redact_text(response.body, bundle),
-        request_url=action,
-        final_url=response.url,
-        login_cookies=login_cookies,
+        name for name in _LOGIN_COOKIE_NAMES if name in session.cookies
     )
     return SubmitResult(
         ok=ok,
         kind=kind,
-        message=message,
+        message=_redact_text(message, bundle),
         username=bundle.username,
         path=bundle.path,
         app_id=app_id,
@@ -638,6 +731,7 @@ def _submit_unified(
         encrypted_fields=encrypted,
         login_cookies=present_login,
         field_names=field_names,
+        captcha_attempts=rounds,
         elapsed=time.monotonic() - started,
     )
 
@@ -916,4 +1010,6 @@ def submit_registration(
         retry_policy=retry_policy,
         started=started,
         on_response=on_response,
+        captcha=captcha,
+        captcha_attempts=captcha_attempts,
     )

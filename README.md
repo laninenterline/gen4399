@@ -364,6 +364,10 @@ python -m gen4399 --check-form abc12345 Abc123456 --profile-file ids.txt
   模块属性（`gen4399.submit.UNIFIED_SEND_REALNAME = True`），给导入名赋值无效。
 - 注意：本地仍要求 `prepare_registration()` 拿到合法的姓名/身份证（用于本地校验
   与 `RegistrationProfile`），unified 只是**不把它们发出去**。
+- **unified 也会要求图形验证码**：服务端风控把 `register.do` 的响应重渲染成
+  带 `inputCaptcha` / `captcha.do?captchaId=…` 的表单时（`#Msg` 为「验证码错误」），
+  传了 `captcha=` 回调就会自动取图识别并带 `fCaptcha` 重提交（轮次见
+  `SubmitResult.captcha_attempts`）；不传则返回 `kind="captcha"`。
 
 ### API
 
