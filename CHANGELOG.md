@@ -17,6 +17,16 @@
   `tesseract` 就用它（PNG 走 stdin、结果走 stdout），否则退回人工输入；
   `--captcha-cmd` 仍可指定任意识别命令。库依旧不内置验证码破解。
 
+### 重构（内部，无 API 变化）
+
+- 提交层：4 处 `SubmitResult(...)` 组装合并成 `_dry_run_result()` / `_final_result()`
+  两个工厂，登录 Cookie 计算抽成 `_present_login_cookies()`；以后加字段不会再漏改。
+- `CaptchaSolver` 只在 `gen4399._captcha` 定义一次，`submit` 侧改为导入别名。
+- CLI：legacy 解析器改用 `_add_captcha_opts()` / `_add_remote_opts()` / `_add_io_opts()`，
+  与子命令解析器共享同一份选项定义（少 20 行重复）。
+- `SubmitResult.__repr__` 补 `captcha_attempts` / `verified`；web 路径 Referer 改为
+  `https://web.4399.com/user/reg.php`（与浏览器一致）。
+
 ### 变更
 
 - `SubmitResult` 增加 `verified` 字段（`to_dict()` 同步输出）。

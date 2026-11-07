@@ -183,34 +183,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="提交/查重使用的 appId，默认 u4399")
     p.add_argument("--level", type=int, default=4, metavar="N",
                    help="注册等级 level，默认 4")
-    p.add_argument("--captcha-prompt", action="store_true",
-                   help="遇到图形验证码时保存图片并人工输入（web 路径）")
-    p.add_argument("--captcha-auto", action="store_true",
-                   help="自动选识别方式：有 OCR 用 OCR，否则人工输入")
-    p.add_argument("--captcha-cmd", default=None, metavar="CMD",
-                   help="用外部命令识别验证码（PNG stdin，stdout 第一行）")
-    p.add_argument("--captcha-dir", default=None, metavar="DIR",
-                   help="把验证码图片保存到该目录")
-    p.add_argument("--captcha-attempts", type=int, default=3, metavar="N",
-                   help="验证码最多重试轮数，默认 3")
+    _add_captcha_opts(p)
     p.add_argument("--show-pii", action="store_true",
                    help="显示明文身份证号/密码/QQ（默认打码）")
     p.add_argument("--entropy", action="store_true",
                    help="只输出熵估算（bit），不生成")
-    p.add_argument("--timeout", type=float, default=None, metavar="SECONDS",
-                   help=f"远程接口单次超时，默认 {DEFAULT_TIMEOUT:g} 秒")
-    p.add_argument("--retries", type=int, default=None, metavar="N",
-                   help="远程重试总尝试次数（默认：fetch 4 次，其它 2~3 次）")
-    p.add_argument("--retry-delay", type=float, default=None, metavar="SECONDS",
-                   help="首次重试等待（秒），之后指数递增并加抖动")
-    p.add_argument("--max-total-timeout", type=float, default=None,
-                   metavar="SECONDS", help="单次远程调用的总时间预算（秒）")
-    p.add_argument("--min-interval", type=float, default=0.0, metavar="SECONDS",
-                   help="批量远程命令之间的最小间隔（秒），默认 0")
-    p.add_argument("--output", metavar="DIR", default=None,
-                   help="把结果写成 JSON 文件（目录，文件权限 0600）")
-    p.add_argument("--json", action="store_true",
-                   help="以 JSON 输出（便于脚本消费）")
+    _add_remote_opts(p)
+    _add_io_opts(p)
     p.add_argument("-v", "--verbose", action="store_true",
                    help="输出重试等调试日志")
     p.add_argument("-V", "--version", action="version",
