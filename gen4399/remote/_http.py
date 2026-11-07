@@ -1,10 +1,12 @@
-"""远程传输层：HTTP GET、错误类型、重试策略、响应解析。
+"""远程传输层：HTTP GET / POST 会话、错误类型、重试策略、响应解析。
 
-本模块不包含业务语义（取号/查重），由 :mod:`gen4399.remote._api` 组合使用。
+本模块不包含业务语义（取号/查重/提交），由 :mod:`gen4399.remote._api` 与
+:mod:`gen4399.submit` 组合使用。
 """
 
 from __future__ import annotations
 
+import http.cookiejar
 import logging
 import random
 import re
@@ -13,9 +15,11 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from html import unescape
 
 from ..core import Gen4399Error
 
@@ -24,10 +28,12 @@ logger = logging.getLogger("gen4399.remote")
 
 __all__ = [
     "REG_FRAME_URL",
+    "REGISTER_URL",
     "IS_EXIST_URL",
     "DEFAULT_APP_ID",
     "DEFAULT_TIMEOUT",
     "DEFAULT_USER_AGENT",
+    "DEFAULT_REFERER",
     "MAX_BODY_BYTES",
     "RetryPolicy",
     "DEFAULT_RETRY_POLICY",
@@ -37,6 +43,10 @@ __all__ = [
     "RemoteTimeoutError",
     "RemoteHTTPError",
     "RemoteParseError",
+    "HttpResponse",
+    "RegFormSnapshot",
+    "parse_registration_form",
+    "RemoteSession",
     "_http_get",
     "_http_get_once",
     "_parse_suggested_username",
@@ -46,6 +56,9 @@ __all__ = [
 
 #: 注册面板接口
 REG_FRAME_URL = "https://ptlogin.4399.com/ptlogin/regFrame.do"
+
+#: 注册提交接口（注册表单 action 的绝对地址）
+REGISTER_URL = "https://ptlogin.4399.com/ptlogin/register.do"
 
 #: 用户名查重接口
 IS_EXIST_URL = "https://ptlogin.4399.com/ptlogin/isExist.do"
@@ -61,6 +74,9 @@ DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
+
+#: 请求默认 Referer
+DEFAULT_REFERER = "https://u.4399.com/register.html"
 
 
 @dataclass(frozen=True)
@@ -254,7 +270,7 @@ def _http_get_once(url: str, timeout: float) -> str:
         url,
         headers={
             "User-Agent": DEFAULT_USER_AGENT,
-            "Referer": "https://u.4399.com/register.html",
+            "Referer": DEFAULT_REFERER,
             "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh;q=0.9",
         },
@@ -314,5 +330,362 @@ def _parse_suggested_username(html: str) -> str:
         return ""
     value = vm.group(1) if vm.group(1) is not None else vm.group(2)
     return value.strip()
+
+
+# ---------------------------------------------------------------------------
+# POST 提交支持：响应模型、注册表单解析、带 Cookie 的会话
+# ---------------------------------------------------------------------------
+
+#: POST 表单的 Content-Type（4399 服务端要求 UTF-8 形式）
+_FORM_CONTENT_TYPE = "application/x-www-form-urlencoded; charset=UTF-8"
+
+#: 解析相对 action 时使用的基准地址
+_FORM_BASE_URL = "https://ptlogin.4399.com"
+
+#: ``<form ...>`` 开始标签（属性内部可能跨行）
+_FORM_TAG_RE = re.compile(r"<form\b([^>]*)>", re.I | re.S)
+#: ``</form>`` 结束标签
+_FORM_END_RE = re.compile(r"</form\s*>", re.I)
+#: ``<input ...>`` 标签（属性内部可能跨行）
+_FORM_INPUT_RE = re.compile(r"<input\b([^>]*)>", re.I | re.S)
+#: 单个 HTML 属性：名字 + 可选值（双引号 / 单引号 / 无引号）
+_ATTR_RE = re.compile(
+    r"""([A-Za-z_:][-A-Za-z0-9_:.]*)
+        (?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?""",
+    re.X | re.S,
+)
+#: 验证码输入框的 id
+_CAPTCHA_ID_RE = re.compile(r"""\bid\s*=\s*["']inputCaptcha["']""", re.I)
+
+
+@dataclass(frozen=True)
+class HttpResponse:
+    """一次 HTTP 请求的结果。
+
+    Attributes:
+        status: HTTP 状态码。
+        url: 跟随重定向后的最终 URL。
+        headers: 响应头（普通 dict）。
+        body: 响应体文本（UTF-8 解码，非法字节替换为 ``U+FFFD``）。
+    """
+
+    status: int
+    url: str
+    headers: dict[str, str]
+    body: str
+
+
+@dataclass(frozen=True)
+class RegFormSnapshot:
+    """注册表单结构的只读快照。
+
+    Attributes:
+        action: 表单提交地址（绝对 URL）。
+        method: 表单方法（小写；缺省时为 ``"get"``）。
+        hidden: 全部 ``type=hidden`` 的 ``name -> value``（已做 HTML 反转义）。
+        input_names: 非 hidden 输入框的 ``name``（按出现顺序）。
+        sec: 隐藏域 ``sec`` 的值（去掉首尾空白）；缺失时为 ``""``。
+        suggested_username: ``id="j-username"`` 输入框的预填值；缺失时为 ``""``。
+        has_captcha: 是否存在 ``id="inputCaptcha"`` 的元素。
+    """
+
+    action: str
+    method: str
+    hidden: dict[str, str]
+    input_names: tuple[str, ...]
+    sec: str
+    suggested_username: str
+    has_captcha: bool
+
+
+def _parse_attrs(raw: str) -> dict[str, str]:
+    """解析标签内部的属性串。
+
+    属性顺序随意，值可用双引号 / 单引号 / 不加引号；属性名统一小写，
+    值做 HTML 反转义。同一属性重复出现时以第一次为准（与浏览器一致）。
+    """
+    attrs: dict[str, str] = {}
+    for match in _ATTR_RE.finditer(raw):
+        name = match.group(1).lower()
+        if match.group(2) is not None:
+            value = match.group(2)
+        elif match.group(3) is not None:
+            value = match.group(3)
+        elif match.group(4) is not None:
+            value = match.group(4)
+        else:
+            value = ""
+        attrs.setdefault(name, unescape(value))
+    return attrs
+
+
+def parse_registration_form(html: str) -> RegFormSnapshot:
+    """从注册表单页 HTML 中解析出提交所需的结构。
+
+    只解析第一个 ``<form>``，并容忍属性顺序、单双引号、跨行与 HTML 实体。
+    ``action`` 为相对路径时按 ``https://ptlogin.4399.com`` 转为绝对 URL；
+    ``action`` 缺失或为空时回落到 :data:`REGISTER_URL`。
+
+    Args:
+        html: ``GET regFrame.do`` 返回的页面 HTML。
+
+    Returns:
+        表单结构快照。
+
+    Raises:
+        RemoteParseError: HTML 里找不到 ``<form>``（接口结构可能已变化）。
+        TypeError: ``html`` 不是 ``str``。
+    """
+    if not isinstance(html, str):
+        raise TypeError("html 必须是 str")
+    form_match = _FORM_TAG_RE.search(html)
+    if form_match is None:
+        raise RemoteParseError(
+            "响应中没有找到注册表单（<form>），接口结构可能已变化"
+        )
+
+    form_attrs = _parse_attrs(form_match.group(1))
+    end_match = _FORM_END_RE.search(html, form_match.end())
+    form_body = (
+        html[form_match.end() : end_match.start()]
+        if end_match is not None
+        else html[form_match.end() :]
+    )
+
+    hidden: dict[str, str] = {}
+    input_names: list[str] = []
+    suggested_username = ""
+    for tag_match in _FORM_INPUT_RE.finditer(form_body):
+        attrs = _parse_attrs(tag_match.group(1))
+        name = attrs.get("name", "")
+        input_type = attrs.get("type", "text").strip().lower()
+        if input_type == "hidden":
+            if name:
+                hidden[name] = attrs.get("value", "")
+            continue
+        if name:
+            input_names.append(name)
+        if attrs.get("id", "") == "j-username":
+            suggested_username = attrs.get("value", "").strip()
+
+    action = form_attrs.get("action", "").strip()
+    action = (
+        urllib.parse.urljoin(_FORM_BASE_URL, action) if action else REGISTER_URL
+    )
+    method = form_attrs.get("method", "").strip().lower() or "get"
+
+    return RegFormSnapshot(
+        action=action,
+        method=method,
+        hidden=hidden,
+        input_names=tuple(input_names),
+        sec=hidden.get("sec", "").strip(),
+        suggested_username=suggested_username,
+        has_captcha=bool(_CAPTCHA_ID_RE.search(form_body)),
+    )
+
+
+def _response_headers(resp) -> dict[str, str]:
+    """把响应头（``HTTPMessage`` 等）转成普通 dict。"""
+    headers = getattr(resp, "headers", None)
+    if headers is None:
+        return {}
+    try:
+        items = headers.items()
+    except AttributeError:
+        return {}
+    result: dict[str, str] = {}
+    for key, value in items:
+        result[str(key)] = str(value)
+    return result
+
+
+def _response_url(resp, fallback: str) -> str:
+    """取跟随重定向后的最终 URL（兼容 ``geturl()`` 与 ``.url`` 两种实现）。"""
+    geturl = getattr(resp, "geturl", None)
+    if callable(geturl):
+        value = geturl()
+        if value:
+            return str(value)
+    value = getattr(resp, "url", None)
+    if value:
+        return str(value)
+    return fallback
+
+
+class RemoteSession:
+    """带 CookieJar 的 HTTP 会话；GET 默认重试，POST 永远单次。
+
+    POST 单次是为了防止提交注册请求被重复发送（服务端可能已成功建立账号，
+    重试会造成重复注册），因此无论 5xx / 429 / 超时都直接抛错。
+
+    Attributes:
+        timeout: 单次请求超时（秒）。
+        policy: GET 使用的重试策略（POST 不使用）。
+        referer: 请求头 ``Referer``。
+    """
+
+    def __init__(
+        self,
+        *,
+        timeout: float = DEFAULT_TIMEOUT,
+        policy: RetryPolicy | None = None,
+        referer: str = DEFAULT_REFERER,
+    ) -> None:
+        self.timeout = timeout
+        self.policy = (
+            DEFAULT_FETCH_RETRY_POLICY if policy is None else policy
+        )
+        self.referer = referer
+        self._cookiejar = http.cookiejar.CookieJar()
+        self._opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(self._cookiejar)
+        )
+
+    @property
+    def cookies(self) -> dict[str, str]:
+        """当前会话 Cookie 的只读快照（``name -> value``）。"""
+        return {cookie.name: cookie.value for cookie in self._cookiejar}
+
+    def get(self, url: str) -> HttpResponse:
+        """HTTP GET（按 :attr:`policy` 重试）。
+
+        Raises:
+            RemoteTimeoutError / RemoteHTTPError / RemoteError: 请求失败。
+        """
+        return self._request_with_retry(url)
+
+    def post(self, url: str, data: Mapping[str, str]) -> HttpResponse:
+        """HTTP POST 表单；**只尝试一次**，任何失败直接抛出。
+
+        Args:
+            url: 提交地址（通常是 ``<form action>``）。
+            data: 表单字段（``str -> str``）。
+
+        Raises:
+            TypeError: ``data`` 不是 Mapping。
+            RemoteTimeoutError / RemoteHTTPError / RemoteError: 请求失败。
+        """
+        if not isinstance(data, Mapping):
+            raise TypeError("data 必须是 Mapping[str, str]")
+        payload = urllib.parse.urlencode(
+            [(str(key), str(value)) for key, value in data.items()]
+        ).encode("utf-8")
+        logger.debug("POST %s (single attempt)", _safe_url(url))
+        return self._open_once(
+            "POST", url, data=payload, content_type=_FORM_CONTENT_TYPE
+        )
+
+    def _base_headers(self, content_type: str | None = None) -> dict[str, str]:
+        headers = {
+            "User-Agent": DEFAULT_USER_AGENT,
+            "Referer": self.referer,
+            "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+        }
+        if content_type is not None:
+            headers["Content-Type"] = content_type
+        return headers
+
+    def _open_once(
+        self,
+        method: str,
+        url: str,
+        *,
+        data: bytes | None = None,
+        content_type: str | None = None,
+    ) -> HttpResponse:
+        """执行一次请求，并把底层异常统一成 :class:`RemoteError` 子类。"""
+        request = urllib.request.Request(
+            url,
+            data=data,
+            headers=self._base_headers(content_type),
+            method=method,
+        )
+        try:
+            with self._opener.open(request, timeout=self.timeout) as resp:
+                status = getattr(resp, "status", None)
+                status = 200 if status is None else int(status)
+                if not 200 <= status < 300:
+                    raise RemoteHTTPError(
+                        f"HTTP {status}",
+                        status,
+                        retry_after=_parse_retry_after(
+                            getattr(resp, "headers", None)
+                        ),
+                        url=url,
+                    )
+                raw = resp.read(MAX_BODY_BYTES)
+                final_url = _response_url(resp, url)
+                resp_headers = _response_headers(resp)
+        except urllib.error.HTTPError as exc:
+            raise RemoteHTTPError(
+                f"HTTP {exc.code}",
+                exc.code,
+                retry_after=_parse_retry_after(getattr(exc, "headers", None)),
+                url=url,
+            ) from exc
+        except socket.timeout as exc:
+            raise RemoteTimeoutError(
+                f"请求超时（{self.timeout}s）", url=url
+            ) from exc
+        except urllib.error.URLError as exc:
+            reason = getattr(exc, "reason", exc)
+            if isinstance(reason, socket.timeout):
+                raise RemoteTimeoutError(
+                    f"请求超时（{self.timeout}s）", url=url
+                ) from exc
+            raise RemoteError(f"网络错误：{reason}", url=url) from exc
+        except OSError as exc:
+            raise RemoteError(f"网络错误：{exc}", url=url) from exc
+
+        return HttpResponse(
+            status=status,
+            url=final_url,
+            headers=resp_headers,
+            body=raw.decode("utf-8", errors="replace"),
+        )
+
+    def _request_with_retry(self, url: str) -> HttpResponse:
+        """GET 的重试循环：超时 / 网络 / 5xx / 429 重试，其它 4xx 直接抛出。"""
+        policy = self.policy
+        start = time.monotonic()
+        last_error: RemoteError | None = None
+        for attempt in range(1, policy.attempts + 1):
+            logger.debug(
+                "GET %s (attempt %d/%d)",
+                _safe_url(url),
+                attempt,
+                policy.attempts,
+            )
+            try:
+                return self._open_once("GET", url)
+            except RemoteHTTPError as exc:
+                if 400 <= exc.status < 500 and exc.status != 429:
+                    raise
+                last_error = exc
+            except RemoteError as exc:
+                last_error = exc
+
+            if attempt >= policy.attempts:
+                break
+            delay = policy.delay_for(
+                attempt, getattr(last_error, "retry_after", None)
+            )
+            if policy.total_deadline is not None:
+                remaining = policy.total_deadline - (time.monotonic() - start)
+                if remaining <= 0:
+                    break
+                delay = min(delay, remaining)
+            if delay > 0:
+                logger.debug(
+                    "retry in %.2fs after %s",
+                    delay,
+                    type(last_error).__name__,
+                )
+                time.sleep(delay)
+
+        assert last_error is not None
+        raise last_error
 
 
