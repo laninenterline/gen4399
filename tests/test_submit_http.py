@@ -356,7 +356,7 @@ class TestRemoteSessionPost(unittest.TestCase):
         headers = request_headers(request)
         self.assertEqual(
             headers["content-type"],
-            "application/x-www-form-urlencoded; charset=UTF-8",
+            "application/x-www-form-urlencoded",
         )
         self.assertIn("Mozilla", headers["user-agent"])
         self.assertEqual(headers["referer"], DEFAULT_REFERER)
@@ -637,3 +637,19 @@ class TestParseRegistrationForm(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFormContentType(unittest.TestCase):
+    """表单 POST 的 Content-Type 必须与浏览器完全一致（不带 charset）。
+
+    实测 2026-11-08：多带 ``; charset=UTF-8`` 时 4399 返回 202 +
+    「请稍后再试~」，看着像限流，其实是请求头不合浏览器。
+    """
+
+    def test_form_content_type_matches_browser(self):
+        from gen4399.remote import _http
+
+        self.assertEqual(
+            _http._FORM_CONTENT_TYPE, "application/x-www-form-urlencoded"
+        )
+        self.assertNotIn("charset", _http._FORM_CONTENT_TYPE)

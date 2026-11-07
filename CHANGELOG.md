@@ -30,6 +30,14 @@
   一节说明「核心三个名字 + 按域取细节」。
 - 顶层补导出 `WEB_CHECK_USER_API`。
 
+### 修复（协议）
+
+- **表单 POST 的 `Content-Type` 不再带 `; charset=UTF-8`**：实测 2026-11-08，
+  多带 charset 时 4399 返回 `202` + 「请稍后再试~」，与限流文案相同（容易误判）；
+  改回浏览器同款 `application/x-www-form-urlencoded` 后同一请求恢复正常。
+- **unified 的 POST 补齐浏览器头**：`Referer` 改为 regFrame 自身，并带
+  `Origin: https://ptlogin.4399.com` 与 `Sec-Fetch-*`。
+
 ### 重构（内部，无 API 变化）
 
 - 提交层：4 处 `SubmitResult(...)` 组装合并成 `_dry_run_result()` / `_final_result()`

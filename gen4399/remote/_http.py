@@ -337,7 +337,10 @@ def _parse_suggested_username(html: str) -> str:
 # ---------------------------------------------------------------------------
 
 #: POST 表单的 Content-Type（4399 服务端要求 UTF-8 形式）
-_FORM_CONTENT_TYPE = "application/x-www-form-urlencoded; charset=UTF-8"
+#: 表单 POST 的 Content-Type。**必须与浏览器完全一致**（不带 charset）：
+#: 实测 2026-11-08，多带 ``; charset=UTF-8`` 时 4399 会返回
+#: ``202`` + 「请稍后再试~」（看着像限流，其实是请求头不合浏览器）。
+_FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
 
 #: 解析相对 action 时使用的基准地址
 _FORM_BASE_URL = "https://ptlogin.4399.com"
@@ -551,6 +554,8 @@ class RemoteSession:
             DEFAULT_FETCH_RETRY_POLICY if policy is None else policy
         )
         self.referer = referer
+        #: 额外请求头（默认空；提交注册时按浏览器补 Origin / Sec-Fetch-*）。
+        self.extra_headers: dict[str, str] = {}
         self._cookiejar = http.cookiejar.CookieJar()
         self._opener = urllib.request.build_opener(
             urllib.request.HTTPCookieProcessor(self._cookiejar)
@@ -599,6 +604,9 @@ class RemoteSession:
         }
         if content_type is not None:
             headers["Content-Type"] = content_type
+        # 可选：额外请求头（如浏览器同款 Origin / Sec-Fetch-*）。
+        # 用实例属性而不是构造参数，方便已有调用方与测试替身保持兼容。
+        headers.update(getattr(self, "extra_headers", None) or {})
         return headers
 
     def _open_once(

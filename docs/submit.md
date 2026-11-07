@@ -314,6 +314,12 @@ v=<毫秒时间戳>
 > 本库默认 `app_id="u4399"`、`level=4`，可用参数覆盖。
 > 这些只是**拉表单**的 query 参数；真正提交哪些字段由 2.2/2.3 决定。
 
+> **Content-Type 必须与浏览器一致**（实测 2026-11-08）：表单 POST 用
+> `application/x-www-form-urlencoded`，**不要带 `; charset=UTF-8`**。
+> 多带 charset 时 4399 会返回 `202` + 「请稍后再试~」——看着像限流，其实是请求头
+> 不合浏览器；去掉后同一套字段立刻恢复正常。另：unified 的 POST 还要求
+> `Referer` 是 regFrame 自身、并带 `Origin` / `Sec-Fetch-*`（本库已自动补齐）。
+
 会话要点：真正把 GET 与 POST 串起来的是 Cookie（`USESSIONID`）。
 表单里的 `sessionId` 通常为空，实际会话靠 Cookie 识别。因此
 `submit_registration()` 在同一个 `RemoteSession`（带 `CookieJar`）内先 GET 再 POST。

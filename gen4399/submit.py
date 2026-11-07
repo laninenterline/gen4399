@@ -767,9 +767,22 @@ def _submit_unified(
     带 ``fCaptcha`` 重提交，最多 ``captcha_attempts`` 轮。
     """
     session = _http.RemoteSession(timeout=timeout, policy=retry_policy)
-    form_page = session.get(_form_url(app_id, level))
+    form_url = _form_url(app_id, level)
+    form_page = session.get(form_url)
     form = _http.parse_registration_form(form_page.body)
     action = form.action or _http.REGISTER_URL
+    # 浏览器提交 regFrame 里的表单时，Referer 是 regFrame 自身、并带 Origin /
+    # Sec-Fetch-*。缺少这些头时服务端会返回 202 + 「请稍后再试~」
+    # （实测 2026-11-08：补齐后同一套字段直接建号成功）。
+    session.referer = form_url
+    session.extra_headers = {
+        "Origin": "https://ptlogin.4399.com",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "iframe",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-User": "?1",
+    }
 
     payload, encrypted = _build_payload(bundle, form, app_id, level)
     field_names = tuple(payload)
