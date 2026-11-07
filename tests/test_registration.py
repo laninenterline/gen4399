@@ -126,6 +126,11 @@ class TestBundle(unittest.TestCase):
         with self.assertRaises(TypeError):
             b.fields["login_name"] = "hacked"  # type: ignore[index]
 
+    def test_bundle_is_hashable(self):
+        b = prepare_registration(PROFILE, verify_username=False)
+        self.assertIsInstance(hash(b), int)
+        self.assertIn(b, {b})
+
     def test_masked_fields_hides_qq(self):
         b = prepare_registration(PROFILE, verify_username=False)
         self.assertNotIn(PROFILE.qq, b.masked_fields()["qq"])

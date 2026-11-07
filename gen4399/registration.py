@@ -90,6 +90,21 @@ class RegistrationBundle:
             f"qq={self.qq!r}, username_available={self.username_available!r})"
         )
 
+    def __hash__(self) -> int:
+        # fields 是 mapping，用 frozenset 保证与 eq 一致的顺序无关哈希
+        return hash((
+            self.path,
+            self.url,
+            self.username,
+            self.password,
+            self.realname,
+            self.idcard,
+            self.qq,
+            frozenset(self.fields.items()),
+            self.username_available,
+            self.warnings,
+        ))
+
     def masked_idcard(self) -> str:
         """打码后的身份证号。"""
         return RegistrationProfile(self.realname, self.idcard, self.qq).masked_idcard()
