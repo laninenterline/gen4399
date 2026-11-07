@@ -713,11 +713,37 @@ class TestSubmitCommand(unittest.TestCase):
         self.assertIn("OK", out)
         self.submit.assert_called_once()
 
-    def test_legacy_web_path_rejected(self):
-        code, _, err = run(["--submit", "--yes", *self._identity_args()])
-        self.assertEqual(code, 2)
-        self.assertIn("unified", err)
-        self.submit.assert_not_called()
+    def test_legacy_default_web_path(self):
+        code, out, err = run(
+            ["--submit", "--offline", *self._identity_args()]
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("DRY-RUN", out)
+        self.assertEqual(
+            self.prepare.call_args.kwargs["path"], "web"
+        )
+        self.submit.assert_called_once()
+        self.assertTrue(self.submit.call_args.kwargs["dry_run"])
+
+    def test_subcommand_web_path(self):
+        code, out, _ = run([
+            "submit", "--offline", "--form-path", "web",
+            *self._identity_args(),
+        ])
+        self.assertEqual(code, 0)
+        self.assertIn("DRY-RUN", out)
+        self.assertEqual(
+            self.prepare.call_args.kwargs["path"], "web"
+        )
+
+    def test_subcommand_web_path_yes(self):
+        code, _, err = run([
+            "submit", "--offline", "--form-path", "web", "--yes",
+            *self._identity_args(),
+        ])
+        self.assertEqual(code, 0)
+        self.assertFalse(self.submit.call_args.kwargs["dry_run"])
+        self.assertIn("警告", err)
 
     def test_json_output(self):
         code, out, _ = run(

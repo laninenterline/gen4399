@@ -11,7 +11,8 @@
 ``validation.js`` 中的 ``CheakPWD`` / ``CheakUsername`` / ``CheckRealname`` /
 ``__checkIdcard``。
 
-本模块**只做本地校验**，不提供提交注册请求的能力——注册请在浏览器手动完成。
+本模块**只做本地校验**；真实提交在 :func:`gen4399.submit_registration`
+（2.2.0 起 ``web`` / ``unified`` 两条路径均支持）。
 """
 
 from __future__ import annotations

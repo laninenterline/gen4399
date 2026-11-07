@@ -8,8 +8,9 @@
 4. 按 4399 真实规则整表校验
 5. 组装成页面字段清单 + 注册页地址
 
-2.1.0 起提供 :func:`gen4399.submit_registration` 做真实 POST 提交，但
-:func:`prepare_registration` 本身仍然不会自动提交；提交必须由调用方显式触发。
+2.1.0 起提供 :func:`gen4399.submit_registration` 做真实提交（2.2.0 起支持
+``web`` / ``unified`` 两条路径），但 :func:`prepare_registration` 本身仍然
+不会自动提交；提交必须由调用方显式触发。
 """
 
 from __future__ import annotations

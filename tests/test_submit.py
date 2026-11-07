@@ -5,11 +5,13 @@ import unittest
 from unittest import mock
 
 from gen4399._aes import decrypt_aes
-from gen4399.registration import prepare_registration
+from gen4399._des import encode_4399
+from gen4399.registration import RegistrationBundle, prepare_registration
 from gen4399.forms import RegistrationProfile
 from gen4399.remote import DEFAULT_TIMEOUT, RemoteError, RetryPolicy
 from gen4399.remote import _http
 from gen4399.submit import (
+    WEB_REG_API,
     SubmitError,
     SubmitResult,
     _extract_error_message,
@@ -153,13 +155,18 @@ class TestValidation(SubmitTestBase):
         with self.assertRaises(TypeError):
             submit_registration("not-a-bundle")  # type: ignore[arg-type]
 
-    def test_web_path_rejected(self):
-        web = prepare_registration(
-            PROFILE, path="web", verify_username=False
+    def test_unsupported_path(self):
+        bundle = RegistrationBundle(
+            path="phone",
+            url="https://example.test/reg",
+            username="abc12345",
+            password="Abc123456",
+            realname=PROFILE.realname,
+            idcard=PROFILE.idcard,
+            qq=None,
         )
-        with self.assertRaises(SubmitError) as ctx:
-            submit_registration(web, dry_run=True)
-        self.assertIn("unified", str(ctx.exception))
+        with self.assertRaises(SubmitError):
+            submit_registration(bundle, dry_run=True)
 
     def test_bad_app_id(self):
         with self.assertRaises(ValueError):
@@ -392,6 +399,126 @@ class TestClassify(SubmitTestBase):
         self.assertEqual(result.kind, "rejected")
         self.assertNotIn("4602", result.message)
         self.assertIn("***", result.message)
+
+
+class TestWebSubmit(SubmitTestBase):
+    def setUp(self):
+        super().setUp()
+        self.web_bundle = prepare_registration(
+            PROFILE, path="web", verify_username=False
+        )
+        FakeSession.get_response = response(
+            'cb_1({"state":false,"data":"5c43e3"})'
+        )
+        FakeSession.post_response = response(
+            'cb_2({"state":true,"validateState":"2"})'
+        )
+
+    def test_dry_run(self):
+        result = submit_registration(self.web_bundle, dry_run=True)
+        self.assertEqual(result.kind, "dry_run")
+        self.assertEqual(result.path, "web")
+        self.assertEqual(result.endpoint, WEB_REG_API)
+        self.assertEqual(result.app_id, "")
+        self.assertEqual(result.encrypted_fields,
+                         ("login_password", "relogin_pwd"))
+        self.assertIn("login_name", result.field_names)
+        self.assertTrue(self.session.get_calls[0].startswith(
+            "https://web.4399.com/user/?_c=login&_a=checkUser&"
+        ))
+        self.assertIn("user=" + self.web_bundle.username,
+                      self.session.get_calls[0])
+        self.assertEqual(self.session.post_calls, [])
+        self.assertNotIn(self.web_bundle.password,
+                         json.dumps(result.to_dict()))
+
+    def test_payload_and_password_encryption(self):
+        submit_registration(self.web_bundle)
+        url, data = self.session.post_calls[0]
+        self.assertTrue(url.startswith(WEB_REG_API))
+        self.assertIn("jsoncallback=gen4399reg_", url)
+        self.assertEqual(data["cid"], "3000")
+        self.assertEqual(data["login_name"], self.web_bundle.username)
+        self.assertEqual(data["true_name"], PROFILE.realname)
+        self.assertEqual(data["sfz"], PROFILE.idcard)
+        self.assertEqual(data["qq"], PROFILE.qq)
+        self.assertEqual(data["encrypt"], "1")
+        expected = encode_4399(self.web_bundle.password, "5c43e3")
+        self.assertEqual(data["login_password"], expected)
+        self.assertEqual(data["relogin_pwd"], expected)
+        self.assertTrue(data["login_password"].startswith("0x"))
+        self.assertNotEqual(data["login_password"], self.web_bundle.password)
+
+    def test_success_state(self):
+        result = submit_registration(self.web_bundle)
+        self.assertEqual(result.kind, "success")
+        self.assertTrue(result.ok)
+        self.assertIn("state=true", result.message)
+        self.assertEqual(result.http_status, 200)
+
+    def test_success_validate_state_note(self):
+        FakeSession.post_response = response(
+            'cb({"state":true,"validateState":"3"})'
+        )
+        result = submit_registration(self.web_bundle)
+        self.assertEqual(result.kind, "success")
+        self.assertIn("validateState=3", result.message)
+
+    def test_rejected(self):
+        FakeSession.post_response = response(
+            'cb({"state":false,"code":100,"msg":"用户名已被注册"})'
+        )
+        result = submit_registration(self.web_bundle)
+        self.assertEqual(result.kind, "rejected")
+        self.assertEqual(result.message, "用户名已被注册")
+
+    def test_captcha_codes(self):
+        for code in (200, 360):
+            with self.subTest(code=code):
+                FakeSession.post_response = response(
+                    'cb({"state":false,"code":%d,"msg":"请验证"})' % code
+                )
+                result = submit_registration(self.web_bundle)
+                self.assertEqual(result.kind, "captcha")
+                self.assertIn("验证码", result.message)
+
+    def test_unknown_non_jsonp_response(self):
+        FakeSession.post_response = response("<html>error page</html>")
+        result = submit_registration(self.web_bundle)
+        self.assertEqual(result.kind, "unknown")
+        self.assertIn("无法解析", result.message)
+
+    def test_success_by_login_cookie(self):
+        FakeSession.post_cookies = {"Pauth": "secret"}
+        FakeSession.post_response = response('cb({"state":false})')
+        result = submit_registration(self.web_bundle)
+        self.assertEqual(result.kind, "success")
+        self.assertEqual(result.login_cookies, ("Pauth",))
+
+    def test_check_user_missing_data(self):
+        FakeSession.get_response = response('cb({"state":false})')
+        with self.assertRaises(Exception):
+            submit_registration(self.web_bundle, dry_run=True)
+
+    def test_check_user_bad_jsonp(self):
+        FakeSession.get_response = response("<html>challenge</html>")
+        with self.assertRaises(Exception):
+            submit_registration(self.web_bundle, dry_run=True)
+
+    def test_message_redacts_pii(self):
+        FakeSession.post_response = response(
+            'cb({"state":false,"code":100,'
+            f'"msg":"身份证号 {VALID_ID} 格式错误"}})'
+        )
+        result = submit_registration(self.web_bundle)
+        self.assertEqual(result.kind, "rejected")
+        self.assertNotIn(VALID_ID, result.message)
+        self.assertIn("***", result.message)
+
+    def test_post_error_propagates(self):
+        FakeSession.post_response = RemoteError("boom")
+        with self.assertRaises(RemoteError):
+            submit_registration(self.web_bundle)
 
 
 class TestErrors(SubmitTestBase):

@@ -35,7 +35,7 @@
     bundle = prepare_registration(profile, path="unified", verify_username=False)
     print(bundle.as_text())
 
-    # 2.1.0：真正的 POST 提交（仅 unified 路径；库不会自动提交）
+    # 2.1.0+：真正的提交（web / unified 两条路径；库不会自动提交）
     #   - dry_run=True  只拉表单、组装/加密，不发 POST，不创建账号（推荐先跑）
     #   - dry_run=False 调用即真实提交（请仅使用本人真实身份，遵守 4399 用户协议）
     #   - CLI 默认 dry-run，必须加 --yes 才发送 POST
@@ -130,7 +130,7 @@ from .core import (
     validate_username,
 )
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 __all__ = [
     "RULES_VERSION",

@@ -16,7 +16,8 @@
     python -m gen4399 --build-form NAME PW --realname 张三 --idcard ...
     python -m gen4399 --prepare --realname 张三 --idcard ...   一键准备注册数据
     python -m gen4399 --prepare --profile-file ids.txt       从 txt 批量准备
-    python -m gen4399 submit --realname 张三 --idcard ... --yes  真实 POST 提交注册
+    python -m gen4399 submit --realname 张三 --idcard ... --yes  真实提交（unified）
+    python -m gen4399 submit --form-path web --realname 张三 --idcard ... --yes
     python -m gen4399 --check-available "abc12345"
     python -m gen4399 --entropy -p abc
 
@@ -167,7 +168,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--prepare", action="store_true",
                    help="一键准备注册数据（生成用户名+密码、查重、校验、输出填表清单；不提交）")
     p.add_argument("--submit", action="store_true",
-                   help="准备并真实提交注册（POST，仅 --form-path unified；"
+                   help="准备并真实提交注册（web / unified 两条路径；"
                         "默认 dry-run，需同时加 --yes 才会发送请求）")
     p.add_argument("--yes", action="store_true",
                    help="确认真正提交注册（--submit 不加此参数时只做 dry-run）")
@@ -495,14 +496,6 @@ def _cmd_submit(args) -> int:
         return 2
     app_id = getattr(args, "app_id", None) or DEFAULT_APP_ID
     level = getattr(args, "level", 4)
-    if args.form_path != "unified":
-        print(
-            "错误：提交目前只支持 unified 路径，请加 --form-path unified"
-            "（web 提交端点未实测，请继续用浏览器手动提交）",
-            file=sys.stderr,
-        )
-        return 2
-
     confirmed = bool(getattr(args, "yes", False))
     if confirmed:
         print(
@@ -984,8 +977,11 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
     _add_identity_opts(fb)
     _add_io_opts(fb)
 
-    subcmd = new("submit", "准备并提交注册（POST；默认 dry-run，需 --yes）")
-    subcmd.add_argument("--form-path", choices=["unified"], default="unified")
+    subcmd = new("submit", "准备并提交注册（web / unified；默认 dry-run，需 --yes）")
+    subcmd.add_argument(
+        "--form-path", choices=["web", "unified"], default="unified",
+        help="注册路径，默认 unified（推荐）；web 走 web.4399.com 用户中心",
+    )
     subcmd.add_argument("--app-id", default=None, metavar="APPID")
     subcmd.add_argument("--level", type=int, default=4, metavar="N")
     subcmd.add_argument("-p", "--prefix", default="")
