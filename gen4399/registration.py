@@ -1,0 +1,232 @@
+"""注册编排：把库的各模块串起来，准备一套「可以直接去网页填」的注册数据。
+
+本模块**只做准备**，不提交注册请求：
+
+1. 校验身份信息（姓名 / 身份证 / QQ）
+2. 生成或校验用户名（可选调用官方 isExist.do 查重）
+3. 生成密码
+4. 按 4399 真实规则整表校验
+5. 组装成页面字段清单 + 注册页地址
+
+最后一步「点提交」必须由你在浏览器手动完成。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from .core import (
+    DEFAULT_LENGTH,
+    DEFAULT_USERNAME_LENGTH,
+    Gen4399Error,
+    generate,
+    generate_username,
+)
+from .forms import (
+    RegistrationProfile,
+    build_registration_fields,
+    check_registration_form,
+    get_form,
+)
+from .remote import (
+    DEFAULT_APP_ID,
+    DEFAULT_TIMEOUT,
+    check_username,
+    generate_available_username,
+)
+
+__all__ = [
+    "RegistrationBundle",
+    "RegistrationError",
+    "prepare_registration",
+]
+
+
+class RegistrationError(Gen4399Error):
+    """准备注册数据失败（用户名不可用、表单校验不通过等）。"""
+
+
+@dataclass(frozen=True)
+class RegistrationBundle:
+    """一套准备好的注册数据。
+
+    Attributes:
+        path: 注册路径（``web`` / ``unified``）。
+        url: 注册页地址。
+        username: 用户名。
+        password: 密码。
+        realname: 真实姓名。
+        idcard: 身份证号。
+        qq: QQ 号（可能为 None）。
+        fields: ``{参数名: 值}``，按表单顺序。
+        username_available: 是否经服务端确认可用；None 表示未查重。
+        warnings: 提示信息。
+    """
+
+    path: str
+    url: str
+    username: str
+    password: str
+    realname: str
+    idcard: str
+    qq: str | None
+    fields: dict[str, str] = field(default_factory=dict)
+    username_available: bool | None = None
+    warnings: tuple[str, ...] = ()
+
+    def masked_idcard(self) -> str:
+        """打码后的身份证号。"""
+        return RegistrationProfile(self.realname, self.idcard, self.qq).masked_idcard()
+
+    def masked_fields(self) -> dict[str, str]:
+        """打码后的字段清单，可安全贴到日志/聊天里。"""
+        out = dict(self.fields)
+        for key in ("sfz", "idcard"):
+            if key in out:
+                out[key] = self.masked_idcard()
+        for key in ("login_password", "password", "relogin_pwd", "passwordveri"):
+            if key in out:
+                out[key] = "*" * len(out[key])
+        return out
+
+    def as_text(self, *, show_pii: bool = False) -> str:
+        """渲染成可读的填表清单。
+
+        Args:
+            show_pii: 是否显示完整身份证号与密码（默认打码）。
+
+        Returns:
+            多行文本。
+        """
+        form = get_form(self.path)
+        labels = {f.name: f.label for f in form.fields}
+        rows = self.fields if show_pii else self.masked_fields()
+        lines = [
+            f"{form.title}  ({form.path})",
+            f"页面: {self.url}",
+            f"{'参数名':<18}{'标签':<12}值",
+            "-" * 70,
+        ]
+        for name, value in rows.items():
+            lines.append(f"{name:<18}{labels.get(name, ''):<12}{value}")
+        if self.warnings:
+            lines.append("")
+            for w in self.warnings:
+                lines.append(f"# 提示: {w}")
+        lines.append("")
+        lines.append("# 本清单仅供手动填表，库不会提交注册请求")
+        return "\n".join(lines)
+
+
+def prepare_registration(
+    profile: RegistrationProfile,
+    *,
+    path: str = "web",
+    username: str | None = None,
+    username_length: int = DEFAULT_USERNAME_LENGTH,
+    password_length: int = DEFAULT_LENGTH,
+    prefix: str = "",
+    suffix: str = "",
+    verify_username: bool = True,
+    app_id: str = DEFAULT_APP_ID,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> RegistrationBundle:
+    """准备一套 4399 注册数据（生成 + 查重 + 校验 + 组装字段）。
+
+    只做本地准备与官方查重，**不会提交注册**。拿到结果后请打开
+    ``bundle.url``，按 ``bundle.fields`` 逐项填写并自行提交。
+
+    Args:
+        profile: 身份信息（姓名、身份证、可选 QQ）。
+        path: 注册路径，``"web"``（默认）或 ``"unified"``。
+        username: 指定用户名；与 ``prefix`` / ``suffix`` 互斥。
+        username_length: 自动生成用户名时的长度，默认 12。
+        password_length: 密码长度，默认 16。
+        prefix / suffix: 自动生成用户名时的固定前后缀，计入
+            ``username_length``（必填 6~20，且至少留 1 位随机）。
+        verify_username: 是否调用官方 ``isExist.do`` 确认用户名可用。
+        app_id: 业务方 appId。
+        timeout: 查重请求超时（秒）。
+
+    Returns:
+        :class:`RegistrationBundle`。
+
+    Raises:
+        InvalidProfileError: 身份信息不合规。
+        RegistrationError: 用户名不可用，或整表校验不通过。
+        ValueError: ``path`` 未知，或同时指定了 ``username`` 与前后缀。
+        RemoteError: ``verify_username=True`` 时查重失败。
+        ValueError: ``path`` 未知。
+
+    Examples:
+        >>> from gen4399 import RegistrationProfile, prepare_registration
+        >>> p = RegistrationProfile("张三", "460206194611192084")
+        >>> bundle = prepare_registration(p, verify_username=False)  # doctest: +SKIP
+        >>> bundle.username, len(bundle.password)                   # doctest: +SKIP
+        ('xxxxxxxxxxxx', 16)
+    """
+    form = get_form(path)                 # 未知 path 直接抛 ValueError
+    if not isinstance(profile, RegistrationProfile):
+        raise TypeError("profile 必须是 RegistrationProfile")
+    if username is not None and (prefix or suffix):
+        raise ValueError(
+            "已显式指定 username 时不应再传 prefix/suffix（前后缀只用于自动生成用户名）"
+        )
+    profile.require_valid()               # 身份信息不合规直接抛
+
+    # 1) 用户名
+    available: bool | None = None
+    if username is not None:
+        if verify_username:
+            res = check_username(username, app_id=app_id, timeout=timeout)
+            if not res.available:
+                raise RegistrationError(
+                    f"指定的用户名 {username!r} 不可用：{res.message}"
+                )
+            available = True
+    elif verify_username:
+        username = generate_available_username(
+            length=username_length,
+            prefix=prefix,
+            suffix=suffix,
+            app_id=app_id,
+            timeout=timeout,
+        )
+        available = True
+    else:
+        username = generate_username(
+            length=username_length, prefix=prefix, suffix=suffix
+        )
+
+    # 2) 密码
+    password = generate(length=password_length)
+
+    # 3) 整表校验（此时数据必然合规，异常说明参数组合有问题）
+    check = check_registration_form(
+        username, password, path=path, profile=profile
+    )
+    if not check.ok:
+        raise RegistrationError("表单校验未通过：" + "；".join(check.messages()))
+
+    # 4) 组装字段
+    fields = build_registration_fields(
+        username, password, path=path, profile=profile
+    )
+
+    warnings = list(check.warnings)
+    if not verify_username:
+        warnings.append("未做在线查重，用户名可能已被注册")
+    warnings.append("请用 https 打开注册页，避免密码明文走 HTTP")
+
+    return RegistrationBundle(
+        path=form.path,
+        url=form.url,
+        username=username,
+        password=password,
+        realname=profile.realname,
+        idcard=profile.idcard,
+        qq=profile.qq,
+        fields=fields,
+        username_available=available,
+        warnings=tuple(warnings),
+    )
