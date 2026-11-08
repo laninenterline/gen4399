@@ -263,6 +263,8 @@ python scripts/make_account.py --yes --form-path web --captcha-learn
 - 每次服务端 `verifyCode` 判定通过，就把这 4 个字形连同答案写进字库
   （默认 `~/.gen4399/web_captcha_bank.json`）——用得越多越准
 - 随库附带 61 个已标注样本作为种子，开箱即可用
+- **web 验证码的字符集比 unified 宽**（实测出现过 `L` 等 unified 25 字集里没有的字符），
+  所以字库按实际样本学习，不假设固定字符集
 - 拿不准时会退到 `--captcha-prompt`（若同时给了）或直接给最佳猜测
 
 实测（61 样本留一法）：**字符准确率 88%**，即单轮整码约 60%，3 轮约 94%。
