@@ -2,6 +2,28 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.16.0] - 2026-11-08
+
+### 修复（APK，关键）
+
+- **验证码图片解码失败**：C 侧之前用「文本 transport」抓验证码图，
+  Kotlin 端按 UTF-8 解码二进制 PNG → 图片被破坏，弹窗显示「图片解码失败」。
+  - 新增二进制回调 `Callback.fetchBinary(url, cookie, referer) -> [状态码, ByteArray]`，
+    Kotlin 用 `readBytes()` 原样取回
+  - C 侧新增 `fetch_image()`，两条通道取验证码都走它，并用真实字节长度传给 `captcha` 回调
+- **每次请求带上正确的 Referer**：`transport` 增加 `referer` 参数
+  - unified：拉表单用 `u.4399.com/register.html`，POST 与取图用表单 URL
+  - web：统一用 `web.4399.com/user/reg.php`
+  - 之前固定发 `www.4399.com`，服务端会把它当成非正常来源
+- **unified 判定 `unknown` 时补诊断**：消息里带上 HTTP 状态码、响应字节数和前 60 字节片段
+
+### 验证
+
+- 主机自测（假 transport + 假二进制抓取）：验证码图片以原始字节送达回调
+  （`12 字节图片（前 4 字节 89504e47）`），重试链路照常走通
+- 从新 APK 提取 `libgen4399.so`（46,800 字节）：`runBatch` 符号存在，
+  `encode4399` 输出与参考一致
+
 ## [3.15.2] - 2026-11-08
 
 ### 修复

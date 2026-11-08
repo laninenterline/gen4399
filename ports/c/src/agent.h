@@ -23,11 +23,14 @@ typedef struct {
     /* 发一次 HTTP：返回 malloc 的 "status|cookie1\u001fcookie2\u001f...|body" */
     char *(*transport)(void *ctx, const char *url, const char *method,
                        const char *content_type, const char *body,
-                       const char *cookie_header);
+                       const char *cookie_header, const char *referer);
     /* 一个账号跑完（成功/失败都调用） */
     void (*progress)(void *ctx, int index, int total, const char *username,
                      const char *password, const char *kind, int ok,
                      const char *message);
+    /* 抓二进制（验证码图片）：返回 malloc 的缓冲，长度写入 *length，HTTP 码写入 *status */
+    unsigned char *(*fetch_binary)(void *ctx, const char *url, const char *cookie_header,
+                                   const char *referer, int *length, int *status);
     /* 需要人工识别验证码：返回 malloc 的 4 位字符，NULL 表示放弃 */
     char *(*captcha)(void *ctx, const unsigned char *image, int length);
     /* 日志 */

@@ -10,9 +10,10 @@ static int call_count = 0;
 static int captcha_asked = 0;
 
 static char *fake_transport(void *ctx, const char *url, const char *method,
-                            const char *content_type, const char *body, const char *cookie)
+                            const char *content_type, const char *body, const char *cookie,
+                            const char *referer)
 {
-    (void)ctx; (void)method; (void)content_type; (void)cookie;
+    (void)ctx; (void)method; (void)content_type; (void)cookie; (void)referer;
     call_count++;
     const char *response;
     if (strstr(url, "regFrame.do")) {
@@ -45,17 +46,30 @@ static void fake_progress(void *ctx, int index, int total, const char *username,
     printf("progress: [%d/%d] %s -> %s (ok=%d) %s\n", index, total, username, kind, ok, message);
 }
 
+static unsigned char *fake_fetch_binary(void *ctx, const char *url, const char *cookie,
+                                        const char *referer, int *length, int *status)
+{
+    (void)ctx; (void)url; (void)cookie; (void)referer;
+    static const char payload[] = "\x89PNG\r\n\x1a\nFAKE";
+    unsigned char *buffer = malloc(sizeof(payload));
+    memcpy(buffer, payload, sizeof(payload));
+    *length = (int)sizeof(payload) - 1;
+    *status = 200;
+    return buffer;
+}
+
 static char *fake_captcha(void *ctx, const unsigned char *image, int length)
 {
     (void)ctx; (void)image;
     captcha_asked++;
-    printf("captcha: %d 字节图片，回答 ABCD\n", length);
+    printf("captcha: %d 字节图片（前 4 字节 %02x%02x%02x%02x），回答 ABCD\n",
+           length, image[0], image[1], image[2], image[3]);
     return strdup("ABCD");
 }
 
 int main(void)
 {
-    g4399_agent_hooks hooks = {NULL, fake_transport, fake_progress, fake_captcha, NULL};
+    g4399_agent_hooks hooks = {NULL, fake_transport, fake_progress, fake_fetch_binary, fake_captcha, NULL};
     g4399_agent_config config = {"unified", 1, "", "", 0, 0, 1, "u4399", 4};
 
     int success = g4399_agent_run("王五|110105198803121893\n", &config, &hooks);

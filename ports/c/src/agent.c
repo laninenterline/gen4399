@@ -125,16 +125,19 @@ static void jar_free(cookie_jar *jar)
 typedef struct {
     int status;
     char *body;
+    int body_length;   /* 二进制时为字节数；文本时为 0（用 strlen） */
 } http_result;
 
 static http_result do_request(const g4399_agent_hooks *hooks, cookie_jar *jar,
                               const char *url, const char *method,
-                              const char *content_type, const char *body)
+                              const char *content_type, const char *body,
+                              const char *referer)
 {
-    http_result result = {0, NULL};
+    http_result result = {0, NULL, 0};
     char *cookie_header = jar_header(jar);
     char *raw = hooks->transport(hooks->ctx, url, method, content_type,
-                                 body ? body : "", cookie_header);
+                                 body ? body : "", cookie_header,
+                                 referer ? referer : "https://www.4399.com/");
     free(cookie_header);
     if (!raw) return result;
 
@@ -147,7 +150,33 @@ static http_result do_request(const g4399_agent_hooks *hooks, cookie_jar *jar,
     *second = '\0';
     jar_update(jar, first + 1);
     result.body = strdup(second + 1);
+    result.body_length = 0;
     free(raw);
+    return result;
+}
+
+/* 抓验证码图片：走 fetch_binary，避免二进制被当成 UTF-8 文本破坏 */
+static http_result fetch_image(const g4399_agent_hooks *hooks, cookie_jar *jar,
+                               const char *url, const char *referer)
+{
+    http_result result = {0, NULL, 0};
+    if (!hooks->fetch_binary) return result;
+    char *cookie_header = jar_header(jar);
+    int length = 0, status = 0;
+    unsigned char *data = hooks->fetch_binary(hooks->ctx, url, cookie_header,
+                                              referer ? referer : "https://www.4399.com/",
+                                              &length, &status);
+    free(cookie_header);
+    result.status = status;
+    if (!data || length <= 0) {
+        free(data);
+        result.status = status;
+        result.body = strdup("（验证码图片为空）");
+        result.body_length = 0;
+        return result;
+    }
+    result.body = (char *)data;
+    result.body_length = length;
     return result;
 }
 
@@ -241,7 +270,8 @@ static void run_web(const g4399_agent_hooks *hooks, cookie_jar *jar, const ident
     sbuf_add(&check, WEB_CHECK_URL "&user=");
     sbuf_add_encoded(&check, username);
     sbuf_add(&check, "&jsoncallback=cb");
-    http_result probe = do_request(hooks, jar, check.data, "GET", NULL, NULL);
+    http_result probe = do_request(hooks, jar, check.data, "GET", NULL, NULL,
+                                   "https://web.4399.com/user/reg.php");
     free(check.data);
 
     char *encrypt_code = extract_json_string(probe.body, "data");
@@ -284,15 +314,18 @@ static void run_web(const g4399_agent_hooks *hooks, cookie_jar *jar, const ident
     }
 
     http_result response = do_request(hooks, jar, WEB_REG_URL, "POST",
-                                      "application/x-www-form-urlencoded", payload.data);
+                                      "application/x-www-form-urlencoded", payload.data,
+                                      "https://web.4399.com/user/reg.php");
     for (int round = 0; round < 3 && response.body; round++) {
         classify_into("web", response.status, response.body, result->kind, sizeof(result->kind),
                       result->message, sizeof(result->message));
         if (strcmp(result->kind, "captcha") != 0) break;
 
-        http_result image = do_request(hooks, jar, WEB_CAPTCHA_URL, "GET", NULL, NULL);
+        http_result image = fetch_image(hooks, jar, WEB_CAPTCHA_URL,
+                                        "https://web.4399.com/user/reg.php");
         if (!image.body) break;
-        char *code = hooks->captcha(hooks->ctx, (const unsigned char *)image.body, (int)strlen(image.body));
+        int image_len = image.body_length > 0 ? image.body_length : (int)strlen(image.body ? image.body : "");
+        char *code = hooks->captcha(hooks->ctx, (const unsigned char *)image.body, image_len);
         free(image.body);
         if (!code || !*code) { free(code); break; }
 
@@ -304,7 +337,8 @@ static void run_web(const g4399_agent_hooks *hooks, cookie_jar *jar, const ident
         free(code);
         free(response.body);
         response = do_request(hooks, jar, WEB_REG_URL, "POST",
-                              "application/x-www-form-urlencoded", retry.data);
+                              "application/x-www-form-urlencoded", retry.data,
+                              "https://web.4399.com/user/reg.php");
         free(retry.data);
     }
     if (response.body) {
@@ -321,7 +355,10 @@ static void run_unified(const g4399_agent_hooks *hooks, cookie_jar *jar, const i
                         account_result *result)
 {
     char *form_url = g4399_form_url(config->app_id, config->level);
-    http_result page = do_request(hooks, jar, form_url, "GET", NULL, NULL);
+    char form_url_keep[512];
+    snprintf(form_url_keep, sizeof(form_url_keep), "%s", form_url);
+    http_result page = do_request(hooks, jar, form_url, "GET", NULL, NULL,
+                                  "https://u.4399.com/register.html");
     free(form_url);
     int page_status = page.status;
     size_t page_len = page.body ? strlen(page.body) : 0;
@@ -370,7 +407,7 @@ static void run_unified(const g4399_agent_hooks *hooks, cookie_jar *jar, const i
     }
 
     http_result response = do_request(hooks, jar, UNIFIED_REGISTER_URL, "POST",
-                                      "application/x-www-form-urlencoded", body);
+                                      "application/x-www-form-urlencoded", body, form_url_keep);
     for (int round = 0; round < 3 && response.body; round++) {
         classify_into("unified", response.status, response.body, result->kind, sizeof(result->kind),
                       result->message, sizeof(result->message));
@@ -387,10 +424,11 @@ static void run_unified(const g4399_agent_hooks *hooks, cookie_jar *jar, const i
         sbuf_init(&image_url);
         sbuf_add(&image_url, UNIFIED_CAPTCHA_URL);
         sbuf_add(&image_url, captcha_id);
-        http_result image = do_request(hooks, jar, image_url.data, "GET", NULL, NULL);
+        http_result image = fetch_image(hooks, jar, image_url.data, form_url_keep);
         free(image_url.data);
         if (!image.body) { free(captcha_id); break; }
-        char *code = hooks->captcha(hooks->ctx, (const unsigned char *)image.body, (int)strlen(image.body));
+        int image_len = image.body_length > 0 ? image.body_length : (int)strlen(image.body ? image.body : "");
+        char *code = hooks->captcha(hooks->ctx, (const unsigned char *)image.body, image_len);
         free(image.body);
         if (!code || !*code) { free(code); free(captcha_id); break; }
 
@@ -413,7 +451,8 @@ static void run_unified(const g4399_agent_hooks *hooks, cookie_jar *jar, const i
         free(captcha_id);
         free(retry);
         response = do_request(hooks, jar, UNIFIED_REGISTER_URL, "POST",
-                              "application/x-www-form-urlencoded", with_code.data);
+                              "application/x-www-form-urlencoded", with_code.data,
+                              form_url_keep);
         free(with_code.data);
     }
     if (response.body) {

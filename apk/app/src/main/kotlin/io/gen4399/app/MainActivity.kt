@@ -224,7 +224,11 @@ fun App() {
                 contentType: String,
                 body: String,
                 cookieHeader: String,
-            ): Array<String> = HttpTransport.send(url, method, contentType, body, cookieHeader)
+                referer: String,
+            ): Array<String> = HttpTransport.send(url, method, contentType, body, cookieHeader, referer)
+
+            override fun fetchBinary(url: String, cookieHeader: String, referer: String): Array<Any> =
+                HttpTransport.fetchBytes(url, cookieHeader, referer)
 
             override fun onProgress(
                 index: Int,

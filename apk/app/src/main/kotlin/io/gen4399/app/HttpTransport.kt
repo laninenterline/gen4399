@@ -17,6 +17,7 @@ object HttpTransport {
         contentType: String,
         body: String,
         cookieHeader: String,
+        referer: String,
         timeoutMs: Int = 15000,
     ): Array<String> {
         var status = 0
@@ -28,7 +29,7 @@ object HttpTransport {
             conn.readTimeout = timeoutMs
             conn.instanceFollowRedirects = true
             conn.setRequestProperty("User-Agent", UA)
-            conn.setRequestProperty("Referer", "https://www.4399.com/")
+            conn.setRequestProperty("Referer", referer.ifEmpty { "https://www.4399.com/" })
             conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9")
             conn.setRequestProperty("Cookie", cookieHeader)
             if (method == "POST" || body.isNotEmpty()) {
@@ -56,5 +57,27 @@ object HttpTransport {
             payload = "transport-error: ${error.message}"
         }
         return arrayOf(status.toString(), cookies.toString(), payload)
+    }
+
+    /** 抓二进制（验证码图片）：不能按文本读，否则 PNG 会被 UTF-8 解码破坏 */
+    fun fetchBytes(url: String, cookieHeader: String, referer: String, timeoutMs: Int = 15000): Array<Any> {
+        var status = 0
+        var bytes = ByteArray(0)
+        try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = timeoutMs
+            conn.readTimeout = timeoutMs
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", UA)
+            conn.setRequestProperty("Referer", referer.ifEmpty { "https://www.4399.com/" })
+            conn.setRequestProperty("Cookie", cookieHeader)
+            status = conn.responseCode
+            val stream = if (status in 200..399) conn.inputStream else conn.errorStream
+            bytes = stream?.use { it.readBytes() } ?: ByteArray(0)
+        } catch (error: Exception) {
+            status = 0
+            bytes = ByteArray(0)
+        }
+        return arrayOf(status.toString(), bytes)
     }
 }

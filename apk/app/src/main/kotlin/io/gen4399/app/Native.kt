@@ -23,7 +23,11 @@ object Native {
             contentType: String,
             body: String,
             cookieHeader: String,
+            referer: String,
         ): Array<String>
+
+        /** 抓二进制（验证码图片），返回 [状态码(String), ByteArray] */
+        fun fetchBinary(url: String, cookieHeader: String, referer: String): Array<Any>
 
         /** 一个账号跑完（成功失败都会回调） */
         fun onProgress(

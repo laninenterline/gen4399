@@ -14,6 +14,7 @@ typedef struct {
     jmethodID transport;
     jmethodID progress;
     jmethodID captcha;
+    jmethodID fetch_binary;
 } jni_ctx;
 
 static const char *to_c(JNIEnv *env, jstring value)
@@ -29,7 +30,7 @@ static void release_c(JNIEnv *env, jstring value, const char *chars)
 /* transport → "status|cookies|body" */
 static char *jni_transport(void *ctx, const char *url, const char *method,
                            const char *content_type, const char *body,
-                           const char *cookie_header)
+                           const char *cookie_header, const char *referer)
 {
     jni_ctx *j = (jni_ctx *)ctx;
     JNIEnv *env = j->env;
@@ -38,15 +39,17 @@ static char *jni_transport(void *ctx, const char *url, const char *method,
     jstring j_type = (*env)->NewStringUTF(env, content_type ? content_type : "");
     jstring j_body = (*env)->NewStringUTF(env, body ? body : "");
     jstring j_cookie = (*env)->NewStringUTF(env, cookie_header ? cookie_header : "");
+    jstring j_referer = (*env)->NewStringUTF(env, referer ? referer : "");
 
     jobjectArray array = (jobjectArray)(*env)->CallObjectMethod(
-        env, j->callback, j->transport, j_url, j_method, j_type, j_body, j_cookie);
+        env, j->callback, j->transport, j_url, j_method, j_type, j_body, j_cookie, j_referer);
 
     (*env)->DeleteLocalRef(env, j_url);
     (*env)->DeleteLocalRef(env, j_method);
     (*env)->DeleteLocalRef(env, j_type);
     (*env)->DeleteLocalRef(env, j_body);
     (*env)->DeleteLocalRef(env, j_cookie);
+    (*env)->DeleteLocalRef(env, j_referer);
 
     if (array == NULL || (*env)->ExceptionCheck(env)) {
         if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
@@ -94,6 +97,53 @@ static void jni_progress(void *ctx, int index, int total, const char *username,
     if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
 }
 
+static unsigned char *jni_fetch_binary(void *ctx, const char *url,
+                                       const char *cookie_header, const char *referer,
+                                       int *length, int *status)
+{
+    jni_ctx *j = (jni_ctx *)ctx;
+    JNIEnv *env = j->env;
+    *length = 0;
+    *status = 0;
+    if (!j->fetch_binary) return NULL;
+
+    jstring j_url = (*env)->NewStringUTF(env, url);
+    jstring j_cookie = (*env)->NewStringUTF(env, cookie_header ? cookie_header : "");
+    jstring j_referer = (*env)->NewStringUTF(env, referer ? referer : "");
+    jobjectArray array = (jobjectArray)(*env)->CallObjectMethod(
+        env, j->callback, j->fetch_binary, j_url, j_cookie, j_referer);
+    (*env)->DeleteLocalRef(env, j_url);
+    (*env)->DeleteLocalRef(env, j_cookie);
+    (*env)->DeleteLocalRef(env, j_referer);
+
+    if (array == NULL || (*env)->ExceptionCheck(env)) {
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        return NULL;
+    }
+
+    jstring j_status = (jstring)(*env)->GetObjectArrayElement(env, array, 0);
+    jbyteArray j_bytes = (jbyteArray)(*env)->GetObjectArrayElement(env, array, 1);
+    if (j_status) {
+        const char *chars = (*env)->GetStringUTFChars(env, j_status, NULL);
+        if (chars) { *status = atoi(chars); (*env)->ReleaseStringUTFChars(env, j_status, chars); }
+        (*env)->DeleteLocalRef(env, j_status);
+    }
+    unsigned char *buffer = NULL;
+    if (j_bytes) {
+        jsize size = (*env)->GetArrayLength(env, j_bytes);
+        if (size > 0) {
+            buffer = malloc((size_t)size);
+            if (buffer) {
+                (*env)->GetByteArrayRegion(env, j_bytes, 0, size, (jbyte *)buffer);
+                *length = (int)size;
+            }
+        }
+        (*env)->DeleteLocalRef(env, j_bytes);
+    }
+    (*env)->DeleteLocalRef(env, array);
+    return buffer;
+}
+
 static char *jni_captcha(void *ctx, const unsigned char *image, int length)
 {
     jni_ctx *j = (jni_ctx *)ctx;
@@ -129,11 +179,13 @@ Java_io_gen4399_app_Native_runBatch(JNIEnv *env, jobject thiz, jstring identitie
     ctx.env = env;
     ctx.callback = callback;
     ctx.transport = (*env)->GetMethodID(env, cls, "transport",
-        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;");
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;");
     ctx.progress = (*env)->GetMethodID(env, cls, "onProgress",
         "(IILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;)V");
     ctx.captcha = (*env)->GetMethodID(env, cls, "askCaptcha", "([B)Ljava/lang/String;");
-    if (!ctx.transport || !ctx.progress || !ctx.captcha) return -1;
+    ctx.fetch_binary = (*env)->GetMethodID(env, cls, "fetchBinary",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/Object;");
+    if (!ctx.transport || !ctx.progress || !ctx.captcha || !ctx.fetch_binary) return -1;
 
     const char *c_ids = to_c(env, identities);
     const char *c_path = to_c(env, path);
@@ -156,6 +208,7 @@ Java_io_gen4399_app_Native_runBatch(JNIEnv *env, jobject thiz, jstring identitie
     hooks.ctx = &ctx;
     hooks.transport = jni_transport;
     hooks.progress = jni_progress;
+    hooks.fetch_binary = jni_fetch_binary;
     hooks.captcha = jni_captcha;
     hooks.log = NULL;
 
