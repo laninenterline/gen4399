@@ -22,6 +22,8 @@ static char *fake_transport(void *ctx, const char *url, const char *method,
                    "<input type=\"hidden\" name=\"sec\" value=\"1\">"
                    "<input type=\"hidden\" name=\"mainDivId\" value=\"popup_reg_div\">"
                    "<input type=\"hidden\" name=\"fCaptcha\" value=\"\"></form>";
+    } else if (strstr(url, "login.do")) {
+        response = "";   /* 登录成功靠 Set-Cookie 判断 */
     } else if (strstr(url, "verifyCode")) {
         response = "cb({\"state\":true})";
     } else if (strstr(url, "captcha.do")) {
@@ -35,9 +37,10 @@ static char *fake_transport(void *ctx, const char *url, const char *method,
     } else {
         response = "";
     }
-    size_t len = strlen("200||") + strlen(response) + 1;
+    const char *cookies = strstr(url, "login.do") ? "Pauth=abc;Uauth=def" : "";
+    size_t len = strlen("200||") + strlen(cookies) + strlen(response) + 2;
     char *out = malloc(len);
-    snprintf(out, len, "200||%s", response);
+    snprintf(out, len, "200|%s|%s", cookies, response);
     return out;
 }
 

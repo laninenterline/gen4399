@@ -20,6 +20,8 @@
 #define WEB_CHECK_URL "https://web.4399.com/user/?_c=login&_a=checkUser"
 #define WEB_CAPTCHA_URL "https://web.4399.com/util/?_c=code&t=reg"
 #define WEB_VERIFY_URL "https://web.4399.com/user/?_c=reg&_a=verifyCode"
+#define LOGIN_URL "https://ptlogin.4399.com/ptlogin/login.do?v=1"
+#define HOME_URL "https://u.4399.com/"
 
 typedef struct { char *data; size_t len; size_t cap; } sbuf;
 
@@ -98,6 +100,14 @@ static void jar_update(cookie_jar *jar, const char *set_cookie_lines)
         if (!line_end) break;
         p = line_end + 1;
     }
+}
+
+static int jar_has(cookie_jar *jar, const char *name)
+{
+    for (int i = 0; i < jar->count; i++) {
+        if (strcmp(jar->items[i].name, name) == 0) return 1;
+    }
+    return 0;
 }
 
 static char *jar_header(cookie_jar *jar)
@@ -181,6 +191,77 @@ static http_result fetch_image(const g4399_agent_hooks *hooks, cookie_jar *jar,
     result.body = (char *)data;
     result.body_length = length;
     return result;
+}
+
+/* ---------------- 注册后验证 ---------------- */
+
+/** 从页面里抠出 <div id="Msg"> 的文本（payload.c 里的同名函数是 static） */
+static void extract_msg_local(const char *body, char *out, size_t out_len)
+{
+    out[0] = '\0';
+    if (!body) return;
+    const char *msg = strstr(body, "id=\"Msg\"");
+    if (!msg) msg = strstr(body, "id='Msg'");
+    if (!msg) return;
+    const char *start = strchr(msg, '>');
+    if (!start) return;
+    start++;
+    const char *end = strstr(start, "</div>");
+    if (!end) return;
+    size_t pos = 0;
+    for (const char *p = start; p < end && pos + 1 < out_len; p++) {
+        if (*p == '<') { while (p < end && *p != '>') p++; continue; }
+        out[pos++] = *p;
+    }
+    out[pos] = '\0';
+    while (pos && isspace((unsigned char)out[pos - 1])) out[--pos] = '\0';
+}
+
+/**
+ * 用刚注册的账号密码真登录一次，确认号确实建好了。
+ * 返回 1 = 能登录；0 = 明确不行（不存在/密码错）；-1 = 无法判断（网络/限流）。
+ */
+static int verify_by_login(const g4399_agent_hooks *hooks, const char *username,
+                           const char *password, char *reason, size_t reason_len)
+{
+    if (reason && reason_len) reason[0] = '\0';
+
+    char *cipher = g4399_aes_encrypt(password, NULL);
+    if (!cipher) return -1;
+
+    sbuf body;
+    sbuf_init(&body);
+    sbuf_add(&body, "appId=u4399&username=");
+    sbuf_add_encoded(&body, username);
+    sbuf_add(&body, "&password=");
+    sbuf_add_encoded(&body, cipher);
+    sbuf_add(&body, "&sec=1");
+    free(cipher);
+
+    cookie_jar jar = {0};
+    http_result response = do_request(hooks, &jar, LOGIN_URL, "POST",
+                                      "application/x-www-form-urlencoded", body.data,
+                                      "https://ptlogin.4399.com/");
+    free(body.data);
+
+    int verdict = -1;
+    if (jar_has(&jar, "Pauth") || jar_has(&jar, "Uauth") || jar_has(&jar, "Xauth")) {
+        verdict = 1;
+        if (reason && reason_len) snprintf(reason, reason_len, "登录成功");
+    } else if (response.body && strstr(response.body, "请稍后再试")) {
+        verdict = -1;
+        if (reason && reason_len) snprintf(reason, reason_len, "登录校验被限流");
+    } else if (response.body && (strstr(response.body, "密码错误") ||
+                                 strstr(response.body, "用户不存在") ||
+                                 strstr(response.body, "不存在"))) {
+        verdict = 0;
+        char msg[128];
+        extract_msg_local(response.body, msg, sizeof(msg));
+        if (reason && reason_len) snprintf(reason, reason_len, "%s", msg[0] ? msg : "登录被拒");
+    }
+    free(response.body);
+    jar_free(&jar);
+    return verdict;
 }
 
 /* ---------------- 身份解析 ---------------- */
@@ -371,6 +452,24 @@ static void run_web(const g4399_agent_hooks *hooks, cookie_jar *jar, const ident
     free(response.body);
     free(payload.data);
     result->ok = strcmp(result->kind, "success") == 0;
+
+    /* 响应说成功还不够：真登录一次确认号确实建好了 */
+    if (result->ok) {
+        char reason[128] = {0};
+        int verdict = verify_by_login(hooks, username, password, reason, sizeof(reason));
+        if (verdict == 0) {
+            snprintf(result->kind, sizeof(result->kind), "unverified");
+            snprintf(result->message, sizeof(result->message),
+                     "注册响应成功，但登录验证失败：%s", reason);
+            result->ok = 0;
+        } else if (verdict == 1) {
+            snprintf(result->message, sizeof(result->message),
+                     "%s（已用登录验证：密码可登录）", result->message);
+        } else {
+            snprintf(result->message, sizeof(result->message),
+                     "%s（登录验证未完成：%s）", result->message, reason[0] ? reason : "网络/限流");
+        }
+    }
 }
 
 static void run_unified(const g4399_agent_hooks *hooks, cookie_jar *jar, const identity *who,
@@ -486,6 +585,23 @@ static void run_unified(const g4399_agent_hooks *hooks, cookie_jar *jar, const i
     free(body);
     free(hidden);
     result->ok = strcmp(result->kind, "success") == 0;
+
+    if (result->ok) {
+        char reason[128] = {0};
+        int verdict = verify_by_login(hooks, username, password, reason, sizeof(reason));
+        if (verdict == 0) {
+            snprintf(result->kind, sizeof(result->kind), "unverified");
+            snprintf(result->message, sizeof(result->message),
+                     "注册响应成功，但登录验证失败：%s", reason);
+            result->ok = 0;
+        } else if (verdict == 1) {
+            snprintf(result->message, sizeof(result->message),
+                     "%s（已用登录验证：密码可登录）", result->message);
+        } else {
+            snprintf(result->message, sizeof(result->message),
+                     "%s（登录验证未完成：%s）", result->message, reason[0] ? reason : "网络/限流");
+        }
+    }
 }
 
 /* ---------------- 批量入口 ---------------- */
