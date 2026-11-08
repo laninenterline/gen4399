@@ -211,6 +211,8 @@ fun App() {
         }
         running = true
         progress = 0f
+        val startIndex = results.size
+        val planned = minOf(settings.count, identities.size)
         val sfz = identities.joinToString("\n") { "${it.name}|${it.idcard}|${it.qq}" }
         appendLog("开始：${minOf(settings.count, identities.size)} 个账号，通道 ${settings.channel}，dry-run=${settings.dryRun}")
 
@@ -267,7 +269,15 @@ fun App() {
                 }.getOrElse { -1 }
             }
             running = false
-            appendLog(if (success >= 0) "全部完成：成功 $success/${results.size}" else "运行出错（native 返回 $success）")
+            val batch = results.drop(startIndex)
+            val dryRun = batch.count { it.kind == "dry_run" }
+            val failed = batch.count { !it.ok && it.kind != "dry_run" }
+            statusLine = if (success >= 0) {
+                "本轮 $planned 个：成功 $success · dry-run $dryRun · 失败 $failed · 累计 ${results.size} 条"
+            } else {
+                "运行出错（native 返回 $success）"
+            }
+            appendLog(statusLine)
             if (success >= 0) prefs.edit().putLong("sfz_offset", nextOffset).apply()
         }
     }
@@ -504,7 +514,11 @@ private fun RunTab(
                 Column(Modifier.padding(vertical = 4.dp)) {
                     Text(
                         "${r.username}  ${r.kind}",
-                        color = if (r.ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        color = when {
+                            r.ok -> MaterialTheme.colorScheme.primary
+                            r.kind == "dry_run" -> MaterialTheme.colorScheme.secondary
+                            else -> MaterialTheme.colorScheme.error
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(r.message.take(90), style = MaterialTheme.typography.bodySmall)
