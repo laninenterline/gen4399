@@ -332,20 +332,12 @@ fun App() {
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             TabRow(selectedTabIndex = tab) {
-                listOf("身份", "设置", "运行").forEachIndexed { index, title ->
+                listOf("设置", "运行").forEachIndexed { index, title ->
                     Tab(selected = tab == index, onClick = { tab = index }, text = { Text(title) })
                 }
             }
             when (tab) {
-                0 -> IdentityTab(
-                    identities = identities,
-                    pageIndex = pageIndex,
-                    atEof = atEof,
-                    hint = if (importStats.lines > 0) {
-                        "文件 ${importStats.lines} 行 · 有效 ${importStats.valid} 条 · 已载入 ${importStats.kept} 条"
-                    } else "",
-                )
-                1 -> SettingsTab(
+                0 -> SettingsTab(
                     settings = settings,
                     onChange = { settings = it },
                     identityCount = identities.size,
@@ -356,6 +348,7 @@ fun App() {
                     onContinue = { fileUri?.let { loadPage(it, nextOffset, firstPage = false) } },
                 )
                 else -> RunTab(
+                    identityCount = identities.size,
                     running = running,
                     progress = progress,
                     status = statusLine,
@@ -382,60 +375,6 @@ fun App() {
             onConfirm = { code -> pending.deferred.complete(code) },
             onDismiss = { pending.deferred.complete(null); pendingCaptcha = null },
         )
-    }
-}
-
-@Composable
-private fun IdentityTab(
-    identities: List<Identity>,
-    pageIndex: Int,
-    atEof: Boolean,
-    hint: String,
-) {
-    Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-        if (identities.isEmpty()) {
-            Text("还没有身份", style = MaterialTheme.typography.titleSmall)
-            Text(
-                "去「设置 → 身份来源」导入 sfz.txt，每行 姓名|身份证[|QQ]",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
-            return@Column
-        }
-        if (hint.isNotEmpty()) {
-            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-        }
-        if (pageIndex > 0) {
-            Text(
-                "第 $pageIndex 批 · 共 ${identities.size} 条" +
-                    if (atEof) "（已到文件末尾）" else "（还有后续，可在设置里续批）",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        Text("共 ${identities.size} 条", style = MaterialTheme.typography.titleSmall)
-        identities.take(200).forEachIndexed { index, identity ->
-            val problems = Rules.validateIdcard(identity.idcard) + Rules.validateRealname(identity.name)
-            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Column(Modifier.padding(10.dp)) {
-                    Text("${index + 1}. ${identity.name}  ${Rules.maskIdcard(identity.idcard)}")
-                    if (problems.isEmpty()) {
-                        Text("校验通过", style = MaterialTheme.typography.bodySmall)
-                    } else {
-                        Text(problems.joinToString("；"), style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-        }
-        if (identities.size > 200) {
-            Text(
-                "只显示前 200 条，运行时会用完这一批（${identities.size} 条）",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
-        }
     }
 }
 
@@ -599,6 +538,7 @@ private fun SettingsTab(
 
 @Composable
 private fun RunTab(
+    identityCount: Int,
     running: Boolean,
     progress: Float,
     status: String,
@@ -608,6 +548,11 @@ private fun RunTab(
     onExport: (String) -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Text(
+            if (identityCount > 0) "身份 $identityCount 条（设置里导入/续批）" else "还没有身份，去设置里导入",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
         androidx.compose.foundation.layout.FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
