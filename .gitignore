@@ -36,3 +36,4 @@ ports/android/.kotlin/
 # Web 前端
 web/node_modules/
 web/dist/
+web/tsconfig.tsbuildinfo
