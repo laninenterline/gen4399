@@ -9,6 +9,9 @@
 #include <string.h>
 #include <unistd.h>
 
+/* 身份数量硬上限：25MB 的 sfz.txt 可能有上百万行，这里兜底防止内存爆掉 */
+#define MAX_IDENTITIES 5000
+
 #define UNIFIED_REGISTER_URL "https://ptlogin.4399.com/ptlogin/register.do"
 #define UNIFIED_CAPTCHA_URL "https://ptlogin.4399.com/ptlogin/captcha.do?captchaId="
 #define WEB_REG_URL "https://web.4399.com/user/?_c=reg&jsoncallback=cb"
@@ -170,6 +173,7 @@ static int parse_identities(const char *text, identity **out)
         char *eol = strchr(line, '\n');
         if (eol) *eol = '\0';
         char *entry = trim(line);
+        if (count >= MAX_IDENTITIES) break;
         if (*entry && *entry != '#') {
             char *first = strchr(entry, '|');
             if (!first && (first = strchr(entry, ',')) == NULL) { /* 跳过 */ }

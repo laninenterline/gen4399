@@ -59,6 +59,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** 一次最多载入多少条身份（防止 25MB 文件把内存打爆） */
+private const val MAX_IDENTITIES = 2000
+
+/** 文本框最多容纳多少字符（粘贴超长文本时截断） */
+private const val MAX_TEXT_CHARS = 200_000
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -80,6 +86,14 @@ data class Settings(
 /** 待输入的验证码 */
 data class PendingCaptcha(val image: ByteArray, val deferred: CompletableDeferred<String?>)
 
+/** 大文件导入的统计（避免把 25MB 文本塞进 TextField 导致闪退） */
+data class ImportStats(
+    val lines: Int = 0,
+    val valid: Int = 0,
+    val kept: Int = 0,
+    val encoding: String = "",
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun App() {
@@ -96,6 +110,7 @@ fun App() {
     var statusLine by remember { mutableStateOf("就绪") }
     var logText by remember { mutableStateOf("") }
     var pendingCaptcha by remember { mutableStateOf<PendingCaptcha?>(null) }
+    var importStats by remember { mutableStateOf(ImportStats()) }
 
     fun appendLog(line: String) {
         logText = (logText + line + "\n").takeLast(4000)
@@ -103,29 +118,48 @@ fun App() {
 
     fun parseSfz(text: String) {
         identities.clear()
+        var lines = 0
+        var valid = 0
         for (raw in text.lineSequence()) {
+            lines++
             val line = raw.trim()
             if (line.isEmpty() || line.startsWith("#")) continue
             val parts = line.split('|', ',').map { it.trim() }
-            if (parts.size < 2) continue
-            val identity = Identity(parts[0], parts[1], parts.getOrElse(2) { "" })
-            identities += identity
+            if (parts.size < 2 || parts[0].isEmpty() || parts[1].isEmpty()) continue
+            valid++
+            if (identities.size < MAX_IDENTITIES) {
+                identities += Identity(parts[0], parts[1], parts.getOrElse(2) { "" })
+            }
         }
-        statusLine = "已解析 ${identities.size} 条身份"
+        importStats = ImportStats(lines = lines, valid = valid, kept = identities.size)
+        statusLine = "已解析 ${identities.size} 条身份" +
+            if (valid > identities.size) "（超上限，只保留前 $MAX_IDENTITIES 条）" else ""
         appendLog(statusLine)
     }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            val text = runCatching {
-                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        if (uri == null) return@rememberLauncherForActivityResult
+        statusLine = "正在读取文件…"
+        scope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching { SfzFile.load(context, uri, MAX_IDENTITIES) }
             }.getOrNull()
-            if (text != null) {
-                sfzText = text
-                parseSfz(text)
-            } else {
+            if (outcome == null) {
                 statusLine = "读取文件失败"
+                return@launch
             }
+            identities.clear()
+            identities.addAll(outcome.identities)
+            importStats = outcome.stats
+            sfzText = outcome.preview
+            statusLine = buildString {
+                append("文件 ${outcome.stats.lines} 行，有效 ${outcome.stats.valid} 条")
+                if (outcome.stats.valid > outcome.stats.kept) {
+                    append("，仅载入前 ${outcome.stats.kept} 条（上限 $MAX_IDENTITIES）")
+                }
+                if (outcome.stats.encoding.isNotEmpty()) append("，编码 ${outcome.stats.encoding}")
+            }
+            appendLog(statusLine)
         }
     }
 
@@ -231,8 +265,18 @@ fun App() {
             when (tab) {
                 0 -> IdentityTab(
                     text = sfzText,
-                    onTextChange = { sfzText = it },
+                    onTextChange = { value ->
+                        sfzText = if (value.length > MAX_TEXT_CHARS) {
+                            statusLine = "文本过长，已截断到 $MAX_TEXT_CHARS 字符"
+                            value.take(MAX_TEXT_CHARS)
+                        } else {
+                            value
+                        }
+                    },
                     identities = identities,
+                    hint = if (importStats.lines > 0) {
+                        "文件 ${importStats.lines} 行 · 有效 ${importStats.valid} 条 · 已载入 ${importStats.kept} 条"
+                    } else "",
                     onParse = { parseSfz(sfzText) },
                     onImport = { importLauncher.launch(arrayOf("text/plain", "*/*")) },
                 )
@@ -267,11 +311,20 @@ private fun IdentityTab(
     text: String,
     onTextChange: (String) -> Unit,
     identities: List<Identity>,
+    hint: String,
     onParse: () -> Unit,
     onImport: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Text("每行格式：姓名|身份证[|QQ]", style = MaterialTheme.typography.bodySmall)
+        if (hint.isNotEmpty()) {
+            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        }
+        Text(
+            "大文件只载入前 $MAX_IDENTITIES 条，其余不占内存",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             value = text,
