@@ -258,7 +258,7 @@ class TestMakeSolver(unittest.TestCase):
         ) as factory:
             solver = make_solver(prompt=True)
         self.assertIs(solver, sentinel)
-        factory.assert_called_once_with(directory=None)
+        factory.assert_called_once_with(directory=None, zoom=1)
 
     def test_prompt_with_directory(self):
         sentinel = object()
@@ -267,7 +267,7 @@ class TestMakeSolver(unittest.TestCase):
         ) as factory:
             solver = make_solver(prompt=True, directory="/tmp/caps")
         self.assertIs(solver, sentinel)
-        factory.assert_called_once_with(directory="/tmp/caps")
+        factory.assert_called_once_with(directory="/tmp/caps", zoom=1)
 
     def test_command_only(self):
         solver = make_solver(command="echo from-command")
@@ -302,7 +302,7 @@ class TestMakeSolver(unittest.TestCase):
             solver = make_solver(prompt=True, directory="/tmp/caps")
         self.assertIs(solver, sentinel)
         save.assert_not_called()
-        factory.assert_called_once_with(directory="/tmp/caps")
+        factory.assert_called_once_with(directory="/tmp/caps", zoom=1)
 
 
 class TestPackageExports(unittest.TestCase):
@@ -379,3 +379,58 @@ class TestAutoCaptchaSolver(unittest.TestCase):
             solver = make_solver(command="echo hi", auto=True)
         factory.assert_not_called()
         self.assertTrue(callable(solver))
+
+
+class TestZoom(unittest.TestCase):
+    """prompt solver 的放大选项（依赖可选的本机 ImageMagick）。"""
+
+    def test_upscale_noop_for_factor_one(self):
+        from gen4399._captcha import _upscale
+
+        self.assertIsNone(_upscale(b"img", 1))
+
+    def test_upscale_without_tool(self):
+        from gen4399._captcha import _upscale
+
+        with mock.patch("gen4399._captcha.shutil.which", return_value=None):
+            self.assertIsNone(_upscale(b"img", 6))
+
+    def test_upscale_uses_tool(self):
+        from gen4399._captcha import _upscale
+
+        completed = mock.Mock(returncode=0, stdout=b"PNGDATA")
+        with mock.patch("gen4399._captcha.shutil.which", return_value="/usr/bin/magick"), \
+             mock.patch("gen4399._captcha.subprocess.run", return_value=completed) as run:
+            self.assertEqual(_upscale(b"img", 6), b"PNGDATA")
+        self.assertIn("600%", run.call_args.args[0])
+
+    def test_upscale_tool_failure_returns_none(self):
+        from gen4399._captcha import _upscale
+
+        completed = mock.Mock(returncode=1, stdout=b"")
+        with mock.patch("gen4399._captcha.shutil.which", return_value="/usr/bin/magick"), \
+             mock.patch("gen4399._captcha.subprocess.run", return_value=completed):
+            self.assertIsNone(_upscale(b"img", 6))
+
+    def test_write_image_uses_upscaled_bytes(self):
+        import tempfile
+        from pathlib import Path
+
+        from gen4399._captcha import _write_image
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch("gen4399._captcha._upscale", return_value=b"BIGPNG"):
+            path = _write_image(b"orig", tmp, zoom=6)
+            self.assertEqual(Path(path).read_bytes(), b"BIGPNG")
+            self.assertTrue(path.name.endswith(".png"))
+
+    def test_write_image_falls_back_to_raw(self):
+        import tempfile
+        from pathlib import Path
+
+        from gen4399._captcha import _write_image
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch("gen4399._captcha._upscale", return_value=None):
+            path = _write_image(b"orig", tmp, zoom=6)
+            self.assertEqual(Path(path).read_bytes(), b"orig")

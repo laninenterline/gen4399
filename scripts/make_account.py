@@ -102,6 +102,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="用外部命令识别验证码：PNG 从 stdin 传入，stdout 第一行作为结果")
     p.add_argument("--captcha-dir", default=None, metavar="DIR",
                    help="把验证码图片保存到该目录（便于人工查看/留存）")
+    p.add_argument("--captcha-zoom", type=int, default=1, metavar="N",
+                   help="人工识别时把验证码放大 N 倍（需 ImageMagick）")
     p.add_argument("--captcha-attempts", type=int, default=3, metavar="N",
                    help="验证码最多重试轮数，默认 3")
     p.add_argument("--output", default="accounts.json", metavar="FILE",
@@ -312,6 +314,7 @@ def main(argv: list[str] | None = None) -> int:
             command=args.captcha_cmd,
             directory=args.captcha_dir,
             auto=args.captcha_auto,
+            zoom=args.captcha_zoom,
         )
     except (Gen4399Error, TypeError, ValueError, OSError) as exc:
         print(f"错误：{exc}", file=sys.stderr)

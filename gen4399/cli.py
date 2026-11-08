@@ -551,6 +551,7 @@ def _cmd_submit(args) -> int:
             command=getattr(args, "captcha_cmd", None),
             directory=getattr(args, "captcha_dir", None),
             auto=bool(getattr(args, "captcha_auto", False)),
+            zoom=int(getattr(args, "captcha_zoom", 1) or 1),
         )
         captcha_attempts = int(getattr(args, "captcha_attempts", 3))
     except (TypeError, ValueError, OSError) as exc:
@@ -944,6 +945,10 @@ def _add_captcha_opts(sp: argparse.ArgumentParser) -> None:
     sp.add_argument(
         "--captcha-dir", default=None, metavar="DIR",
         help="把验证码图片保存到该目录（便于人工查看/留存）",
+    )
+    sp.add_argument(
+        "--captcha-zoom", type=int, default=1, metavar="N",
+        help="人工识别时把验证码放大 N 倍（需本机 ImageMagick；unified 的 60×30 小图建议 6~8）",
     )
     sp.add_argument(
         "--captcha-attempts", type=int, default=3, metavar="N",

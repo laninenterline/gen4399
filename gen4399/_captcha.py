@@ -41,13 +41,46 @@ class CaptchaSolverError(Gen4399Error):
     """验证码识别回调/外部识别命令失败（可被 CLI 统一捕获）。"""
 
 
-def _write_image(image: bytes, directory: str | os.PathLike[str]) -> Path:
-    """把验证码图片写进目录，返回文件路径（文件名带毫秒时间戳）。"""
+def _upscale(image: bytes, factor: int) -> bytes | None:
+    """用本机 ImageMagick 把验证码放大（便于人眼识别）；不可用时返回 ``None``。
+
+    只做放大 + 灰度，不改内容；找不到 ``magick`` / ``convert`` 时静默放弃。
+    """
+    if factor <= 1:
+        return None
+    tool = shutil.which("magick") or shutil.which("convert")
+    if not tool:
+        return None
+    try:
+        completed = subprocess.run(
+            [tool, "-", "-colorspace", "Gray", "-filter", "Lanczos",
+             "-resize", f"{factor * 100}%", "png:-"],
+            input=image, capture_output=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0 or not completed.stdout:
+        return None
+    return completed.stdout
+
+
+def _write_image(
+    image: bytes,
+    directory: str | os.PathLike[str],
+    *,
+    zoom: int = 1,
+) -> Path:
+    """把验证码图片写进目录，返回文件路径（文件名带毫秒时间戳）。
+
+    ``zoom > 1`` 时优先写入本机 ImageMagick 放大后的 PNG（便于人眼识别），
+    放大不可用则退回原图。
+    """
     path = Path(directory)
     path.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
+    payload = _upscale(image, zoom)
     file_path = path / f"captcha-{stamp}.png"
-    file_path.write_bytes(image)
+    file_path.write_bytes(payload if payload is not None else image)
     try:
         os.chmod(file_path, 0o600)
     except OSError:  # pragma: no cover - 某些文件系统不支持 chmod
@@ -71,6 +104,7 @@ def save_captcha_images(
 def prompt_captcha_solver(
     *,
     directory: str | os.PathLike[str] | None = None,
+    zoom: int = 1,
     prompt_text: str = "请输入验证码：",
     input_fn: Callable[[str], str] = input,
     out: object = sys.stderr,
@@ -79,6 +113,8 @@ def prompt_captcha_solver(
 
     Args:
         directory: 图片落地目录；``None`` 表示临时目录。
+        zoom: 放大倍数（需要本机 ImageMagick；``1`` 表示不放大）。
+            4399 的 unified 验证码只有 60×30，放大 6~8 倍人眼才好认。
         prompt_text: 提示语。
         input_fn: 读取输入的函数（默认 :func:`input`，测试可替换）。
         out: 提示输出的流（默认 stderr）。
@@ -88,7 +124,7 @@ def prompt_captcha_solver(
         target = directory
         if target is None:
             target = tempfile.mkdtemp(prefix="gen4399-captcha-")
-        path = _write_image(image, target)
+        path = _write_image(image, target, zoom=zoom)
         print(f"[验证码] 图片已保存：{path}", file=out)  # type: ignore[arg-type]
         return input_fn(prompt_text)
 
@@ -180,6 +216,7 @@ def make_solver(
     command: str | None = None,
     directory: str | os.PathLike[str] | None = None,
     auto: bool = False,
+    zoom: int = 1,
 ) -> CaptchaSolver | None:
     """按 CLI 参数组合出 solver；都不给时返回 ``None``（不识别验证码）。
 
@@ -190,7 +227,7 @@ def make_solver(
     elif auto:
         solver = auto_captcha_solver()
     elif prompt:
-        return prompt_captcha_solver(directory=directory)
+        return prompt_captcha_solver(directory=directory, zoom=zoom)
     else:
         return None
     if directory is not None:

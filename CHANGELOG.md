@@ -51,6 +51,12 @@
 - `SubmitResult.__repr__` 补 `captcha_attempts` / `verified`；web 路径 Referer 改为
   `https://web.4399.com/user/reg.php`（与浏览器一致）。
 
+### 新增（人工识别更可用）
+
+- `prompt_captcha_solver(zoom=N)` / CLI `--captcha-zoom N`：落盘前用本机
+  ImageMagick 把验证码放大（灰度 + Lanczos）。4399 的 unified 验证码只有 60×30，
+  放大 6~8 倍后人才看得清；没有 ImageMagick 时自动退回原图（不报错）。
+
 ### 变更
 
 - `SubmitResult` 增加 `verified` 字段（`to_dict()` 同步输出）。

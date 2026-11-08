@@ -533,6 +533,7 @@ gen4399 submit --profile-file ids.txt --yes    # 真实提交
 | `--captcha-prompt` | 每轮把验证码存成 PNG 并提示**人工输入** |
 | `--captcha-cmd CMD` | 调外部命令识别：PNG 从 stdin 传入，stdout 第一行作为结果（命令经 shell 执行，不要拼接不可信输入） |
 | `--captcha-dir DIR` | 把每轮验证码图片保存到该目录（0600，便于人工查看/留存）；**单独给不会识别**，需配合前两者 |
+| `--captcha-zoom N` | 人工识别时把图放大 N 倍再存（需本机 ImageMagick；unified 的 60×30 小图建议 6~8，人眼才认得清） |
 | `--captcha-auto` | 自动选识别方式：本机有 OCR（`tesseract`）就用，否则退回人工输入 |
 | `--captcha-attempts N` | 最多重试轮数，默认 3；必须 ≥ 1 |
 
