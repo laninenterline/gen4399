@@ -33,14 +33,40 @@ proot-distro login ubuntu -- bash -lc '
   遇到图形验证码**弹出图片**让人填（unified 的 `inputCaptcha` 与 web 的 `code=200` 都支持）
 - **导出**：SAF 保存 CSV（账号 / 密码 / 结果 / 说明）
 
-## 协议实现
+## 架构：协议内核是 C（libgen4399.so）
 
-| 文件 | 内容 |
+加密、规则、表单解析、载荷组装、响应判定全部在 **C 库**里，Kotlin 只做界面和 HTTP。
+
+```
+app/src/main/cpp/          ← 直接复用 ports/c 的实现
+├── crypto_self.c           AES-256-CBC / DES-EDE3-ECB / MD5 / Base64（自带实现，不依赖 OpenSSL）
+├── rules.c                 生成/校验、身份证 GB 11643
+├── payload.c               form URL、隐藏域解析、unified 载荷组装（含 13 个剔除字段）、结果判定
+├── jni.c                   JNI 桥（Java_io_gen4399_app_Native_*）
+├── gen4399.h / payload.h
+└── CMakeLists.txt          → libgen4399.so
+```
+
+| Kotlin | 作用 |
 |---|---|
-| `Crypto.kt` | CryptoJS 口令模式 AES-256-CBC（EVP_BytesToKey+MD5、`Salted__`）、`encode_4399`（DESede-ECB，K1=K2=K3 等价单 DES） |
-| `Rules.kt` | 密码/用户名生成与校验、身份证（GB 11643 校验码）、姓名、QQ |
-| `Protocol.kt` | 会话（Cookie/Referer/UA）、unified 表单解析 + 13 个隐藏域剔除 + 加密、web checkUser→DES→提交、结果判定（success/captcha/throttled/rejected/unknown） |
-| `MainActivity.kt` | Compose UI（Tab：身份/设置/运行 + 验证码弹窗） |
+| `Native.kt` | `System.loadLibrary("gen4399")` + external 声明 |
+| `Rules.kt` | 薄封装，全部转发到 C |
+| `Protocol.kt` | 只用 C 做加密/组装/判定；HTTP 用 `HttpURLConnection`，Cookie/Referer 手工维护 |
+| `MainActivity.kt` | Compose UI（身份/设置/运行 + 验证码弹窗） |
+
+`libgen4399.so` 只有 32KB，`readelf` 显示无外部依赖（不链 OpenSSL、不链 libcurl）。
+
+### 已验证（真机同款 .so）
+
+从构建出的 APK 里提取 `lib/arm64-v8a/libgen4399.so`，用 ctypes 直接调用：
+
+```
+OK   encode4399('Abc12345','5c43e3')     = 0xfc88a0c93a204a36
+OK   encode4399('hello world','abc')     = 0xd22da7b2be6ea575df93303f8204c05a
+OK   encode4399('P@ss!','1234567890abcdef') = 0x9b5112a937ab4658
+AES: C 加密 → Python decrypt_aes 解出「王五的密码123」
+载荷: 9 个字段，fCaptcha / mainDivId 已剔除，password 为 AES 密文
+```
 
 ## 与其它版本的关系
 

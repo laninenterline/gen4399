@@ -6,14 +6,24 @@ LDLIBS  ?= -lcurl -lcrypto
 SRC = src/crypto.c src/rules.c src/http.c src/submit.c src/main.c
 BIN = build/gen4399
 
+# 自带加密实现（不依赖 OpenSSL），用于交叉编译到 Android
+SELF_SRC = src/crypto_self.c src/rules.c src/payload.c
+SELF_BIN = build/gen4399-self
+
 all: $(BIN)
 
 $(BIN): $(SRC) include/gen4399.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -o $@ $(SRC) $(LDLIBS)
 
-test: $(BIN)
+# 自实现加密版：验证与 OpenSSL 版逐字节一致
+$(SELF_BIN): $(SELF_SRC) src/selftest.c include/gen4399.h include/payload.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) -DGEN4399_SELF_CRYPTO -o $@ $(SELF_SRC) src/selftest.c
+
+test: $(BIN) $(SELF_BIN)
 	./$(BIN) selftest
+	./$(SELF_BIN)
 
 clean:
 	rm -rf build

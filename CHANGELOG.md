@@ -2,6 +2,30 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.12.0] - 2026-11-08
+
+### 改进
+
+- **APK 的协议内核换成 C 库**（`libgen4399.so`，32KB，无外部依赖）：
+  - 新增 `ports/c/src/crypto_self.c`：自带 MD5 / AES-256-CBC / DES-EDE3-ECB / Base64，
+    用 `-DGEN4399_SELF_CRYPTO` 切换（NDK 里没有 OpenSSL，也没法链 libcurl）
+  - 新增 `ports/c/src/payload.c`：form URL、隐藏域解析、unified 载荷组装（13 个剔除字段）、
+    响应判定 —— 纯逻辑，不依赖网络库
+  - 新增 `ports/c/src/jni.c` + `CMakeLists.txt` → Android 侧编成 `libgen4399.so`
+  - Kotlin 侧删掉自己的 `Crypto.kt`，`Rules.kt`/`Protocol.kt` 变成对 C 的薄封装；
+    只有 HTTP 还留在 Kotlin（`HttpURLConnection`）
+- APK 构建接入 NDK 29（`externalNativeBuild.cmake`），只出 `arm64-v8a`
+
+### 验证
+
+从 APK 里提取 `lib/arm64-v8a/libgen4399.so`，用 ctypes 直接调用：
+
+| 检查 | 结果 |
+|---|---|
+| `encode4399` 三个夹具 | 与 Python/Node 逐字节一致 |
+| C 加密 AES → Python `decrypt_aes` | 明文一致 |
+| `build_unified_payload` | 9 个字段，`fCaptcha`/`mainDivId` 已剔除，password 为密文 |
+
 ## [3.11.0] - 2026-11-08
 
 ### 改进

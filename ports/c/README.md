@@ -27,6 +27,12 @@ make test       # 自测（DES 与 Python 版逐字节比对）
 | 登录 | `login.do?v=1`，按会话里的 `Pauth/Uauth/...` 判断成功 |
 | dry-run | 默认只组装字段不发 POST |
 
+## 复用给 Android
+
+`crypto_self.c`（无 OpenSSL 的 AES/DES/MD5/Base64）与 `payload.c`（表单/载荷/判定）
+会被 `apk/app/src/main/cpp/` 直接拿去编成 `libgen4399.so`，
+APK 的协议内核就是这份 C 代码。
+
 ## 与 Python 版的关系
 
 - `make test` 里的三个 `encode_4399` 夹具直接来自 Python 版，输出必须完全一致；
