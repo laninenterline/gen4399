@@ -1384,6 +1384,8 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
     bt.add_argument("--verify-login", action="store_true",
                     help="每个号注册成功后立刻登录复核")
     bt.add_argument("--yes", action="store_true", help="真正提交（默认 dry-run）")
+    bt.add_argument("--dry-run", action="store_true",
+                    help="显式声明不提交（默认行为，写出来更清楚）")
     bt.add_argument("--offline", action="store_true",
                     help="跳过用户名查重（只影响 prepare 阶段的 isExist.do）")
     _add_identity_opts(bt)
