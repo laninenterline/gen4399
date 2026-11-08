@@ -195,3 +195,189 @@ void g4399_random_user_agent(char *out, size_t out_len)
         snprintf(out, out_len, UA_TEMPLATES[index], major);
     }
 }
+
+/* ---------------- 代理池解析 ---------------- */
+
+static int proxy_is_port(const char *text)
+{
+    if (!text || !*text) return 0;
+    int value = 0;
+    for (const char *p = text; *p; p++) {
+        if (!isdigit((unsigned char)*p)) return 0;
+        value = value * 10 + (*p - '0');
+        if (value > 65535) return 0;
+    }
+    return value >= 1 && value <= 65535;
+}
+
+/** 把一段文本按分隔符拆成 token（就地改写） */
+static int split_tokens(char *text, char **tokens, int max)
+{
+    int count = 0;
+    char *p = text;
+    while (*p && count < max) {
+        while (*p == ':' || *p == ',' || *p == '|' || *p == ';' ||
+               *p == ' ' || *p == '\t' || *p == '/') {
+            *p++ = '\0';
+        }
+        if (!*p) break;
+        tokens[count++] = p;
+        while (*p && *p != ':' && *p != ',' && *p != '|' && *p != ';' &&
+               *p != ' ' && *p != '\t' && *p != '/') {
+            p++;
+        }
+    }
+    return count;
+}
+
+/** 判断一段文本是不是 "host:port" / "user:pass:host:port" 这类以端口结尾的形式 */
+static int ends_with_port(char *text)
+{
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer), "%s", text);
+    char *tokens[8];
+    int count = split_tokens(buffer, tokens, 8);
+    if (count < 2) return 0;
+    return proxy_is_port(tokens[count - 1]);
+}
+
+/** 解析一行代理配置，输出规范化的 "scheme\thost\tport\tuser\tpass" */
+static int parse_proxy_line(char *line, char *out, size_t out_len)
+{
+    char *hash = strchr(line, '#');
+    if (hash) *hash = '\0';
+
+    char *start = line;
+    while (*start == ' ' || *start == '\t') start++;
+    size_t len = strlen(start);
+    while (len && (start[len - 1] == ' ' || start[len - 1] == '\t' ||
+                   start[len - 1] == '\r' || start[len - 1] == '\n' || start[len - 1] == '/')) {
+        start[--len] = '\0';
+    }
+    if (len < 3) return 0;
+
+    char scheme[16] = "http";
+    char *body = start;
+    char *sep = strstr(start, "://");
+    if (sep) {
+        size_t n = (size_t)(sep - start);
+        if (n >= sizeof(scheme)) return 0;
+        memcpy(scheme, start, n);
+        scheme[n] = '\0';
+        for (size_t i = 0; i < n; i++) scheme[i] = (char)tolower((unsigned char)scheme[i]);
+        body = sep + 3;
+        if (strcmp(scheme, "https") == 0) snprintf(scheme, sizeof(scheme), "http");
+        if (strcmp(scheme, "socks") == 0) snprintf(scheme, sizeof(scheme), "socks5");
+        if (strcmp(scheme, "socks5h") == 0) snprintf(scheme, sizeof(scheme), "socks5");
+        if (strcmp(scheme, "socks4a") == 0) snprintf(scheme, sizeof(scheme), "socks4");
+        if (strcmp(scheme, "http") != 0 && strcmp(scheme, "socks4") != 0 &&
+            strcmp(scheme, "socks5") != 0) {
+            return 0;
+        }
+    }
+
+    /* user:pass@host:port 形式：先把 @ 前的凭据拆出来 */
+    char auth[128] = {0};
+    char *at = strchr(body, '@');
+    if (at && at != body) {
+        size_t n = (size_t)(at - body);
+        if (n >= sizeof(auth)) return 0;
+        memcpy(auth, body, n);
+        auth[n] = '\0';
+        body = at + 1;
+        /* host:port@user:pass 这种反着写的：前段才是地址 */
+        if (!ends_with_port(body) && ends_with_port(auth)) {
+            char swap[256];
+            snprintf(swap, sizeof(swap), "%s", body);
+            snprintf(body, 256, "%s", auth);   /* body 指向原缓冲，容量足够 */
+            snprintf(auth, sizeof(auth), "%s", swap);
+        }
+    }
+
+    char buffer[256];
+    snprintf(buffer, sizeof(buffer), "%s", body);
+    char *tokens[8];
+    int count = split_tokens(buffer, tokens, 8);
+    if (count < 2) return 0;
+
+    char host[128] = {0}, port[8] = {0}, user[64] = {0}, pass[64] = {0};
+
+    if (count == 2) {
+        snprintf(host, sizeof(host), "%s", tokens[0]);
+        snprintf(port, sizeof(port), "%s", tokens[1]);
+    } else if (count == 3 && proxy_is_port(tokens[1])) {
+        /* host:port:user */
+        snprintf(host, sizeof(host), "%s", tokens[0]);
+        snprintf(port, sizeof(port), "%s", tokens[1]);
+        snprintf(user, sizeof(user), "%s", tokens[2]);
+    } else if (count >= 4 && proxy_is_port(tokens[1])) {
+        /* host:port:user:pass */
+        snprintf(host, sizeof(host), "%s", tokens[0]);
+        snprintf(port, sizeof(port), "%s", tokens[1]);
+        snprintf(user, sizeof(user), "%s", tokens[2]);
+        snprintf(pass, sizeof(pass), "%s", tokens[3]);
+    } else if (count >= 4 && proxy_is_port(tokens[3])) {
+        /* user:pass:host:port */
+        snprintf(user, sizeof(user), "%s", tokens[0]);
+        snprintf(pass, sizeof(pass), "%s", tokens[1]);
+        snprintf(host, sizeof(host), "%s", tokens[2]);
+        snprintf(port, sizeof(port), "%s", tokens[3]);
+    } else if (count >= 3 && proxy_is_port(tokens[2])) {
+        /* user:host:port */
+        snprintf(user, sizeof(user), "%s", tokens[0]);
+        snprintf(host, sizeof(host), "%s", tokens[1]);
+        snprintf(port, sizeof(port), "%s", tokens[2]);
+    } else {
+        return 0;
+    }
+
+    if (auth[0] && !user[0]) {
+        char *colon = strchr(auth, ':');
+        if (colon) {
+            size_t n = (size_t)(colon - auth);
+            if (n < sizeof(user)) { memcpy(user, auth, n); user[n] = '\0'; }
+            snprintf(pass, sizeof(pass), "%s", colon + 1);
+        } else {
+            snprintf(user, sizeof(user), "%s", auth);
+        }
+    }
+
+    if (!host[0] || !proxy_is_port(port)) return 0;
+    snprintf(out, out_len, "%s\t%s\t%s\t%s\t%s", scheme, host, port, user, pass);
+    return 1;
+}
+
+/**
+ * 解析整段代理池文本，输出规范化行（一行一个：scheme\thost\tport\tuser\tpass）。
+ * 返回有效代理条数。
+ */
+int g4399_parse_proxies(const char *text, char *out, size_t out_len)
+{
+    if (!text || !out || out_len == 0) return 0;
+    out[0] = '\0';
+    size_t used = 0;
+    int valid = 0;
+
+    char *copy = strdup(text);
+    if (!copy) return 0;
+    char *save = copy;
+    char *line = copy;
+    while (line && *line) {
+        char *next = strchr(line, '\n');
+        if (next) *next++ = '\0';
+        char normalized[320];
+        if (parse_proxy_line(line, normalized, sizeof(normalized))) {
+            size_t need = strlen(normalized) + 2;
+            if (used + need < out_len) {
+                if (used) out[used++] = '\n';
+                memcpy(out + used, normalized, need - 2);
+                used += need - 2;
+                out[used] = '\0';
+                valid++;
+            }
+        }
+        line = next;
+    }
+    free(save);
+    return valid;
+}

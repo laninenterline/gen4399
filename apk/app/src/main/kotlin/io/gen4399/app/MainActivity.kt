@@ -511,7 +511,17 @@ private fun SettingsTab(settings: Settings, onChange: (Settings) -> Unit, identi
             value = settings.proxies,
             onValueChange = { onChange(settings.copy(proxies = it)) },
             label = { Text("代理池（一行一个，可留空走直连）") },
-            placeholder = { Text("127.0.0.1:8080\nhttp://user:pass@1.2.3.4:3128") },
+            placeholder = {
+                Text(
+                    "支持这些写法（一行一个）：\n" +
+                        "127.0.0.1:8080\n" +
+                        "http://user:pass@1.2.3.4:3128\n" +
+                        "1.2.3.4:8080:user:pass\n" +
+                        "user:pass:1.2.3.4:8080\n" +
+                        "socks5://1.2.3.4:1080\n" +
+                        "1.2.3.4,8080,user,pass"
+                )
+            },
             modifier = Modifier.fillMaxWidth().height(110.dp),
             textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
         )

@@ -31,6 +31,9 @@ const char *g4399_check_realname(const char *realname);
 const char *g4399_check_idcard(const char *idcard);
 const char *g4399_check_qq(const char *qq);
 
+/** 解析代理池文本，输出一行一个 `scheme\thost\tport\tuser\tpass`；返回条数 */
+int g4399_parse_proxies(const char *text, char *out, size_t out_len);
+
 /** 生成一条随机浏览器 UA，写入 out（建议 256 字节） */
 void g4399_random_user_agent(char *out, size_t out_len);
 

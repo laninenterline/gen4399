@@ -2,6 +2,33 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.24.0] - 2026-11-08
+
+### 新增（APK）
+
+- **代理池支持多种书写格式**：解析挪到 C（`g4399_parse_proxies`），一行一个，支持
+
+  | 写法 | 示例 |
+  |---|---|
+  | host:port | `1.2.3.4:8080` |
+  | URL | `http://user:pass@1.2.3.4:3128` |
+  | host:port:user:pass | `1.2.3.4:8080:user:pass` |
+  | user:pass:host:port | `user:pass:1.2.3.4:8080` |
+  | 反着写 | `1.2.3.4:8080@user:pass` |
+  | 逗号 / 空格 / 竖线分隔 | `1.2.3.4,8080,user,pass` |
+  | SOCKS | `socks5://1.2.3.4:1080`、`socks4://`、`socks5h://` |
+  | 注释 | `# 这样开头` |
+  | 主机名 | `proxy.example.com:8080` |
+
+- **SOCKS 代理**：`socks4/socks5` 用 `Proxy.Type.SOCKS` 直连；
+  带认证的 SOCKS 走不了（平台限制），日志会显示具体出口
+- 设置页 placeholder 直接把支持的格式列出来
+
+### 验证
+
+- 主机侧 18 种写法逐条跑 C 解析器，输出规范化的
+  `scheme\thost\tport\tuser\tpass`；从 APK 提取 .so 复跑一致
+
 ## [3.23.0] - 2026-11-08
 
 ### 新增（APK）

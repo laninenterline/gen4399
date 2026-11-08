@@ -67,6 +67,9 @@ object Native {
         callback: Callback,
     ): Int
 
+    /** 解析代理池文本，返回一行一个 `scheme\thost\tport\tuser\tpass` */
+    external fun parseProxies(text: String): String?
+
     /** C 侧生成的随机浏览器 UA */
     external fun randomUserAgent(): String
 

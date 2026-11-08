@@ -257,3 +257,22 @@ Java_io_gen4399_app_Native_saveWebBank(JNIEnv *env, jobject thiz, jstring path)
     if (chars) (*env)->ReleaseStringUTFChars(env, path, chars);
     return saved;
 }
+
+JNIEXPORT jstring JNICALL
+Java_io_gen4399_app_Native_parseProxies(JNIEnv *env, jobject thiz, jstring text)
+{
+    (void)thiz;
+    if (text == NULL) return NULL;
+    const char *chars = (*env)->GetStringUTFChars(env, text, NULL);
+    if (!chars) return NULL;
+    size_t capacity = strlen(chars) * 2 + 1024;
+    char *out = malloc(capacity);
+    jstring result = NULL;
+    if (out) {
+        g4399_parse_proxies(chars, out, capacity);
+        result = (*env)->NewStringUTF(env, out);
+        free(out);
+    }
+    (*env)->ReleaseStringUTFChars(env, text, chars);
+    return result;
+}

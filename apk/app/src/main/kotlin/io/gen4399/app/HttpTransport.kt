@@ -14,7 +14,19 @@ import java.net.URL
  *     账号内的所有请求（表单 / 提交 / 验证码）都走同一个出口。
  */
 object HttpTransport {
-    data class ProxySpec(val host: String, val port: Int, val user: String?, val pass: String?)
+    data class ProxySpec(
+        val scheme: String,
+        val host: String,
+        val port: Int,
+        val user: String?,
+        val pass: String?,
+    ) {
+        val type: Proxy.Type
+            get() = if (scheme.startsWith("socks")) Proxy.Type.SOCKS else Proxy.Type.HTTP
+
+        val label: String
+            get() = if (user != null) "$scheme://$user:***@$host:$port" else "$scheme://$host:$port"
+    }
 
     private val proxies = ArrayList<ProxySpec>()
     private var strategy = "round-robin"
@@ -25,36 +37,26 @@ object HttpTransport {
     private const val DEFAULT_UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
-    /** 解析 `host:port`、`http://host:port`、`user:pass@host:port` */
+    /**
+     * 解析代理池：实际解析在 C（`g4399_parse_proxies`），这里只做数据类转换。
+     * 支持 `host:port`、`scheme://[user:pass@]host:port`、`host:port:user:pass`、
+     * `user:pass:host:port`、逗号/空格/竖线分隔、`host:port@user:pass`、注释行等。
+     */
     fun parseProxies(text: String): List<ProxySpec> {
+        val normalized = runCatching { Native.parseProxies(text) }.getOrNull() ?: return emptyList()
         val out = ArrayList<ProxySpec>()
-        for (raw in text.lineSequence()) {
-            val line = raw.trim()
-            if (line.isEmpty() || line.startsWith("#")) continue
-            var rest = line
-            if (rest.startsWith("http://")) rest = rest.removePrefix("http://")
-            if (rest.startsWith("https://")) rest = rest.removePrefix("https://")
-            rest = rest.trimEnd('/')
-            var user: String? = null
-            var pass: String? = null
-            val at = rest.lastIndexOf('@')
-            if (at >= 0) {
-                val auth = rest.substring(0, at)
-                rest = rest.substring(at + 1)
-                val colon = auth.indexOf(':')
-                if (colon >= 0) {
-                    user = auth.substring(0, colon)
-                    pass = auth.substring(colon + 1)
-                } else {
-                    user = auth
-                }
-            }
-            val colon = rest.lastIndexOf(':')
-            if (colon <= 0) continue
-            val host = rest.substring(0, colon)
-            val port = rest.substring(colon + 1).toIntOrNull() ?: continue
-            if (host.isEmpty() || port !in 1..65535) continue
-            out += ProxySpec(host, port, user, pass)
+        for (line in normalized.lineSequence()) {
+            if (line.isBlank()) continue
+            val parts = line.split('	')
+            if (parts.size < 3) continue
+            val port = parts[2].toIntOrNull() ?: continue
+            out += ProxySpec(
+                scheme = parts[0].ifEmpty { "http" },
+                host = parts[1],
+                port = port,
+                user = parts.getOrNull(3)?.takeIf { it.isNotEmpty() },
+                pass = parts.getOrNull(4)?.takeIf { it.isNotEmpty() },
+            )
         }
         return out
     }
@@ -87,14 +89,14 @@ object HttpTransport {
         }
     }
 
-    fun currentProxyLabel(): String = current?.let { "${it.host}:${it.port}" } ?: "直连"
+    fun currentProxyLabel(): String = current?.label ?: "直连"
 
     private fun open(url: String, timeoutMs: Int): HttpURLConnection {
         val spec = current
         val connection = if (spec == null) {
             URL(url).openConnection()
         } else {
-            URL(url).openConnection(Proxy(Proxy.Type.HTTP, InetSocketAddress(spec.host, spec.port)))
+            URL(url).openConnection(Proxy(spec.type, InetSocketAddress(spec.host, spec.port)))
         }
         connection as HttpURLConnection
         connection.connectTimeout = timeoutMs
@@ -102,7 +104,7 @@ object HttpTransport {
         connection.instanceFollowRedirects = true
         connection.setRequestProperty("User-Agent", userAgent)
         spec?.let { proxy ->
-            if (proxy.user != null) {
+            if (proxy.user != null && proxy.type == Proxy.Type.HTTP) {
                 val token = "${proxy.user}:${proxy.pass ?: ""}"
                 val encoded = android.util.Base64.encodeToString(
                     token.toByteArray(), android.util.Base64.NO_WRAP
