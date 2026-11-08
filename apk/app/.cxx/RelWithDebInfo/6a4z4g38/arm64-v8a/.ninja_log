@@ -1,8 +1,0 @@
-# ninja log v6
-84	313	1794116742662945926	CMakeFiles/gen4399.dir/jni.c.o	126855c561afd6a6
-96	413	1794116742674945926	CMakeFiles/gen4399.dir/jni_agent.c.o	7b791a9a572e7ce4
-53	449	1794116742630945926	CMakeFiles/gen4399.dir/rules.c.o	13e8a04f5044fb85
-57	450	1794116742634945926	CMakeFiles/gen4399.dir/payload.c.o	654b332a2d91f3cd
-61	534	1794116742638945926	CMakeFiles/gen4399.dir/agent.c.o	3fbe6c4dd3291f06
-48	641	1794116742626945926	CMakeFiles/gen4399.dir/crypto_self.c.o	7aa636212f525e16
-641	733	1794116743218945925	/data/data/com.termux/files/home/lead-workspace/apk/app/build/intermediates/cxx/RelWithDebInfo/6a4z4g38/obj/arm64-v8a/libgen4399.so	c3d3d0513a03a22
