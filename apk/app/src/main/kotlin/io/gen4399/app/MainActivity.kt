@@ -196,10 +196,15 @@ fun App() {
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
             val content = AccountExport.render(results, exportFormat)
+            val okCount = AccountExport.successes(results).size
             val ok = runCatching {
                 context.contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) }
             }.isSuccess
-            statusLine = if (ok) "已导出 ${results.size} 条（${exportFormat.uppercase()}）" else "导出失败"
+            statusLine = if (ok) {
+                "已导出 $okCount 条成功账号（${exportFormat.uppercase()}，失败/未知的未导出）"
+            } else {
+                "导出失败"
+            }
             appendLog(statusLine)
         }
     }
@@ -333,8 +338,9 @@ fun App() {
                     results = results,
                     onStart = { startRun() },
                     onExport = { format ->
-                        if (results.isEmpty()) {
-                            statusLine = "还没有结果可导出"
+                        val okCount = results.count { it.ok }
+                        if (okCount == 0) {
+                            statusLine = "没有注册成功的账号可导出（共 ${results.size} 条，成功 0）"
                         } else {
                             exportFormat = format
                             exportLauncher.launch("gen4399-accounts.$format")
@@ -525,6 +531,12 @@ private fun RunTab(
         Text(status, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(10.dp))
         HorizontalDivider()
+        val okCount = results.count { it.ok }
+        Text(
+            "成功 $okCount / 共 ${results.size} 条（导出只包含成功记录）",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
         LazyColumn(Modifier.weight(0.6f)) {
             items(results) { r ->
                 Column(Modifier.padding(vertical = 4.dp)) {

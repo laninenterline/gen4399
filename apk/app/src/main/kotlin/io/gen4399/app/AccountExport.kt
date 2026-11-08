@@ -1,11 +1,17 @@
 package io.gen4399.app
 
-/** 把结果渲染成 CSV / JSON / TXT。 */
+/** 把**成功注册**的账号渲染成 CSV / JSON / TXT（失败的、结果未知的一律不导出）。 */
 object AccountExport {
-    fun render(rows: List<SubmitResult>, format: String): String = when (format.lowercase()) {
-        "json" -> json(rows)
-        "txt" -> txt(rows)
-        else -> csv(rows)
+    /** 只保留真正注册成功的 */
+    fun successes(rows: List<SubmitResult>): List<SubmitResult> = rows.filter { it.ok }
+
+    fun render(rows: List<SubmitResult>, format: String): String {
+        val ok = successes(rows)
+        return when (format.lowercase()) {
+            "json" -> json(ok)
+            "txt" -> txt(ok)
+            else -> csv(ok)
+        }
     }
 
     private fun csv(rows: List<SubmitResult>): String = buildString {
