@@ -265,7 +265,8 @@ python scripts/make_account.py --yes --form-path web --captcha-learn
 - 随库附带 61 个已标注样本作为种子，开箱即可用
 - **web 验证码的字符集比 unified 宽**（实测出现过 `L` 等 unified 25 字集里没有的字符），
   所以字库按实际样本学习，不假设固定字符集
-- 拿不准时会退到 `--captcha-prompt`（若同时给了）或直接给最佳猜测
+- 拿不准时会退到 `--captcha-prompt`；在交互终端里没显式指定也会自动问人，
+  答对后回填字库（不需要额外配置）
 
 实测（61 样本留一法）：**字符准确率 88%**，即单轮整码约 60%，3 轮约 94%。
 随时可以自测：`gen4399 captcha bench <目录>`（目录里要有 `labels.json`）。

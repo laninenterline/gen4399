@@ -265,6 +265,9 @@ def make_solver(
             fallback = command_captcha_solver(command)
         elif prompt:
             fallback = prompt_captcha_solver(directory=directory, zoom=zoom)
+        elif sys.stdin.isatty():
+            # 交互终端下自动兜底：字库没把握时直接问人，答对了再回填字库
+            fallback = prompt_captcha_solver(directory=directory, zoom=zoom)
         solver: CaptchaSolver = learning_captcha_solver(
             learn or None, prompt=fallback
         )
