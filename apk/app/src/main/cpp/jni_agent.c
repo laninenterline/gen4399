@@ -169,7 +169,8 @@ JNIEXPORT jint JNICALL
 Java_io_gen4399_app_Native_runBatch(JNIEnv *env, jobject thiz, jstring identities,
                                     jstring path, jint count, jstring prefix,
                                     jstring suffix, jint intervalSec, jboolean dryRun,
-                                    jboolean sendRealname, jobject callback)
+                                    jboolean sendRealname, jboolean randomize,
+                                    jobject callback)
 {
     (void)thiz;
     if (callback == NULL) return -1;
@@ -201,6 +202,7 @@ Java_io_gen4399_app_Native_runBatch(JNIEnv *env, jobject thiz, jstring identitie
     config.interval_sec = (int)intervalSec;
     config.dry_run = dryRun ? 1 : 0;
     config.send_realname = sendRealname ? 1 : 0;
+    config.randomize = randomize ? 1 : 0;
     config.app_id = "u4399";
     config.level = 4;
 

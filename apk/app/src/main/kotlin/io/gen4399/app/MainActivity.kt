@@ -80,6 +80,7 @@ data class Settings(
     val channel: String = "unified",
     val intervalSec: Int = 20,
     val dryRun: Boolean = true,
+    val randomize: Boolean = true,
     val passwordLength: Int = 16,
 )
 
@@ -273,6 +274,7 @@ fun App() {
                         intervalSec = if (settings.dryRun) 0 else settings.intervalSec,
                         dryRun = settings.dryRun,
                         sendRealname = true,
+                        randomize = settings.randomize,
                         callback = callback,
                     )
                 }.getOrElse { -1 }
@@ -479,6 +481,11 @@ private fun SettingsTab(settings: Settings, onChange: (Settings) -> Unit, identi
             Switch(checked = settings.dryRun, onCheckedChange = { onChange(settings.copy(dryRun = it)) })
             Spacer(Modifier.width(8.dp))
             Text("dry-run（只组装字段，不真正提交）")
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = settings.randomize, onCheckedChange = { onChange(settings.copy(randomize = it)) })
+            Spacer(Modifier.width(8.dp))
+            Text("随机挑选身份（避免总用前几条，已被用尽）")
         }
 
         Spacer(Modifier.height(12.dp))

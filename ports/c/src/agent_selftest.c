@@ -72,7 +72,7 @@ static char *fake_captcha(void *ctx, const unsigned char *image, int length)
 int main(void)
 {
     g4399_agent_hooks hooks = {NULL, fake_transport, fake_progress, fake_fetch_binary, fake_captcha, NULL};
-    g4399_agent_config config = {"unified", 1, "", "", 0, 0, 1, "u4399", 4};
+    g4399_agent_config config = {"unified", 1, "", "", 0, 0, 1, 0, "u4399", 4};
 
     int success = g4399_agent_run("王五|110105198803121893\n", &config, &hooks);
     printf("结果：成功 %d，请求 %d 次，验证码 %d 次\n", success, call_count, captcha_asked);
@@ -86,7 +86,7 @@ int main(void)
     /* dry-run 不应发 POST */
     call_count = 0;
     captcha_asked = 0;
-    g4399_agent_config dry = {"unified", 1, "", "", 0, 1, 1, "u4399", 4};
+    g4399_agent_config dry = {"unified", 1, "", "", 0, 1, 1, 0, "u4399", 4};
     g4399_agent_run("王五|110105198803121893\n", &dry, &hooks);
     if (call_count == 1) printf("[OK] dry-run 只发了一次 GET\n");
     else { printf("[FAIL] dry-run 请求数异常：%d\n", call_count); failures++; }

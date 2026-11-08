@@ -9,6 +9,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <stdint.h>
 
 /* 身份数量硬上限：25MB 的 sfz.txt 可能有上百万行，这里兜底防止内存爆掉 */
 #define MAX_IDENTITIES 5000
@@ -501,7 +502,29 @@ int g4399_agent_run(const char *identities, const g4399_agent_config *config,
     int target = (config->count > 0 && config->count < total) ? config->count : total;
     int success = 0;
 
-    for (int index = 0; index < target; index++) {
+    /* 身份顺序：默认按文件顺序，randomize 时打乱（每个号挑一个没用过的） */
+    int *order = malloc(sizeof(int) * (size_t)total);
+    if (!order) return -1;
+    for (int i = 0; i < total; i++) order[i] = i;
+    if (config->randomize) {
+        unsigned int seed = (unsigned int)time(NULL) ^ (unsigned int)(uintptr_t)identities;
+        FILE *urandom = fopen("/dev/urandom", "rb");
+        if (urandom) {
+            unsigned int value = 0;
+            if (fread(&value, sizeof(value), 1, urandom) == 1) seed ^= value;
+            fclose(urandom);
+        }
+        srand(seed);
+        for (int i = total - 1; i > 0; i--) {
+            int j = rand() % (i + 1);
+            int tmp = order[i];
+            order[i] = order[j];
+            order[j] = tmp;
+        }
+    }
+
+    for (int step = 0; step < target; step++) {
+        int index = order[step];
         identity *who = &items[index];
         cookie_jar jar = {0};
         account_result result = {0};
@@ -546,11 +569,12 @@ int g4399_agent_run(const char *identities, const g4399_agent_config *config,
         free(password);
         jar_free(&jar);
 
-        if (index + 1 < target && config->interval_sec > 0) {
+        if (step + 1 < target && config->interval_sec > 0) {
             sleep((unsigned int)config->interval_sec);
         }
     }
 
+    free(order);
     for (int i = 0; i < total; i++) {
         free(items[i].name);
         free(items[i].idcard);

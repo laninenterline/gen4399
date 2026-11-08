@@ -88,7 +88,7 @@ magick art/icon-source.jpg -gravity center -crop 808x808+0+0 +repage art/icon-sq
 - **身份**：粘贴或 `导入 sfz.txt`（SAF 文件选择器），按 `姓名|身份证[|QQ]` 解析，
   逐条显示身份证校验码 / 姓名格式是否通过
 - **设置**：通道（unified / web）、生成数量、密码长度、用户名前缀/后缀、
-  账号间隔、dry-run 开关
+  账号间隔、dry-run 开关、**随机挑选身份**（默认开，避免总用前几条已被用尽的身份证）
 - **运行**：后台协程逐个注册，实时进度条 + 结果列表 + 日志；
   遇到图形验证码**弹出图片**让人填（unified 的 `inputCaptcha` 与 web 的 `code=200` 都支持）
 - **导出**：SAF 保存 CSV（账号 / 密码 / 结果 / 说明）

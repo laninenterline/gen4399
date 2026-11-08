@@ -57,6 +57,7 @@ object Native {
         intervalSec: Int,
         dryRun: Boolean,
         sendRealname: Boolean,
+        randomize: Boolean,
         callback: Callback,
     ): Int
 

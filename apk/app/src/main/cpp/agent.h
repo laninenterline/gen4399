@@ -13,6 +13,7 @@ typedef struct {
     int interval_sec;
     int dry_run;
     int send_realname;
+    int randomize;             /* 非 0 = 随机挑选身份（避免总是用前几条，可能已被用尽） */
     const char *app_id;
     int level;
 } g4399_agent_config;
