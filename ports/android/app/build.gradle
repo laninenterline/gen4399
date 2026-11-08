@@ -1,0 +1,34 @@
+// Groovy DSL：AGP 9 的 kotlin { compilerVersion } 是 Kotlin 的 experimental API，
+// 在 Kotlin DSL 里要 opt-in 才让写；Groovy 脚本没有这个限制，所以这里用 Groovy。
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace = 'io.gen4399.webui'
+    compileSdk = 37
+
+    defaultConfig {
+        applicationId = 'io.gen4399.webui'
+        minSdk = 23
+        targetSdk = 37
+        versionCode = 1
+        versionName = '3.9.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+// 固定 Kotlin 编译器版本（AGP 9 内置 Kotlin 支持）
+kotlin {
+    compilerVersion = '2.4.20'
+}

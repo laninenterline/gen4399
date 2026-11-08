@@ -6,6 +6,7 @@ Python 版（仓库根目录）是主实现，功能最全。这里放两个移�
 |---|---|---|---|
 | Node | [node/](node/) | 零依赖（`node:crypto` + 内置 `fetch`） | 生成/校验、身份校验、AES/DES、unified+web 提交、登录 |
 | C | [c/](c/) | OpenSSL + libcurl | 同上（提交与登录都在，验证码只判断状态不做识别） |
+| Android | [android/](android/) | Gradle 9.7 + AGP 9.4 + Kotlin 2.4.20 + SDK 37 | WebUI 的 WebView 外壳（APK） |
 
 ```bash
 # Node

@@ -26,3 +26,9 @@ ports/c/build/
 ports/android/build/
 ports/android/*.apk
 ports/android/build/debug.keystore
+
+# Android (Gradle)
+ports/android/local.properties
+ports/android/.gradle/
+ports/android/app/build/
+ports/android/.kotlin/

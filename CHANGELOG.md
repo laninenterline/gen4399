@@ -2,6 +2,25 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.9.1] - 2026-11-08
+
+### 改进
+
+- **Android 端改为标准 Gradle 工程**（`ports/android/`，Kotlin 版）：
+  - Gradle **9.7.0** / AGP **9.4.0** / Kotlin **2.4.20** / compileSdk **37**
+  - `local.properties` 指定 `sdk.dir=/root/android-sdk`；
+    `gradle.properties` 指定 `android.aapt2FromMavenOverride=/root/android-sdk/build-tools/36.1.0/aapt2`
+  - 产物 956KB，`minSdk 23 / targetSdk 37`，debug 签名可直接安装
+- 原先不依赖 Gradle 的手工构建（Java，12KB）保留在 `ports/android-manual/`。
+
+### 踩坑记录（已写进 ports/android/README）
+
+- **AGP 9 内置 Kotlin**：再加 `org.jetbrains.kotlin.android` 插件会直接报错；
+- **Kotlin 2.4.20 要用 Groovy DSL 指定**：`kotlin { compilerVersion = '2.4.20' }`
+  属于 experimental API，Kotlin DSL 需要 opt-in；Groovy 脚本没有这个限制；
+- 光指定还不够：AGP 9.4.0 自带 KGP 2.2.10，会在 Build Tools API 版本校验处失败，
+  需在根 `build.gradle.kts` 用 `resolutionStrategy` 把 `org.jetbrains.kotlin:*` 对齐到 2.4.20。
+
 ## [3.9.0] - 2026-11-08
 
 ### 新增

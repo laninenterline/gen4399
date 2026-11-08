@@ -1,39 +1,54 @@
-# gen4399 WebUI · Android 外壳
+# gen4399 WebUI · Android（Kotlin / Gradle）
 
 注册逻辑跑在 **Termux 里的 Python 服务**上（`python -m gen4399.webui`），
-这个 APK 只是把那个网页装进 WebView —— 连不上时弹框让你改服务器地址。
+这个 APK 只是把那个页面装进 WebView —— 连不上时弹框让你改服务器地址。
 
-```
-app/src/main/AndroidManifest.xml
-app/src/main/java/io/gen4399/webui/MainActivity.java
-build.sh              # 不依赖 Gradle/Android Studio 的本地构建
-gen4399-webui.apk     # 构建产物（12.7KB，已签名）
-```
+## 工具链（全部在 proot Ubuntu 里）
+
+| 组件 | 版本 | 位置 |
+|---|---|---|
+| Gradle | **9.7.0** | `/opt/gradle-9.7.0/gradle-9.7.0/bin/gradle` |
+| JDK | 21 | `/usr/lib/jvm/java-21-openjdk-arm64` |
+| AGP | **9.4.0** | Gradle 缓存（离线可用） |
+| Kotlin | **2.4.20** | 通过 `kotlin { compilerVersion }` 指定 |
+| Android SDK | **37**（`/root/android-sdk`，platforms/android-37） | `local.properties` |
+| aapt2 | `36.1.0` | `/root/android-sdk/build-tools/36.1.0/aapt2`（box64 包装） |
 
 ## 构建
 
-需要 `javac`、`d8`、`aapt2`、`apksigner`、`keytool` 和一个 `android.jar`：
-
 ```bash
-cd ports/android
-ANDROID_JAR=/path/to/android.jar ./build.sh
+proot-distro login ubuntu -- bash -lc '
+  cd /data/data/com.termux/files/home/lead-workspace/ports/android &&
+  export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64 &&
+  /opt/gradle-9.7.0/gradle-9.7.0/bin/gradle assembleDebug --no-daemon
+'
+# 产物：app/build/outputs/apk/debug/app-debug.apk
 ```
 
-默认会去找 `~/bjg/re_work/tools/aurora_probe/build/android.jar`。
+构建要点（都写进配置里了）：
 
-## 安装与使用
+- `gradle.properties` → `android.aapt2FromMavenOverride=/root/android-sdk/build-tools/36.1.0/aapt2`
+  （本机 aapt2 是 box64 跑的 x86_64 二进制，不能让 AGP 去 Maven 下载）
+- `local.properties` → `sdk.dir=/root/android-sdk`
+- **AGP 9 内置 Kotlin**：不能再加 `org.jetbrains.kotlin.android` 插件（会被拒绝）
+- **Kotlin 2.4.20**：`app/build.gradle` 里 `kotlin { compilerVersion = '2.4.20' }`。
+  该属性是 Kotlin 的 experimental API，Kotlin DSL 需要 opt-in，所以 app 模块用 Groovy DSL；
+  同时根 `build.gradle.kts` 把整条 Kotlin 工具链强制对齐到 2.4.20
+  （AGP 9.4.0 自带的 KGP 是 2.2.10，不对齐会报 Build Tools API Version Mismatch）
 
-1. 手机装 [Termux]，把 `lead-workspace` 放进去，执行：
-   ```bash
-   cd lead-workspace && python -m gen4399.webui --port 8765
-   ```
-2. 安装 `gen4399-webui.apk`，打开即可看到 WebUI。
-3. 连不上时（比如端口改了）会弹框，改成 `http://127.0.0.1:8765/` 后重连。
+## 验证
 
-## 说明
+```
+package: io.gen4399.webui  versionName 3.9.0
+compileSdkVersion 37  minSdkVersion 23  targetSdkVersion 37
+uses-permission: android.permission.INTERNET
+签名：Android Debug（可直接安装）
+```
 
-- `minSdkVersion 21` / `targetSdkVersion 22`：手里这个 `android.jar` 是旧版框架，
-  没有 `android:usesCleartextTraffic` 属性；target 22 时默认就允许明文 HTTP，
-  所以 WebView 能直接访问 `127.0.0.1`。私有分发够用，上架商店则不行。
-- 没有用 `@JavascriptInterface`（API 17+ 才有），改用原生菜单 + 对话框设置地址。
-- 页面里的“真实提交”需要服务端未加 `--dry-run-only`。
+aapt2 启动时会打印一行 `BOX64: Symbol nftw not found`——box64 转译时的无害告警，构建继续。
+
+## 与 `../android-manual/` 的区别
+
+那边是**不用 Gradle** 的手工构建（javac + d8 + aapt2 + apksigner，Java 版，12KB），
+适合没有 Android SDK / 网络的环境；这边是标准 Gradle 工程（Kotlin 版）。
+两份代码功能一致，任选其一即可。
