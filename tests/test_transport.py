@@ -139,18 +139,63 @@ class TestSubmitUsesTransport(unittest.TestCase):
         session = mock.Mock()
         session.cookies = {}
         session.get.return_value = mock.Mock(
-            body='cb({"state":false,"data":"5c43e3"})', url="", raw=b""
+            body='cb({"state":false,"data":"5c43e3"})', url="", raw=b"", status=200
         )
         session.post.return_value = mock.Mock(
             body='cb({"state":false,"code":200,"msg":"x"})', url="", raw=b"",
             status=200,
         )
-        opts = mock.Mock()
-        opts.new_session.return_value = session
-        result = submit_registration(bundle, dry_run=False, transport=opts)
-        opts.new_session.assert_called_once()
+        opts = TransportOptions(proxy="1.1.1.1:80")
+        with mock.patch.object(
+            TransportOptions, "new_session", return_value=session
+        ) as factory:
+            result = submit_registration(bundle, dry_run=False, transport=opts)
+        factory.assert_called_once()
         self.assertEqual(result.path, "web")
 
+    def test_invalid_transport_type(self):
+        from gen4399.forms import RegistrationProfile
+        from gen4399.registration import prepare_registration
+        from gen4399.submit import submit_registration
 
-if __name__ == "__main__":  # pragma: no cover
-    unittest.main()
+        profile = RegistrationProfile("张三", "460206194611192084")
+        bundle = prepare_registration(profile, path="web", verify_username=False)
+        with self.assertRaises(TypeError):
+            submit_registration(bundle, dry_run=True, transport="http://1.1.1.1:80")
+
+
+class TestTransportThreading(unittest.TestCase):
+    """代理配置不能只覆盖提交，查重/取号也要走同一个 transport。"""
+
+    def test_generate_available_username_passes_transport(self):
+        from gen4399.remote import _api
+
+        opts = TransportOptions(proxy="1.1.1.1:80")
+        with mock.patch.object(_api, "check_username") as check:
+            check.return_value = mock.Mock(available=True, message="0")
+            name = _api.generate_available_username(max_attempts=1, transport=opts)
+        self.assertTrue(name)
+        self.assertIs(check.call_args.kwargs["transport"], opts)
+
+    def test_fetch_suggested_username_passes_transport(self):
+        from gen4399.remote import _api
+
+        opts = TransportOptions(proxy="1.1.1.1:80")
+        html = '<input type="text" id="j-username" name="username" value="4257237567"/>'
+        with mock.patch.object(_api._http, "_http_get", return_value=html) as get:
+            name = _api.fetch_suggested_username(transport=opts)
+        self.assertEqual(name, "4257237567")
+        self.assertIs(get.call_args.kwargs["transport"], opts)
+
+    def test_prepare_registration_passes_transport(self):
+        from gen4399.forms import RegistrationProfile
+        from gen4399 import registration
+
+        opts = TransportOptions(proxy="1.1.1.1:80")
+        profile = RegistrationProfile("张三", "460206194611192084")
+        with mock.patch.object(
+            registration, "generate_available_username", return_value="abc12345"
+        ) as gen:
+            registration.prepare_registration(profile, path="web", transport=opts)
+        gen.assert_called_once()
+        self.assertIs(gen.call_args.kwargs["transport"], opts)

@@ -289,6 +289,7 @@ def prepare_registration(
             timeout=timeout,
             retry_delay=retry_delay,
             retry_policy=retry_policy,
+            transport=transport,
         )
         available = True
     else:

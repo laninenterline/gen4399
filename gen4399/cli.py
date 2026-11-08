@@ -207,24 +207,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _build_transport(args, *, timeout, policy):
     """按 CLI 参数构造 TransportOptions（没有代理/随机 UA 时返回 None）。"""
-    from .proxy import ProxyPool
-    from .transport import TransportOptions
+    from .transport import build_transport
 
-    proxy = getattr(args, "proxy", None)
-    proxy_file = getattr(args, "proxy_file", None)
-    random_ua = bool(getattr(args, "random_ua", False))
-    pool = None
-    if proxy_file:
-        pool = ProxyPool.from_file(
-            proxy_file, strategy=getattr(args, "proxy_strategy", "round-robin")
-        )
-    if not proxy and pool is None and not random_ua:
-        return None
-    return TransportOptions(
+    return build_transport(
+        proxy=getattr(args, "proxy", None),
+        proxy_file=getattr(args, "proxy_file", None),
+        proxy_strategy=getattr(args, "proxy_strategy", "round-robin"),
+        random_user_agent=bool(getattr(args, "random_ua", False)),
         timeout=timeout,
-        proxy=proxy,
-        proxy_pool=pool,
-        random_user_agent=random_ua,
         retry_policy=policy,
     )
 

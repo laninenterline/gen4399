@@ -19,9 +19,17 @@
 - CLI / `make_account.py` 新增 `--proxy URL`、`--proxy-file FILE`、
   `--proxy-strategy {round-robin,random}`、`--random-ua`。
 
+- `gen4399.transport.build_transport(...)`：把「代理 URL / 代理文件 / 策略 / 随机 UA」
+  拼成 `TransportOptions`，CLI 与 `make_account.py` 共用同一份实现。
+- **代理不再漏在最关键的几步**：`prepare_registration()` / `generate_available_username()`
+  / `fetch_suggested_username(s)` 现在都接受并透传 `transport`，查重与提交走同一个代理，
+  不会出现「提交走代理、查重裸奔」的情况。
+- `submit_registration()` 会校验 `transport` 类型（传错直接 `TypeError`）。
+
 ### 说明
 
 - 只支持 HTTP(S) 代理；SOCKS 需要额外依赖，未纳入（保持零运行时依赖）。
+- 代理会把 PII 交给第三方（AES 口令公开，等同明文），见 SECURITY.md。
 - 代理只影响 lib 自己发起的请求；`--proxy` 与 `--proxy-file` 同时给时以池为准
   （`TransportOptions` 会直接拒绝两者同时出现，CLI 里池优先）。
 

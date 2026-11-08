@@ -132,6 +132,7 @@ def fetch_suggested_username(
     verify_available: bool = False,
     retry_policy: RetryPolicy | None = None,
     max_total_seconds: float | None = None,
+    transport=None,
 ) -> str:
     """从 4399 官方注册面板接口获取一个服务端分配的用户名。
 
@@ -197,7 +198,7 @@ def fetch_suggested_username(
     attempts = retries
     for attempt in range(1, attempts + 1):
         logger.debug("fetch_suggested_username attempt %d/%d", attempt, attempts)
-        html = _http._http_get(url, timeout, policy=policy)
+        html = _http._http_get(url, timeout, policy=policy, transport=transport)
         try:
             name = _parse_suggested_username(html)
         except RemoteParseError as exc:
@@ -212,6 +213,7 @@ def fetch_suggested_username(
                 app_id=app_id,
                 timeout=timeout,
                 retry_policy=policy,
+                transport=transport,
             )
             if res.available:
                 return candidate
@@ -249,6 +251,7 @@ def fetch_suggested_username(
                 suffix=suffix,
                 app_id=app_id,
                 timeout=timeout,
+                transport=transport,
             )
         return generate_username(prefix=prefix, suffix=suffix)
 
@@ -278,6 +281,7 @@ def fetch_suggested_usernames(
     with_availability: bool = False,
     retry_policy: RetryPolicy | None = None,
     max_total_seconds: float | None = None,
+    transport=None,
 ) -> "list[str] | list[UsernameAvailability]":
     """批量获取服务端分配的用户名。
 
@@ -320,6 +324,7 @@ def fetch_suggested_usernames(
             verify_available=verify_available and not with_availability,
             retry_policy=retry_policy,
             max_total_seconds=max_total_seconds,
+            transport=transport,
         )
         if unique:
             if name in seen:
@@ -334,6 +339,7 @@ def fetch_suggested_usernames(
                         app_id=app_id,
                         timeout=timeout,
                         retry_policy=retry_policy,
+                        transport=transport,
                     )
                     for item in out
                 ]
@@ -449,6 +455,7 @@ def generate_available_username(
     timeout: float = DEFAULT_TIMEOUT,
     retry_delay: float = 0.0,
     retry_policy: RetryPolicy | None = None,
+    transport=None,
 ) -> str:
     """本地生成用户名，并用官方 ``isExist.do`` 自动确认它真的能注册。
 
@@ -484,7 +491,11 @@ def generate_available_username(
     for attempt in range(max_attempts):
         name = generate_username(length=length, prefix=prefix, suffix=suffix)
         res = check_username(
-            name, app_id=app_id, timeout=timeout, retry_policy=retry_policy
+            name,
+            app_id=app_id,
+            timeout=timeout,
+            retry_policy=retry_policy,
+            transport=transport,
         )
         if res.available:
             return name

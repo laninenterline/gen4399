@@ -48,6 +48,9 @@ from gen4399 import RegistrationProfile, prepare_registration, submit_registrati
 | `gen4399.captcha` | `prompt` / `command` / `auto` / `save` 四种识别回调 |
 | `gen4399.submit` | `submit_registration()`、`SubmitResult`、提交端点常量 |
 | `gen4399.constants` | 规则版本、长度限制、端点 URL、`UNIFIED_DROP_FIELDS` 等纯常量 |
+| `gen4399.transport` | `TransportOptions`（超时 / 代理 / 代理池 / 随机 UA / 重试） |
+| `gen4399.proxy` | `ProxyPool`、`ProxyError`、`normalize_proxy()` |
+| `gen4399.ua` | `random_user_agent()` |
 
 > `gen4399.constants` 是常量的**完整**出口：`UNIFIED_DROP_FIELDS`、`VERIFY_URL`
 > 这类实现细节只在这里（以及 `gen4399.submit`）导出，不占顶层命名空间。

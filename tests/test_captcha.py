@@ -481,3 +481,39 @@ class TestMatcher(unittest.TestCase):
         with mock.patch("gen4399._captcha_matcher.shutil.which", return_value=None):
             with self.assertRaises(CaptchaSolverError):
                 solver(b"\xff\xd8fake")
+
+
+class TestMatcherDecode(unittest.TestCase):
+    """matcher 的解码路径（用假的 ImageMagick 输出打桩）。"""
+
+    def _ppm(self, fill: int = 255) -> bytes:
+        w, h = 60, 30
+        return b"P6\n60 30\n255\n" + bytes([fill] * (w * h * 3))
+
+    def test_recognize_with_mocked_magick(self):
+        from gen4399._captcha_matcher import recognize
+
+        completed = mock.Mock(returncode=0, stdout=self._ppm())
+        with mock.patch("gen4399._captcha_matcher.shutil.which", return_value="/usr/bin/magick"), \
+             mock.patch("gen4399._captcha_matcher.subprocess.run", return_value=completed):
+            out = recognize(b"fake-jpeg")
+        self.assertEqual(len(out), 4)
+
+    def test_wrong_size_raises(self):
+        from gen4399._captcha_matcher import MatcherError, recognize
+
+        small = b"P6\n10 10\n255\n" + bytes([255] * (10 * 10 * 3))
+        completed = mock.Mock(returncode=0, stdout=small)
+        with mock.patch("gen4399._captcha_matcher.shutil.which", return_value="/usr/bin/magick"), \
+             mock.patch("gen4399._captcha_matcher.subprocess.run", return_value=completed):
+            with self.assertRaises(MatcherError):
+                recognize(b"fake")
+
+    def test_tool_failure_raises(self):
+        from gen4399._captcha_matcher import MatcherError, recognize
+
+        completed = mock.Mock(returncode=1, stdout=b"")
+        with mock.patch("gen4399._captcha_matcher.shutil.which", return_value="/usr/bin/magick"), \
+             mock.patch("gen4399._captcha_matcher.subprocess.run", return_value=completed):
+            with self.assertRaises(MatcherError):
+                recognize(b"fake")

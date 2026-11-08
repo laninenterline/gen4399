@@ -18,7 +18,7 @@ from .proxy import ProxyPool, normalize_proxy
 from .remote import DEFAULT_TIMEOUT, RetryPolicy, _http
 from .ua import random_user_agent
 
-__all__ = ["TransportOptions"]
+__all__ = ["TransportOptions", "build_transport"]
 
 
 @dataclass(frozen=True)
@@ -68,3 +68,42 @@ class TransportOptions:
         if referer is not None:
             kwargs["referer"] = referer
         return _http.RemoteSession(**kwargs)
+
+
+def build_transport(
+    *,
+    proxy: str | None = None,
+    proxy_file: str | None = None,
+    proxy_strategy: str = "round-robin",
+    random_user_agent: bool = False,
+    timeout: float = DEFAULT_TIMEOUT,
+    retry_policy: RetryPolicy | None = None,
+) -> TransportOptions | None:
+    """按「命令行式」参数拼一个 :class:`TransportOptions`。
+
+    没有任何代理/随机 UA 需求时返回 ``None``（调用方据此走默认会话）。
+
+    Args:
+        proxy: 单个代理 URL。
+        proxy_file: 代理池文件路径（优先于 ``proxy``）。
+        proxy_strategy: ``round-robin`` / ``random``。
+        random_user_agent: 是否每个会话随机 UA。
+        timeout: 单次请求超时。
+        retry_policy: GET 重试策略。
+
+    Raises:
+        ProxyError: 代理或代理池文件不合法。
+        OSError: 代理文件读不了。
+    """
+    pool = None
+    if proxy_file:
+        pool = ProxyPool.from_file(proxy_file, strategy=proxy_strategy)
+    if not proxy and pool is None and not random_user_agent:
+        return None
+    return TransportOptions(
+        timeout=timeout,
+        proxy=proxy,
+        proxy_pool=pool,
+        random_user_agent=random_user_agent,
+        retry_policy=retry_policy,
+    )

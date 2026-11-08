@@ -45,6 +45,7 @@ from typing import Literal
 from typing import TYPE_CHECKING
 
 from ._aes import encrypt_aes
+from .transport import TransportOptions
 from ._captcha import CaptchaSolver as CaptchaSolverType
 from ._des import encode_4399
 from .core import Gen4399Error
@@ -59,8 +60,7 @@ from .remote import (
 )
 from .remote import _http
 
-if TYPE_CHECKING:  # pragma: no cover
-    from .transport import TransportOptions
+
 
 __all__ = [
     "CaptchaSolver",
@@ -683,6 +683,7 @@ def _validate_args(
     timeout: float,
     captcha: CaptchaSolver | None = None,
     captcha_attempts: int = 3,
+    transport: "TransportOptions | None" = None,
 ) -> None:
     if not isinstance(bundle, RegistrationBundle):
         raise TypeError("bundle 必须是 RegistrationBundle")
@@ -698,6 +699,8 @@ def _validate_args(
         raise TypeError("timeout 必须是数字")
     if timeout <= 0:
         raise ValueError("timeout 必须 > 0")
+    if transport is not None and not isinstance(transport, TransportOptions):
+        raise TypeError("transport 必须是 TransportOptions 或 None")
     if captcha is not None and not callable(captcha):
         raise TypeError("captcha 必须是可调用对象（图片字节 -> 文本）或 None")
     if (
@@ -1147,7 +1150,9 @@ def submit_registration(
         >>> r.kind                                       # doctest: +SKIP
         'dry_run'
     """
-    _validate_args(bundle, app_id, level, timeout, captcha, captcha_attempts)
+    _validate_args(
+        bundle, app_id, level, timeout, captcha, captcha_attempts, transport
+    )
     started = time.monotonic()
     if bundle.path == "web":
         return _submit_web(
