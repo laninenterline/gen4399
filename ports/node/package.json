@@ -1,0 +1,18 @@
+{
+  "name": "gen4399",
+  "version": "3.7.1",
+  "description": "4399 注册工具（Node 版）：生成/校验账号密码、身份校验、AES/DES 协议加密、注册与登录",
+  "type": "module",
+  "bin": { "gen4399-node": "./cli.mjs" },
+  "exports": {
+    ".": "./client.mjs",
+    "./crypto": "./crypto.mjs",
+    "./rules": "./rules.mjs",
+    "./identity": "./identity.mjs"
+  },
+  "scripts": {
+    "test": "node --test test.mjs"
+  },
+  "engines": { "node": ">=18" },
+  "license": "MIT"
+}

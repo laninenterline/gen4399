@@ -18,3 +18,6 @@ sfz.txt
 accounts.json
 # make_account --diagnose 保存的脱敏响应
 registration-response-*.html
+
+# C 移植版的构建产物
+ports/c/build/

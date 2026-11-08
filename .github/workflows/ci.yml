@@ -48,3 +48,28 @@ jobs:
         run: |
           python -m build
           python -m twine check dist/*
+
+  ports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Node 移植版（测试 + CLI 冒烟）
+        run: |
+          cd ports/node
+          node --test test.mjs
+          node cli.mjs generate -n 12
+          node cli.mjs check password Abc12345
+
+      - name: 安装 C 依赖
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev
+
+      - name: C 移植版（构建 + 自测）
+        run: |
+          cd ports/c
+          make
+          make test

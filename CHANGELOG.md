@@ -2,6 +2,32 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.8.0] - 2026-11-08
+
+### 新增
+
+- **Node 移植版**（`ports/node/`，零依赖）：生成/校验、身份校验、AES/DES 加密、
+  unified+web 提交、登录；`node --test` 11 个用例；CLI 与 Python 版用法一致。
+- **C 移植版**（`ports/c/`，OpenSSL + libcurl）：同样的能力集；
+  `make test` 自带 DES 三夹具自测；`submit` 默认 dry-run。
+- CI 增加 `ports` 任务（Node 测试 + C 构建自测）。
+
+### 跨语言一致性（已实测）
+
+| 检查 | 结果 |
+|---|---|
+| `encode_4399('Abc12345','5c43e3')` | Python / Node / C 均为 `0xfc88a0c93a204a36` |
+| `encode_4399('hello world','abc')` | 三边均为 `0xd22da7b2be6ea575df93303f8204c05a` |
+| Node 加密 AES → Python 解密 | ✅ 明文一致 |
+| C 加密 AES → Python 解密 | ✅ 明文一致 |
+| 登录 `vjjglf4d7jv1` | Python / Node / C 三边都拿到 8 个登录 Cookie |
+
+### 协议发现（顺带）
+
+- **登录 POST 缺 `Referer` 会被服务端当成限流**：C 版最初没带 Referer，
+  连续返回「请稍后再试~」；加上 `Referer: https://ptlogin.4399.com/` 后立刻成功。
+  Python 版一直带默认 Referer，所以从未遇到。
+
 ## [3.7.1] - 2026-11-08
 
 ### 整理

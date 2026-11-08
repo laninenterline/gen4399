@@ -103,6 +103,7 @@ gen4399/           运行时包（core/identity/forms/registration/cli/submit/re
   captcha_web.py   web 150×45 自学习识别器（种子字库 _web_captcha_seed.json）
 tests/             778 个用例（覆盖率 93%）
 scripts/           make_account.py（跑一次拿一个号）、verify_rules.py（规则冒烟）
+ports/             Node 版与 C 版移植（核心协议，见 ports/README.md）
 docs/              rules / submit / faq / project-overview / notes（早期自审记录）
 ```
 
