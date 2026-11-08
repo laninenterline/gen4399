@@ -249,7 +249,7 @@ fun App() {
 
             override fun askCaptcha(image: ByteArray): String? {
                 // 先试自动识别（unified 60×30），认不出再弹窗
-                CaptchaAuto.solveUnified(image)?.let { code ->
+                CaptchaAuto.solve(image)?.let { code ->
                     scope.launch { appendLog("验证码自动识别：$code") }
                     return code
                 }

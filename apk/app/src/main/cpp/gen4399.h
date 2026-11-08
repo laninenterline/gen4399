@@ -45,6 +45,10 @@ char *g4399_encode_4399(const char *value, const char *key);
 /** 传 60×30 的 ARGB 像素，成功时 out 写入 4 个字符；返回 1 成功 */
 int g4399_recognize_unified(const uint32_t *argb, int width, int height, char *out);
 
+/* ---------- 验证码识别（web 150×45） ---------- */
+/** 传 150×45 的 ARGB 像素，成功时 out 写入 4 个字符；返回 1 成功 */
+int g4399_recognize_web(const uint32_t *argb, int width, int height, char *out);
+
 /* ---------- HTTP ---------- */
 typedef struct g4399_session g4399_session;
 

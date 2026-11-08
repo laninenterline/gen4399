@@ -8,6 +8,7 @@ add_library(gen4399 SHARED
     ./rules.c
     ./payload.c
     ./matcher.c
+    ./web_matcher.c
     ./agent.c
     ./jni.c
     ./jni_agent.c

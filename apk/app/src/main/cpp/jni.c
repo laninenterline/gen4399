@@ -186,3 +186,21 @@ Java_io_gen4399_app_Native_recognizeUnified(JNIEnv *env, jobject thiz, jintArray
     if (!ok) return NULL;
     return (*env)->NewStringUTF(env, out);
 }
+
+JNIEXPORT jstring JNICALL
+Java_io_gen4399_app_Native_recognizeWeb(JNIEnv *env, jobject thiz, jintArray pixels,
+                                        jint width, jint height)
+{
+    (void)thiz;
+    if (pixels == NULL) return NULL;
+    jsize length = (*env)->GetArrayLength(env, pixels);
+    if (length < width * height || width != 150 || height != 45) return NULL;
+
+    jint *raw = (*env)->GetIntArrayElements(env, pixels, NULL);
+    if (raw == NULL) return NULL;
+    char out[8] = {0};
+    int ok = g4399_recognize_web((const uint32_t *)raw, (int)width, (int)height, out);
+    (*env)->ReleaseIntArrayElements(env, pixels, raw, JNI_ABORT);
+    if (!ok) return NULL;
+    return (*env)->NewStringUTF(env, out);
+}

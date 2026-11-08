@@ -55,6 +55,17 @@ magick art/icon-source.jpg -gravity center -crop 808x808+0+0 +repage art/icon-sq
 产物：`mipmap-*/ic_launcher.png`、`ic_launcher_round.png`、`ic_launcher_foreground.png`、
 `mipmap-anydpi-v26/ic_launcher.xml`。
 
+## 验证码自动识别
+
+两条通道都自动识别，认不出才弹窗（`CaptchaAuto.solve()` 按尺寸分派）：
+
+| 通道 | 尺寸 | 方案 | 实测 |
+|---|---|---|---|
+| unified | 60×30 | `matcher.c` + 25 个字形模板（包含判据） | 模板自测 100/100 |
+| web | 150×45 | `web_matcher.c` 骨架 + chamfer + 414 字形字库 | 整码 96.1% / 字符 99.0% |
+
+图片解码交给平台（`BitmapFactory`），识别全在 C，零外部依赖。
+
 ## 大文件与断点续跑
 
 25MB 的 `sfz.txt` 有 80 多万行，不可能一次读进内存：

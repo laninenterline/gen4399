@@ -87,4 +87,7 @@ object Native {
 
     /** unified 60×30 验证码识别：传 ARGB 像素，成功返回 4 个字符 */
     external fun recognizeUnified(pixels: IntArray, width: Int, height: Int): String?
+
+    /** web 150×45 验证码识别（骨架 + 字库） */
+    external fun recognizeWeb(pixels: IntArray, width: Int, height: Int): String?
 }
