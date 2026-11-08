@@ -539,7 +539,7 @@ POST /ptlogin/register.do（回传了 UNIFIED_DROP_FIELDS 中的字段）
 | `unified` `UNIFIED_SEND_REALNAME=False` | ✅ 可建「不实名」账号：21 字段、`encrypted_fields` 2 个（实测 `abkeq7xvesft`） |
 | `unified` 注册后复核（`SubmitResult.verified`） | ✅ 实测 `verified=True`（`kj4ygdleg80f`，同会话访问 `u.4399.com` 命中用户名） |
 | `unified` 限流（`202` + 「请稍后再试~」） | ✅ 实测 `kind="throttled"`，不建号、不落盘 |
-| `unified` 图形验证码（`fCaptcha` → 重提交） | ⚠️ 链路已实测打通：现场连续 3 轮「取图 → 提交 `fCaptcha` → 重提交」，服务端均返回 `<div id="Msg">验证码错误</div>`（说明码确实被服务端校验了）；**尚缺一次解对**——60×30 的小图人工识别准确率不足。逻辑另有 8 个离线用例覆盖 |
+| `unified` 图形验证码（`inputCaptcha` + `fCaptcha`） | ✅ 2026-11-08 实测通过：内置识别器解 60×30 验证码，第 1 轮即成功（账号 `15iekvk41am5`，`verified=True`）。两个关键点：① 服务端校验的字段是 **`inputCaptcha`**（不是 `fCaptcha`）；② `sessionId` 要换成页面给出的 captchaId |
 | `202` + 「请稍后再试~」的性质 | ⚠️ 已定性为**概率性限流**：同参数连发 6 次得到 5 次验证码页 + 1 次 202；换 charset / 换 GET 头都不改变比例（早期「charset 导致伪限流」的推断已被该实验否定） |
 | `web` 手机验证码（`code=360`） | ⚠️ 从 `web_reg.js` 推断，未实际触发 |
 | `web` 的 `validateState` 具体语义 | ⚠️ 从 JS 推断（非 2 时提示可能需激活/补充信息；实测成功值为 2） |

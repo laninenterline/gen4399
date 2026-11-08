@@ -723,10 +723,25 @@ def _fetch_unified_captcha(
     return image
 
 
+def _captcha_field_name(body: str) -> str:
+    """服务端重渲染的验证码页里，验证码输入框的字段名。
+
+    实测 2026-11-08：用户名注册的验证码页同时有 ``inputCaptcha``（可见输入框）
+    和 ``fCaptcha``（手机验证码弹窗模板里的输入框），**服务端校验的是前者**；
+    只发 ``fCaptcha`` 会一直得到「验证码错误」。
+    """
+    if 'name="inputCaptcha"' in body or "name='inputCaptcha'" in body:
+        return "inputCaptcha"
+    return "fCaptcha"
+
+
 def _captcha_retry_payload(
     payload: dict[str, str], body: str, code: str
 ) -> dict[str, str]:
-    """带 ``fCaptcha`` 的重提交字段：优先用响应页表单的新隐藏域做基线。"""
+    """带验证码的重提交字段：优先用响应页表单的新隐藏域做基线。
+
+    ``sessionId`` 会被页面覆盖成本次验证码的 id（服务端据此校验）。
+    """
     retry = dict(payload)
     try:
         form = _http.parse_registration_form(body)
@@ -742,7 +757,7 @@ def _captcha_retry_payload(
             if name in payload:
                 base[name] = payload[name]
         retry = base
-    retry["fCaptcha"] = code
+    retry[_captcha_field_name(body)] = code
     return retry
 
 

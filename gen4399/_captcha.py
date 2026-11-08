@@ -28,6 +28,7 @@ __all__ = [
     "CaptchaSolver",
     "CaptchaSolverError",
     "auto_captcha_solver",
+    "matcher_captcha_solver",
     "command_captcha_solver",
     "prompt_captcha_solver",
     "save_captcha_images",
@@ -187,6 +188,24 @@ def _find_ocr_command() -> str | None:
     return None
 
 
+def matcher_captcha_solver() -> CaptchaSolver:
+    """内置识别器（移植 guiwow1337/4399-captcha，专解 4399 的 60×30 验证码）。
+
+    只认 60×30 的图（unified 路径的 ``captcha.do``）；尺寸不符或本机没有
+    ImageMagick 时会抛 :class:`CaptchaSolverError`，可据此回退到别的识别方式。
+    """
+
+    def solver(image: bytes) -> str:
+        from ._captcha_matcher import MatcherError, recognize
+
+        try:
+            return recognize(image)
+        except MatcherError as exc:
+            raise CaptchaSolverError(f"内置识别器不可用：{exc}") from exc
+
+    return solver
+
+
 def auto_captcha_solver(
     *,
     prompt_fallback: bool = True,
@@ -199,11 +218,25 @@ def auto_captcha_solver(
     注意：这是**调用方侧**的便利封装——本库仍然不内置验证码破解，只是把
     「有 tesseract 就自动用」这件事替你做掉。
     """
+    matcher = matcher_captcha_solver()
     command = _find_ocr_command()
-    if command is not None:
-        return command_captcha_solver(command, timeout=timeout)
-    if prompt_fallback:
-        return prompt_captcha_solver()
+    ocr = command_captcha_solver(command, timeout=timeout) if command else None
+
+    def solver(image: bytes) -> str:
+        try:
+            return matcher(image)
+        except CaptchaSolverError:
+            pass
+        if ocr is not None:
+            return ocr(image)
+        if prompt_fallback:
+            return prompt_captcha_solver()(image)
+        raise CaptchaSolverError(
+            "内置识别器不适用于这张图，且本机没有 OCR；"
+            "请改用 --captcha-prompt 人工输入，或用 --captcha-cmd 指定识别命令"
+        )
+
+    return solver
     raise CaptchaSolverError(
         "本机没有可用的 OCR 命令（未找到 tesseract）；"
         "请改用 --captcha-prompt 人工输入，或用 --captcha-cmd 指定识别命令"
@@ -216,6 +249,7 @@ def make_solver(
     command: str | None = None,
     directory: str | os.PathLike[str] | None = None,
     auto: bool = False,
+    matcher: bool = False,
     zoom: int = 1,
 ) -> CaptchaSolver | None:
     """按 CLI 参数组合出 solver；都不给时返回 ``None``（不识别验证码）。
@@ -224,6 +258,8 @@ def make_solver(
     """
     if command:
         solver: CaptchaSolver = command_captcha_solver(command)
+    elif matcher:
+        solver = matcher_captcha_solver()
     elif auto:
         solver = auto_captcha_solver()
     elif prompt:

@@ -551,6 +551,7 @@ def _cmd_submit(args) -> int:
             command=getattr(args, "captcha_cmd", None),
             directory=getattr(args, "captcha_dir", None),
             auto=bool(getattr(args, "captcha_auto", False)),
+            matcher=bool(getattr(args, "captcha_matcher", False)),
             zoom=int(getattr(args, "captcha_zoom", 1) or 1),
         )
         captcha_attempts = int(getattr(args, "captcha_attempts", 3))
@@ -933,6 +934,10 @@ def _add_captcha_opts(sp: argparse.ArgumentParser) -> None:
     sp.add_argument(
         "--captcha-prompt", action="store_true",
         help="遇到图形验证码时保存图片并人工输入（web 路径）",
+    )
+    sp.add_argument(
+        "--captcha-matcher", action="store_true",
+        help="用内置识别器（专解 4399 的 60×30 验证码；需要 ImageMagick 解码）",
     )
     sp.add_argument(
         "--captcha-auto", action="store_true",

@@ -89,6 +89,7 @@ from .submit import (
 from ._captcha import (
     CaptchaSolverError,
     auto_captcha_solver,
+    matcher_captcha_solver,
     command_captcha_solver,
     make_solver,
     prompt_captcha_solver,
@@ -143,7 +144,7 @@ from .core import (
     validate_username,
 )
 
-__version__ = "2.5.0"
+__version__ = "2.6.0"
 
 __all__ = [
     "RULES_VERSION",
@@ -212,6 +213,7 @@ __all__ = [
     "CaptchaSolver",
     "CaptchaSolverError",
     "auto_captcha_solver",
+    "matcher_captcha_solver",
     "command_captcha_solver",
     "prompt_captcha_solver",
     "save_captcha_images",

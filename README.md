@@ -15,9 +15,10 @@
   识别 4399 注册接口限流；`--captcha-auto` 自动用本机 OCR，没有就退回人工输入
 - unified 修复（2.4.0）：剔除 13 个会让服务端返回空白「4399提示」页的隐藏域后，
   unified 路径跑通，并默认**提交实名**（`realname`/`idcard` 走 AES 加密）
-- 图形验证码（2.3.0）：web 路径遇到 `code=200` 时按「取图 → 识别 → verifyCode →
-  带 `chk_code` 重提交」处理，**识别必须由调用方提供 `captcha` 回调**（人工 / OCR），
-  库不内置破解
+- 图形验证码（2.3.0 / 2.6.0）：web 路径遇到 `code=200` 时按「取图 → 识别 →
+  verifyCode → 带 `chk_code` 重提交」处理；unified 遇到验证码页时按「取图 →
+  识别 → 带 `inputCaptcha` 重提交」处理。**识别由调用方的 `captcha` 回调提供**，
+  库里自带三种现成实现：内置识别器（60×30 专用）、外部 OCR 命令、人工输入
 - 身份信息：可从 `姓名|身份证号[|QQ]` 格式的 txt 批量读取
 
 > **默认不提交注册**：`prepare_registration()` 只准备数据，不会自动提交；
@@ -534,7 +535,8 @@ gen4399 submit --profile-file ids.txt --yes    # 真实提交
 | `--captcha-cmd CMD` | 调外部命令识别：PNG 从 stdin 传入，stdout 第一行作为结果（命令经 shell 执行，不要拼接不可信输入） |
 | `--captcha-dir DIR` | 把每轮验证码图片保存到该目录（0600，便于人工查看/留存）；**单独给不会识别**，需配合前两者 |
 | `--captcha-zoom N` | 人工识别时把图放大 N 倍再存（需本机 ImageMagick；unified 的 60×30 小图建议 6~8，人眼才认得清） |
-| `--captcha-auto` | 自动选识别方式：本机有 OCR（`tesseract`）就用，否则退回人工输入 |
+| `--captcha-auto` | 自动选识别方式：内置识别器 → 外部 OCR（`tesseract`）→ 人工输入 |
+| `--captcha-matcher` | 用内置识别器（专解 4399 的 60×30 四位验证码，需本机 ImageMagick 解码） |
 | `--captcha-attempts N` | 最多重试轮数，默认 3；必须 ≥ 1 |
 
 - legacy 模式同样可用（legacy 的 `--form-path` 默认是 `web`），验证码参数相同：

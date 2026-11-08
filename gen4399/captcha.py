@@ -18,6 +18,7 @@ from ._captcha import (
     auto_captcha_solver,
     command_captcha_solver,
     make_solver,
+    matcher_captcha_solver,
     prompt_captcha_solver,
     save_captcha_images,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "CaptchaSolver",
     "CaptchaSolverError",
     "auto_captcha_solver",
+    "matcher_captcha_solver",
     "command_captcha_solver",
     "prompt_captcha_solver",
     "save_captcha_images",

@@ -2,6 +2,32 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.6.0] - 2026-11-08
+
+### 新增
+
+- **内置验证码识别器**（`matcher_captcha_solver()` / `--captcha-matcher`）：移植
+  [guiwow1337/4399-captcha](https://github.com/guiwow1337/4399-captcha)（MIT）的
+  `matcher.c`，专解 4399 的 60×30 四位验证码。alg：灰度 `<170` 二值化 →
+  25 个手扣字形模板在 4 个槽位窗口内滑动（允许滑出图外）→ 「溢出最少」判据。
+  模板数据 vendored 在 `gen4399/_captcha_templates.py`。纯标准库实现，
+  解码用本机 ImageMagick（`magick`/`convert`），单张约 0.3 s。
+- `auto_captcha_solver()` 现在按 **内置识别器 → 外部 OCR（tesseract）→ 人工输入**
+  的顺序回退。
+- CLI / `make_account.py` 新增 `--captcha-matcher`。
+
+### 修复（协议，关键）
+
+- **unified 验证码字段名**：服务端重渲染的验证码页里同时有 `inputCaptcha`（可见
+  输入框）和 `fCaptcha`（手机验证码弹窗模板），**校验的是 `inputCaptcha`**。
+  之前只发 `fCaptcha`，所以永远是「验证码错误」。
+- 重提交时用页面 hidden 里的 `sessionId`（即本次 captchaId）覆盖旧值。
+
+### 实测
+
+- unified 图形验证码全链路跑通：`注册成功（第 1 轮图形验证码后通过）`，
+  账号 `15iekvk41am5`，`verified=True`。
+
 ## [2.5.0] - 2026-11-08
 
 ### 新增

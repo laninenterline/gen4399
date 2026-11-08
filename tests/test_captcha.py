@@ -327,22 +327,29 @@ class TestAutoCaptchaSolver(unittest.TestCase):
     """auto_captcha_solver：有 OCR 用 OCR，没有就退回人工输入。"""
 
     def test_falls_back_to_prompt_without_ocr(self):
-        from gen4399._captcha import auto_captcha_solver
+        from gen4399._captcha import CaptchaSolverError, auto_captcha_solver
 
         sentinel = object()
+
+        def fake_prompt(_image):
+            return sentinel
+
         with mock.patch("gen4399._captcha.shutil.which", return_value=None), \
              mock.patch(
-                 "gen4399._captcha.prompt_captcha_solver", return_value=sentinel
-             ) as prompt:
-            self.assertIs(auto_captcha_solver(), sentinel)
-        prompt.assert_called_once()
+                 "gen4399._captcha.prompt_captcha_solver",
+                 return_value=fake_prompt,
+             ):
+            solver = auto_captcha_solver()
+            # 内置识别器对随手给的字节会失败，于是回退到人工输入
+            self.assertIs(solver(b"\xff\xd8not-a-captcha"), sentinel)
 
     def test_raises_without_ocr_and_no_fallback(self):
         from gen4399._captcha import CaptchaSolverError, auto_captcha_solver
 
         with mock.patch("gen4399._captcha.shutil.which", return_value=None):
-            with self.assertRaises(CaptchaSolverError):
-                auto_captcha_solver(prompt_fallback=False)
+            solver = auto_captcha_solver(prompt_fallback=False)
+        with self.assertRaises(CaptchaSolverError):
+            solver(b"\xff\xd8not-a-captcha")
 
     def test_uses_ocr_command_when_available(self):
         from gen4399._captcha import auto_captcha_solver
@@ -434,3 +441,43 @@ class TestZoom(unittest.TestCase):
              mock.patch("gen4399._captcha._upscale", return_value=None):
             path = _write_image(b"orig", tmp, zoom=6)
             self.assertEqual(Path(path).read_bytes(), b"orig")
+
+
+class TestMatcher(unittest.TestCase):
+    """内置识别器（60×30，移植 guiwow1337/4399-captcha）。"""
+
+    def test_templates_loaded(self):
+        from gen4399._captcha_templates import INK_OFF, TEMPLATES
+
+        self.assertEqual(len(TEMPLATES), 25)
+        self.assertGreater(len(INK_OFF), 3000)
+        for ch, th, tw, nink, need, off, clo, chi in TEMPLATES:
+            self.assertEqual(len(ch), 1)
+            self.assertLessEqual(need, nink)
+            self.assertEqual(len(clo), 4)
+            self.assertEqual(len(chi), 4)
+            self.assertLessEqual(off + nink * 2, len(INK_OFF))
+
+    def test_recognize_requires_decoder(self):
+        from gen4399._captcha_matcher import MatcherError, recognize
+
+        with mock.patch("gen4399._captcha_matcher.shutil.which", return_value=None):
+            with self.assertRaises(MatcherError):
+                recognize(b"\xff\xd8fake")
+
+    def test_classify_returns_four_chars_from_charset(self):
+        from gen4399._captcha_matcher import classify
+        from gen4399._captcha_templates import TEMPLATES
+
+        charset = {t[0] for t in TEMPLATES}
+        out = classify([0] * 30)     # 全白图：上游实现会挑「墨最少」的模板
+        self.assertEqual(len(out), 4)
+        self.assertTrue(set(out) <= charset, out)
+
+    def test_matcher_solver_wraps_error(self):
+        from gen4399._captcha import CaptchaSolverError, matcher_captcha_solver
+
+        solver = matcher_captcha_solver()
+        with mock.patch("gen4399._captcha_matcher.shutil.which", return_value=None):
+            with self.assertRaises(CaptchaSolverError):
+                solver(b"\xff\xd8fake")
