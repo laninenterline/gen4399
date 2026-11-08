@@ -134,3 +134,62 @@ class TestSegmentation(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class TestSegmentationReal(unittest.TestCase):
+    """用合成 PPM 覆盖解码 / 切字 / 细化 / 强制 4 段。"""
+
+    def _ppm(self, blobs):
+        w, h = 150, 45
+        px = bytearray([255] * (w * h * 3))
+        for x0, x1 in blobs:
+            for y in range(5, 40):
+                for x in range(x0, x1 + 1):
+                    i = (y * w + x) * 3
+                    px[i:i + 3] = bytes([30, 30, 30])
+        return b"P6\n150 45\n255\n" + bytes(px)
+
+    def _run(self, blobs):
+        header = self._ppm(blobs)
+        completed = mock.Mock(returncode=0, stdout=header)
+        with mock.patch(
+            "gen4399.captcha_web.shutil.which", return_value="/usr/bin/magick"
+        ), mock.patch(
+            "gen4399.captcha_web.subprocess.run", return_value=completed
+        ):
+            return segment_glyphs(b"fake")
+
+    def test_four_blobs(self):
+        glyphs = self._run([(10, 25), (40, 55), (70, 85), (100, 115)])
+        self.assertEqual(len(glyphs), 4)
+        self.assertTrue(all(glyphs))
+
+    def test_three_blobs_split_into_four(self):
+        glyphs = self._run([(10, 25), (40, 55), (70, 120)])
+        self.assertEqual(len(glyphs), 4)
+
+    def test_five_blobs_merged_into_four(self):
+        glyphs = self._run([(10, 25), (32, 40), (50, 65), (80, 95), (110, 125)])
+        self.assertEqual(len(glyphs), 4)
+
+    def test_missing_magick_returns_empty(self):
+        with mock.patch("gen4399.captcha_web.shutil.which", return_value=None):
+            self.assertEqual(segment_glyphs(b"x"), [])
+
+
+class TestSolverFallbacks(unittest.TestCase):
+    def test_no_bank_no_prompt_returns_best_effort(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            solver = learning_captcha_solver(Path(tmp) / "b.json")
+        solver.bank.glyphs = {}
+        glyphs = [_glyph(1)] * 4
+        with mock.patch.object(captcha_web, "segment_glyphs", return_value=glyphs):
+            self.assertEqual(solver(b"img"), "????")
+
+    def test_feedback_with_bad_segmentation_is_noop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            solver = learning_captcha_solver(Path(tmp) / "b.json")
+        solver.bank.glyphs = {}
+        with mock.patch.object(captcha_web, "segment_glyphs", return_value=[]):
+            solver.feedback(b"img", "ABCD", True)
+        self.assertEqual(solver.bank.glyphs, {})
