@@ -1,0 +1,1119 @@
+
+---
+events:
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineSystem.cmake:12 (find_program)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_UNAME"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "uname"
+    candidate_directories:
+      - "/root/.cargo/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/local/games/"
+      - "/usr/games/"
+      - "/system/bin/"
+      - "/system/xbin/"
+      - "/data/data/com.termux/files/usr/bin/"
+    searched_directories:
+      - "/root/.cargo/bin/uname"
+      - "/usr/local/sbin/uname"
+      - "/usr/local/bin/uname"
+      - "/usr/sbin/uname"
+    found: "/usr/bin/uname"
+    search_context:
+      ENV{PATH}:
+        - "/root/.cargo/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/local/games"
+        - "/usr/games"
+        - "/system/bin"
+        - "/system/xbin"
+        - "/data/data/com.termux/files/usr/bin"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineSystem.cmake:207 (message)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      The target system is: Android - 1 - aarch64
+      The host system is: Linux - 6.17.0-PRoot-Distro - x86_64
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:462 (find_file)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:500 (CMAKE_DETERMINE_COMPILER_ID_WRITE)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:8 (CMAKE_DETERMINE_COMPILER_ID_BUILD)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:122 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "file"
+    variable: "src_in"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "CMakeCCompilerId.c.in"
+    candidate_directories:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/"
+    found: "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeCCompilerId.c.in"
+    search_context:
+      CMAKE_PREFIX_PATH:
+        - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64"
+      ENV{PATH}:
+        - "/root/.cargo/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/local/games"
+        - "/usr/games"
+        - "/system/bin"
+        - "/system/xbin"
+        - "/data/data/com.termux/files/usr/bin"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/lib/aarch64-linux-android/24"
+      CMAKE_SYSROOT: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+      CMAKE_FIND_ROOT_PATH: "/root/android-sdk/ndk/29.0.14206865"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:122 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Compiling the C compiler identification source file "CMakeCCompilerId.c" succeeded.
+      Compiler: /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang 
+      Build flags: -g;-DANDROID;-fdata-sections;-ffunction-sections;-funwind-tables;-fstack-protector-strong;-no-canonical-prefixes;-D_FORTIFY_SOURCE=2;-Wformat;-Werror=format-security
+      Id flags: -c;--target=aarch64-none-linux-android24 
+      
+      The output was:
+      0
+      
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CMakeCCompilerId.o"
+      
+      The C compiler identification is Clang, found in:
+        /data/data/com.termux/files/home/lead-workspace/apk/app/.cxx/RelWithDebInfo/6a4z4g38/arm64-v8a/CMakeFiles/4.1.0/CompilerIdC/CMakeCCompilerId.o
+      
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_LINKER"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "ld.lld"
+      - "ld"
+    candidate_directories:
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+      - "/root/.cargo/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/local/games/"
+      - "/usr/games/"
+      - "/system/bin/"
+      - "/system/xbin/"
+      - "/data/data/com.termux/files/usr/bin/"
+      - "/usr/lib/aarch64-linux-android/24/bin/"
+      - "/usr/lib/aarch64-linux-android/24/sbin/"
+      - "/usr/lib/aarch64-linux-android/24/"
+    found: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld"
+    search_context:
+      CMAKE_PREFIX_PATH:
+        - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64"
+      ENV{PATH}:
+        - "/root/.cargo/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/local/games"
+        - "/usr/games"
+        - "/system/bin"
+        - "/system/xbin"
+        - "/data/data/com.termux/files/usr/bin"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/lib/aarch64-linux-android/24"
+      CMAKE_SYSROOT: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+      CMAKE_FIND_ROOT_PATH: "/root/android-sdk/ndk/29.0.14206865"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_NM"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-nm"
+      - "nm"
+    candidate_directories:
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+      - "/root/.cargo/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/local/games/"
+      - "/usr/games/"
+      - "/system/bin/"
+      - "/system/xbin/"
+      - "/data/data/com.termux/files/usr/bin/"
+      - "/usr/lib/aarch64-linux-android/24/bin/"
+      - "/usr/lib/aarch64-linux-android/24/sbin/"
+      - "/usr/lib/aarch64-linux-android/24/"
+    found: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+    search_context:
+      CMAKE_PREFIX_PATH:
+        - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64"
+      ENV{PATH}:
+        - "/root/.cargo/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/local/games"
+        - "/usr/games"
+        - "/system/bin"
+        - "/system/xbin"
+        - "/data/data/com.termux/files/usr/bin"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/lib/aarch64-linux-android/24"
+      CMAKE_SYSROOT: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+      CMAKE_FIND_ROOT_PATH: "/root/android-sdk/ndk/29.0.14206865"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_OBJDUMP"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-objdump"
+      - "objdump"
+    candidate_directories:
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+      - "/root/.cargo/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/local/games/"
+      - "/usr/games/"
+      - "/system/bin/"
+      - "/system/xbin/"
+      - "/data/data/com.termux/files/usr/bin/"
+      - "/usr/lib/aarch64-linux-android/24/bin/"
+      - "/usr/lib/aarch64-linux-android/24/sbin/"
+      - "/usr/lib/aarch64-linux-android/24/"
+    found: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump"
+    search_context:
+      CMAKE_PREFIX_PATH:
+        - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64"
+      ENV{PATH}:
+        - "/root/.cargo/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/local/games"
+        - "/usr/games"
+        - "/system/bin"
+        - "/system/xbin"
+        - "/data/data/com.termux/files/usr/bin"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/lib/aarch64-linux-android/24"
+      CMAKE_SYSROOT: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+      CMAKE_FIND_ROOT_PATH: "/root/android-sdk/ndk/29.0.14206865"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_OBJCOPY"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-objcopy"
+      - "objcopy"
+    candidate_directories:
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+      - "/root/.cargo/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/local/games/"
+      - "/usr/games/"
+      - "/system/bin/"
+      - "/system/xbin/"
+      - "/data/data/com.termux/files/usr/bin/"
+      - "/usr/lib/aarch64-linux-android/24/bin/"
+      - "/usr/lib/aarch64-linux-android/24/sbin/"
+      - "/usr/lib/aarch64-linux-android/24/"
+    found: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy"
+    search_context:
+      CMAKE_PREFIX_PATH:
+        - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64"
+      ENV{PATH}:
+        - "/root/.cargo/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/local/games"
+        - "/usr/games"
+        - "/system/bin"
+        - "/system/xbin"
+        - "/data/data/com.termux/files/usr/bin"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/lib/aarch64-linux-android/24"
+      CMAKE_SYSROOT: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+      CMAKE_FIND_ROOT_PATH: "/root/android-sdk/ndk/29.0.14206865"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_READELF"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-readelf"
+      - "readelf"
+    candidate_directories:
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+      - "/root/.cargo/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/local/games/"
+      - "/usr/games/"
+      - "/system/bin/"
+      - "/system/xbin/"
+      - "/data/data/com.termux/files/usr/bin/"
+      - "/usr/lib/aarch64-linux-android/24/bin/"
+      - "/usr/lib/aarch64-linux-android/24/sbin/"
+      - "/usr/lib/aarch64-linux-android/24/"
+    found: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+    search_context:
+      CMAKE_PREFIX_PATH:
+        - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64"
+      ENV{PATH}:
+        - "/root/.cargo/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/local/games"
+        - "/usr/games"
+        - "/system/bin"
+        - "/system/xbin"
+        - "/data/data/com.termux/files/usr/bin"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/lib/aarch64-linux-android/24"
+      CMAKE_SYSROOT: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+      CMAKE_FIND_ROOT_PATH: "/root/android-sdk/ndk/29.0.14206865"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_DLLTOOL"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-dlltool"
+      - "dlltool"
+    candidate_directories:
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+      - "/root/.cargo/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/local/games/"
+      - "/usr/games/"
+      - "/system/bin/"
+      - "/system/xbin/"
+      - "/data/data/com.termux/files/usr/bin/"
+      - "/usr/lib/aarch64-linux-android/24/bin/"
+      - "/usr/lib/aarch64-linux-android/24/sbin/"
+      - "/usr/lib/aarch64-linux-android/24/"
+    found: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-dlltool"
+    search_context:
+      CMAKE_PREFIX_PATH:
+        - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64"
+      ENV{PATH}:
+        - "/root/.cargo/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/local/games"
+        - "/usr/games"
+        - "/system/bin"
+        - "/system/xbin"
+        - "/data/data/com.termux/files/usr/bin"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/lib/aarch64-linux-android/24"
+      CMAKE_SYSROOT: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+      CMAKE_FIND_ROOT_PATH: "/root/android-sdk/ndk/29.0.14206865"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_ADDR2LINE"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-addr2line"
+      - "addr2line"
+    candidate_directories:
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+      - "/root/.cargo/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/local/games/"
+      - "/usr/games/"
+      - "/system/bin/"
+      - "/system/xbin/"
+      - "/data/data/com.termux/files/usr/bin/"
+      - "/usr/lib/aarch64-linux-android/24/bin/"
+      - "/usr/lib/aarch64-linux-android/24/sbin/"
+      - "/usr/lib/aarch64-linux-android/24/"
+    found: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-addr2line"
+    search_context:
+      CMAKE_PREFIX_PATH:
+        - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64"
+      ENV{PATH}:
+        - "/root/.cargo/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/local/games"
+        - "/usr/games"
+        - "/system/bin"
+        - "/system/xbin"
+        - "/data/data/com.termux/files/usr/bin"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/lib/aarch64-linux-android/24"
+      CMAKE_SYSROOT: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+      CMAKE_FIND_ROOT_PATH: "/root/android-sdk/ndk/29.0.14206865"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_TAPI"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "tapi"
+    candidate_directories:
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+      - "/root/.cargo/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/local/games/"
+      - "/usr/games/"
+      - "/system/bin/"
+      - "/system/xbin/"
+      - "/data/data/com.termux/files/usr/bin/"
+      - "/usr/lib/aarch64-linux-android/24/bin/"
+      - "/usr/lib/aarch64-linux-android/24/sbin/"
+      - "/usr/lib/aarch64-linux-android/24/"
+    searched_directories:
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/tapi"
+      - "/root/.cargo/bin/tapi"
+      - "/usr/local/sbin/tapi"
+      - "/usr/local/bin/tapi"
+      - "/usr/sbin/tapi"
+      - "/usr/bin/tapi"
+      - "/sbin/tapi"
+      - "/bin/tapi"
+      - "/usr/local/games/tapi"
+      - "/usr/games/tapi"
+      - "/system/bin/tapi"
+      - "/system/xbin/tapi"
+      - "/data/data/com.termux/files/usr/bin/tapi"
+      - "/usr/lib/aarch64-linux-android/24/bin/tapi"
+      - "/usr/lib/aarch64-linux-android/24/sbin/tapi"
+      - "/usr/lib/aarch64-linux-android/24/tapi"
+    found: false
+    search_context:
+      CMAKE_PREFIX_PATH:
+        - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64"
+      ENV{PATH}:
+        - "/root/.cargo/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/local/games"
+        - "/usr/games"
+        - "/system/bin"
+        - "/system/xbin"
+        - "/data/data/com.termux/files/usr/bin"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/lib/aarch64-linux-android/24"
+      CMAKE_SYSROOT: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+      CMAKE_FIND_ROOT_PATH: "/root/android-sdk/ndk/29.0.14206865"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/Compiler/Clang-FindBinUtils.cmake:26 (find_program)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:201 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_C_COMPILER_AR"
+    description: "LLVM archiver"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-ar-21.0"
+      - "llvm-ar-21"
+      - "llvm-ar21"
+      - "llvm-ar"
+    candidate_directories:
+      - "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+      - "/root/.cargo/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/local/games/"
+      - "/usr/games/"
+      - "/system/bin/"
+      - "/system/xbin/"
+      - "/data/data/com.termux/files/usr/bin/"
+      - "/usr/lib/aarch64-linux-android/24/bin/"
+      - "/usr/lib/aarch64-linux-android/24/sbin/"
+      - "/usr/lib/aarch64-linux-android/24/"
+    searched_directories:
+      - "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar-21.0"
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar-21.0"
+      - "/root/.cargo/bin/llvm-ar-21.0"
+      - "/usr/local/sbin/llvm-ar-21.0"
+      - "/usr/local/bin/llvm-ar-21.0"
+      - "/usr/sbin/llvm-ar-21.0"
+      - "/usr/bin/llvm-ar-21.0"
+      - "/sbin/llvm-ar-21.0"
+      - "/bin/llvm-ar-21.0"
+      - "/usr/local/games/llvm-ar-21.0"
+      - "/usr/games/llvm-ar-21.0"
+      - "/system/bin/llvm-ar-21.0"
+      - "/system/xbin/llvm-ar-21.0"
+      - "/data/data/com.termux/files/usr/bin/llvm-ar-21.0"
+      - "/usr/lib/aarch64-linux-android/24/bin/llvm-ar-21.0"
+      - "/usr/lib/aarch64-linux-android/24/sbin/llvm-ar-21.0"
+      - "/usr/lib/aarch64-linux-android/24/llvm-ar-21.0"
+      - "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar-21"
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar-21"
+      - "/root/.cargo/bin/llvm-ar-21"
+      - "/usr/local/sbin/llvm-ar-21"
+      - "/usr/local/bin/llvm-ar-21"
+      - "/usr/sbin/llvm-ar-21"
+      - "/usr/bin/llvm-ar-21"
+      - "/sbin/llvm-ar-21"
+      - "/bin/llvm-ar-21"
+      - "/usr/local/games/llvm-ar-21"
+      - "/usr/games/llvm-ar-21"
+      - "/system/bin/llvm-ar-21"
+      - "/system/xbin/llvm-ar-21"
+      - "/data/data/com.termux/files/usr/bin/llvm-ar-21"
+      - "/usr/lib/aarch64-linux-android/24/bin/llvm-ar-21"
+      - "/usr/lib/aarch64-linux-android/24/sbin/llvm-ar-21"
+      - "/usr/lib/aarch64-linux-android/24/llvm-ar-21"
+      - "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar21"
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar21"
+      - "/root/.cargo/bin/llvm-ar21"
+      - "/usr/local/sbin/llvm-ar21"
+      - "/usr/local/bin/llvm-ar21"
+      - "/usr/sbin/llvm-ar21"
+      - "/usr/bin/llvm-ar21"
+      - "/sbin/llvm-ar21"
+      - "/bin/llvm-ar21"
+      - "/usr/local/games/llvm-ar21"
+      - "/usr/games/llvm-ar21"
+      - "/system/bin/llvm-ar21"
+      - "/system/xbin/llvm-ar21"
+      - "/data/data/com.termux/files/usr/bin/llvm-ar21"
+      - "/usr/lib/aarch64-linux-android/24/bin/llvm-ar21"
+      - "/usr/lib/aarch64-linux-android/24/sbin/llvm-ar21"
+      - "/usr/lib/aarch64-linux-android/24/llvm-ar21"
+    found: "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+    search_context:
+      CMAKE_PREFIX_PATH:
+        - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64"
+      ENV{PATH}:
+        - "/root/.cargo/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/local/games"
+        - "/usr/games"
+        - "/system/bin"
+        - "/system/xbin"
+        - "/data/data/com.termux/files/usr/bin"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/lib/aarch64-linux-android/24"
+      CMAKE_SYSROOT: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+      CMAKE_FIND_ROOT_PATH: "/root/android-sdk/ndk/29.0.14206865"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/Compiler/Clang-FindBinUtils.cmake:38 (find_program)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:201 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_C_COMPILER_RANLIB"
+    description: "Generate index for LLVM archive"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "llvm-ranlib-21.0"
+      - "llvm-ranlib-21"
+      - "llvm-ranlib21"
+      - "llvm-ranlib"
+    candidate_directories:
+      - "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+      - "/root/.cargo/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/local/games/"
+      - "/usr/games/"
+      - "/system/bin/"
+      - "/system/xbin/"
+      - "/data/data/com.termux/files/usr/bin/"
+      - "/usr/lib/aarch64-linux-android/24/bin/"
+      - "/usr/lib/aarch64-linux-android/24/sbin/"
+      - "/usr/lib/aarch64-linux-android/24/"
+    searched_directories:
+      - "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib-21.0"
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib-21.0"
+      - "/root/.cargo/bin/llvm-ranlib-21.0"
+      - "/usr/local/sbin/llvm-ranlib-21.0"
+      - "/usr/local/bin/llvm-ranlib-21.0"
+      - "/usr/sbin/llvm-ranlib-21.0"
+      - "/usr/bin/llvm-ranlib-21.0"
+      - "/sbin/llvm-ranlib-21.0"
+      - "/bin/llvm-ranlib-21.0"
+      - "/usr/local/games/llvm-ranlib-21.0"
+      - "/usr/games/llvm-ranlib-21.0"
+      - "/system/bin/llvm-ranlib-21.0"
+      - "/system/xbin/llvm-ranlib-21.0"
+      - "/data/data/com.termux/files/usr/bin/llvm-ranlib-21.0"
+      - "/usr/lib/aarch64-linux-android/24/bin/llvm-ranlib-21.0"
+      - "/usr/lib/aarch64-linux-android/24/sbin/llvm-ranlib-21.0"
+      - "/usr/lib/aarch64-linux-android/24/llvm-ranlib-21.0"
+      - "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib-21"
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib-21"
+      - "/root/.cargo/bin/llvm-ranlib-21"
+      - "/usr/local/sbin/llvm-ranlib-21"
+      - "/usr/local/bin/llvm-ranlib-21"
+      - "/usr/sbin/llvm-ranlib-21"
+      - "/usr/bin/llvm-ranlib-21"
+      - "/sbin/llvm-ranlib-21"
+      - "/bin/llvm-ranlib-21"
+      - "/usr/local/games/llvm-ranlib-21"
+      - "/usr/games/llvm-ranlib-21"
+      - "/system/bin/llvm-ranlib-21"
+      - "/system/xbin/llvm-ranlib-21"
+      - "/data/data/com.termux/files/usr/bin/llvm-ranlib-21"
+      - "/usr/lib/aarch64-linux-android/24/bin/llvm-ranlib-21"
+      - "/usr/lib/aarch64-linux-android/24/sbin/llvm-ranlib-21"
+      - "/usr/lib/aarch64-linux-android/24/llvm-ranlib-21"
+      - "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib21"
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib21"
+      - "/root/.cargo/bin/llvm-ranlib21"
+      - "/usr/local/sbin/llvm-ranlib21"
+      - "/usr/local/bin/llvm-ranlib21"
+      - "/usr/sbin/llvm-ranlib21"
+      - "/usr/bin/llvm-ranlib21"
+      - "/sbin/llvm-ranlib21"
+      - "/bin/llvm-ranlib21"
+      - "/usr/local/games/llvm-ranlib21"
+      - "/usr/games/llvm-ranlib21"
+      - "/system/bin/llvm-ranlib21"
+      - "/system/xbin/llvm-ranlib21"
+      - "/data/data/com.termux/files/usr/bin/llvm-ranlib21"
+      - "/usr/lib/aarch64-linux-android/24/bin/llvm-ranlib21"
+      - "/usr/lib/aarch64-linux-android/24/sbin/llvm-ranlib21"
+      - "/usr/lib/aarch64-linux-android/24/llvm-ranlib21"
+    found: "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib"
+    search_context:
+      CMAKE_PREFIX_PATH:
+        - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64"
+      ENV{PATH}:
+        - "/root/.cargo/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/local/games"
+        - "/usr/games"
+        - "/system/bin"
+        - "/system/xbin"
+        - "/data/data/com.termux/files/usr/bin"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/lib/aarch64-linux-android/24"
+      CMAKE_SYSROOT: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+      CMAKE_FIND_ROOT_PATH: "/root/android-sdk/ndk/29.0.14206865"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/Compiler/Clang-FindBinUtils.cmake:50 (find_program)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:201 (include)"
+      - "CMakeLists.txt:2 (project)"
+    mode: "program"
+    variable: "CMAKE_C_COMPILER_CLANG_SCAN_DEPS"
+    description: "`clang-scan-deps` dependency scanner"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "clang-scan-deps-21.0"
+      - "clang-scan-deps-21"
+      - "clang-scan-deps21"
+      - "clang-scan-deps"
+    candidate_directories:
+      - "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/"
+      - "/root/.cargo/bin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/local/games/"
+      - "/usr/games/"
+      - "/system/bin/"
+      - "/system/xbin/"
+      - "/data/data/com.termux/files/usr/bin/"
+      - "/usr/lib/aarch64-linux-android/24/bin/"
+      - "/usr/lib/aarch64-linux-android/24/sbin/"
+      - "/usr/lib/aarch64-linux-android/24/"
+    searched_directories:
+      - "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/clang-scan-deps-21.0"
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang-scan-deps-21.0"
+      - "/root/.cargo/bin/clang-scan-deps-21.0"
+      - "/usr/local/sbin/clang-scan-deps-21.0"
+      - "/usr/local/bin/clang-scan-deps-21.0"
+      - "/usr/sbin/clang-scan-deps-21.0"
+      - "/usr/bin/clang-scan-deps-21.0"
+      - "/sbin/clang-scan-deps-21.0"
+      - "/bin/clang-scan-deps-21.0"
+      - "/usr/local/games/clang-scan-deps-21.0"
+      - "/usr/games/clang-scan-deps-21.0"
+      - "/system/bin/clang-scan-deps-21.0"
+      - "/system/xbin/clang-scan-deps-21.0"
+      - "/data/data/com.termux/files/usr/bin/clang-scan-deps-21.0"
+      - "/usr/lib/aarch64-linux-android/24/bin/clang-scan-deps-21.0"
+      - "/usr/lib/aarch64-linux-android/24/sbin/clang-scan-deps-21.0"
+      - "/usr/lib/aarch64-linux-android/24/clang-scan-deps-21.0"
+      - "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/clang-scan-deps-21"
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang-scan-deps-21"
+      - "/root/.cargo/bin/clang-scan-deps-21"
+      - "/usr/local/sbin/clang-scan-deps-21"
+      - "/usr/local/bin/clang-scan-deps-21"
+      - "/usr/sbin/clang-scan-deps-21"
+      - "/usr/bin/clang-scan-deps-21"
+      - "/sbin/clang-scan-deps-21"
+      - "/bin/clang-scan-deps-21"
+      - "/usr/local/games/clang-scan-deps-21"
+      - "/usr/games/clang-scan-deps-21"
+      - "/system/bin/clang-scan-deps-21"
+      - "/system/xbin/clang-scan-deps-21"
+      - "/data/data/com.termux/files/usr/bin/clang-scan-deps-21"
+      - "/usr/lib/aarch64-linux-android/24/bin/clang-scan-deps-21"
+      - "/usr/lib/aarch64-linux-android/24/sbin/clang-scan-deps-21"
+      - "/usr/lib/aarch64-linux-android/24/clang-scan-deps-21"
+      - "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/clang-scan-deps21"
+      - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang-scan-deps21"
+      - "/root/.cargo/bin/clang-scan-deps21"
+      - "/usr/local/sbin/clang-scan-deps21"
+      - "/usr/local/bin/clang-scan-deps21"
+      - "/usr/sbin/clang-scan-deps21"
+      - "/usr/bin/clang-scan-deps21"
+      - "/sbin/clang-scan-deps21"
+      - "/bin/clang-scan-deps21"
+      - "/usr/local/games/clang-scan-deps21"
+      - "/usr/games/clang-scan-deps21"
+      - "/system/bin/clang-scan-deps21"
+      - "/system/xbin/clang-scan-deps21"
+      - "/data/data/com.termux/files/usr/bin/clang-scan-deps21"
+      - "/usr/lib/aarch64-linux-android/24/bin/clang-scan-deps21"
+      - "/usr/lib/aarch64-linux-android/24/sbin/clang-scan-deps21"
+      - "/usr/lib/aarch64-linux-android/24/clang-scan-deps21"
+    found: "/root/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/clang-scan-deps"
+    search_context:
+      CMAKE_PREFIX_PATH:
+        - "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64"
+      ENV{PATH}:
+        - "/root/.cargo/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/local/games"
+        - "/usr/games"
+        - "/system/bin"
+        - "/system/xbin"
+        - "/data/data/com.termux/files/usr/bin"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/lib/aarch64-linux-android/24"
+      CMAKE_SYSROOT: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+      CMAKE_FIND_ROOT_PATH: "/root/android-sdk/ndk/29.0.14206865"
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCompilerABI.cmake:83 (try_compile)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    checks:
+      - "Detecting C compiler ABI info"
+    directories:
+      source: "/data/data/com.termux/files/home/lead-workspace/apk/app/.cxx/RelWithDebInfo/6a4z4g38/arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-owQgcy"
+      binary: "/data/data/com.termux/files/home/lead-workspace/apk/app/.cxx/RelWithDebInfo/6a4z4g38/arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-owQgcy"
+    cmakeVariables:
+      ANDROID_ABI: "arm64-v8a"
+      ANDROID_ARM_MODE: "thumb"
+      ANDROID_PIE: "TRUE"
+      ANDROID_PLATFORM: "android-24"
+      ANDROID_STL: "c++_static"
+      ANDROID_TOOLCHAIN: "clang"
+      CMAKE_CXX_COMPILER_TARGET: "aarch64-none-linux-android24"
+      CMAKE_C_COMPILER_TARGET: "aarch64-none-linux-android24"
+      CMAKE_C_FLAGS: "-g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat "
+      CMAKE_C_FLAGS_DEBUG: "-fno-limit-debug-info "
+      CMAKE_EXE_LINKER_FLAGS: "-static-libstdc++ -Wl,--build-id=sha1 -Wl,--no-rosegment -Wl,--no-undefined-version -Wl,--fatal-warnings -Wl,--no-undefined -Qunused-arguments  "
+      CMAKE_POSITION_INDEPENDENT_CODE: "TRUE"
+      CMAKE_SYSROOT: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+    buildResult:
+      variable: "CMAKE_C_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: '/data/data/com.termux/files/home/lead-workspace/apk/app/.cxx/RelWithDebInfo/6a4z4g38/arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-owQgcy'
+        
+        Run Build Command(s): /root/android-sdk/cmake/4.1.0/bin/ninja -v cmTC_81162
+        [1/2] /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android24 --sysroot=/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot   -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat   -fPIE   -v -MD -MT CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o -MF CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o.d -o CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o -c /root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeCCompilerABI.c
+        Android (dev, +pgo, -bolt, +lto, -mlgo, based on r563880c) clang version 21.0.0 (https://android.googlesource.com/toolchain/llvm-project)
+        Target: aarch64-none-linux-android24
+        Thread model: posix
+        InstalledDir: /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin
+         (in-process)
+         "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" -cc1 -triple aarch64-none-linux-android24 -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name CMakeCCompilerABI.c -mrelocation-model pic -pic-level 2 -pic-is-pie -mframe-pointer=non-leaf -ffp-contract=on -fno-rounding-math -mconstructor-aliases -funwind-tables=2 -enable-tlsdesc -target-cpu generic -target-feature +v8a -target-feature +fp-armv8 -target-feature +neon -target-feature +fix-cortex-a53-835769 -target-abi aapcs -debug-info-kind=constructor -dwarf-version=4 -debugger-tuning=gdb -fdebug-compilation-dir=/data/data/com.termux/files/home/lead-workspace/apk/app/.cxx/RelWithDebInfo/6a4z4g38/arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-owQgcy -v -ffunction-sections -fdata-sections -fcoverage-compilation-dir=/data/data/com.termux/files/home/lead-workspace/apk/app/.cxx/RelWithDebInfo/6a4z4g38/arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-owQgcy -resource-dir /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21 -dependency-file CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o.d -MT CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o -sys-header-deps -D ANDROID -D _FORTIFY_SOURCE=2 -isysroot /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot -internal-isystem /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/include -internal-isystem /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/local/include -internal-externc-isystem /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/aarch64-linux-android -internal-externc-isystem /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/include -internal-externc-isystem /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include -Wformat -ferror-limit 19 -femulated-tls -stack-protector 2 -fno-signed-char -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -target-feature +outline-atomics -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o -x c /root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeCCompilerABI.c
+        clang -cc1 version 21.0.0 based upon LLVM 21.0.0 default target aarch64-unknown-linux-musl
+        ignoring nonexistent directory "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/local/include"
+        ignoring nonexistent directory "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/include"
+        #include "..." search starts here:
+        #include <...> search starts here:
+         /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/include
+         /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/aarch64-linux-android
+         /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include
+        End of search list.
+        [2/2] : && /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android24 --sysroot=/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -static-libstdc++ -Wl,--build-id=sha1 -Wl,--no-rosegment -Wl,--no-undefined-version -Wl,--fatal-warnings -Wl,--no-undefined -Qunused-arguments   -v CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o -o cmTC_81162   && :
+        Android (dev, +pgo, -bolt, +lto, -mlgo, based on r563880c) clang version 21.0.0 (https://android.googlesource.com/toolchain/llvm-project)
+        Target: aarch64-none-linux-android24
+        Thread model: posix
+        InstalledDir: /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin
+         "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld" --sysroot=/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot -EL --fix-cortex-a53-843419 -z now -z relro -z max-page-size=16384 --no-rosegment --hash-style=gnu --eh-frame-hdr -m aarch64linux -pie -dynamic-linker /system/bin/linker64 -o cmTC_81162 /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/crtbegin_dynamic.o -L/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/aarch64 -L/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24 -L/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android -L/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib --build-id=sha1 --no-rosegment --no-undefined-version --fatal-warnings --no-undefined CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/libclang_rt.builtins-aarch64-android.a -l:libunwind.a -ldl -lc /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/libclang_rt.builtins-aarch64-android.a -l:libunwind.a -ldl /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/crtend_android.o
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCompilerABI.cmake:217 (message)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Parsed C implicit include dir info: rv=done
+        found start of include info
+        found start of implicit include info
+          add: [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/include]
+          add: [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/aarch64-linux-android]
+          add: [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include]
+        end of search list found
+        collapse include dir [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/include] ==> [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/include]
+        collapse include dir [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/aarch64-linux-android] ==> [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/aarch64-linux-android]
+        collapse include dir [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include] ==> [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include]
+        implicit include dirs: [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/include;/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/aarch64-linux-android;/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include]
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCompilerABI.cmake:253 (message)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Parsed C implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)))("|,| |$)]
+        ignore line: [Change Dir: '/data/data/com.termux/files/home/lead-workspace/apk/app/.cxx/RelWithDebInfo/6a4z4g38/arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-owQgcy']
+        ignore line: []
+        ignore line: [Run Build Command(s): /root/android-sdk/cmake/4.1.0/bin/ninja -v cmTC_81162]
+        ignore line: [[1/2] /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android24 --sysroot=/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot   -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat   -fPIE   -v -MD -MT CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o -MF CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o.d -o CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o -c /root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeCCompilerABI.c]
+        ignore line: [Android (dev  +pgo  -bolt  +lto  -mlgo  based on r563880c) clang version 21.0.0 (https://android.googlesource.com/toolchain/llvm-project)]
+        ignore line: [Target: aarch64-none-linux-android24]
+        ignore line: [Thread model: posix]
+        ignore line: [InstalledDir: /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin]
+        ignore line: [ (in-process)]
+        ignore line: [ "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" -cc1 -triple aarch64-none-linux-android24 -emit-obj -disable-free -clear-ast-before-backend -disable-llvm-verifier -discard-value-names -main-file-name CMakeCCompilerABI.c -mrelocation-model pic -pic-level 2 -pic-is-pie -mframe-pointer=non-leaf -ffp-contract=on -fno-rounding-math -mconstructor-aliases -funwind-tables=2 -enable-tlsdesc -target-cpu generic -target-feature +v8a -target-feature +fp-armv8 -target-feature +neon -target-feature +fix-cortex-a53-835769 -target-abi aapcs -debug-info-kind=constructor -dwarf-version=4 -debugger-tuning=gdb -fdebug-compilation-dir=/data/data/com.termux/files/home/lead-workspace/apk/app/.cxx/RelWithDebInfo/6a4z4g38/arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-owQgcy -v -ffunction-sections -fdata-sections -fcoverage-compilation-dir=/data/data/com.termux/files/home/lead-workspace/apk/app/.cxx/RelWithDebInfo/6a4z4g38/arm64-v8a/CMakeFiles/CMakeScratch/TryCompile-owQgcy -resource-dir /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21 -dependency-file CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o.d -MT CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o -sys-header-deps -D ANDROID -D _FORTIFY_SOURCE=2 -isysroot /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot -internal-isystem /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/include -internal-isystem /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/local/include -internal-externc-isystem /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/aarch64-linux-android -internal-externc-isystem /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/include -internal-externc-isystem /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include -Wformat -ferror-limit 19 -femulated-tls -stack-protector 2 -fno-signed-char -fgnuc-version=4.2.1 -fskip-odr-check-in-gmf -target-feature +outline-atomics -D__GCC_HAVE_DWARF2_CFI_ASM=1 -o CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o -x c /root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeCCompilerABI.c]
+        ignore line: [clang -cc1 version 21.0.0 based upon LLVM 21.0.0 default target aarch64-unknown-linux-musl]
+        ignore line: [ignoring nonexistent directory "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/local/include"]
+        ignore line: [ignoring nonexistent directory "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/include"]
+        ignore line: [#include "..." search starts here:]
+        ignore line: [#include <...> search starts here:]
+        ignore line: [ /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/include]
+        ignore line: [ /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/aarch64-linux-android]
+        ignore line: [ /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include]
+        ignore line: [End of search list.]
+        ignore line: [[2/2] : && /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=aarch64-none-linux-android24 --sysroot=/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -static-libstdc++ -Wl --build-id=sha1 -Wl --no-rosegment -Wl --no-undefined-version -Wl --fatal-warnings -Wl --no-undefined -Qunused-arguments   -v CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o -o cmTC_81162   && :]
+        ignore line: [Android (dev  +pgo  -bolt  +lto  -mlgo  based on r563880c) clang version 21.0.0 (https://android.googlesource.com/toolchain/llvm-project)]
+        ignore line: [Target: aarch64-none-linux-android24]
+        ignore line: [Thread model: posix]
+        ignore line: [InstalledDir: /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin]
+        link line: [ "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld" --sysroot=/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot -EL --fix-cortex-a53-843419 -z now -z relro -z max-page-size=16384 --no-rosegment --hash-style=gnu --eh-frame-hdr -m aarch64linux -pie -dynamic-linker /system/bin/linker64 -o cmTC_81162 /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/crtbegin_dynamic.o -L/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/aarch64 -L/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24 -L/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android -L/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib --build-id=sha1 --no-rosegment --no-undefined-version --fatal-warnings --no-undefined CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/libclang_rt.builtins-aarch64-android.a -l:libunwind.a -ldl -lc /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/libclang_rt.builtins-aarch64-android.a -l:libunwind.a -ldl /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/crtend_android.o]
+          arg [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld] ==> ignore
+          arg [--sysroot=/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot] ==> ignore
+          arg [-EL] ==> ignore
+          arg [--fix-cortex-a53-843419] ==> ignore
+          arg [-znow] ==> ignore
+          arg [-zrelro] ==> ignore
+          arg [-zmax-page-size=16384] ==> ignore
+          arg [--no-rosegment] ==> ignore
+          arg [--hash-style=gnu] ==> ignore
+          arg [--eh-frame-hdr] ==> ignore
+          arg [-m] ==> ignore
+          arg [aarch64linux] ==> ignore
+          arg [-pie] ==> ignore
+          arg [-dynamic-linker] ==> ignore
+          arg [/system/bin/linker64] ==> ignore
+          arg [-o] ==> ignore
+          arg [cmTC_81162] ==> ignore
+          arg [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/crtbegin_dynamic.o] ==> obj [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/crtbegin_dynamic.o]
+          arg [-L/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/aarch64] ==> dir [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/aarch64]
+          arg [-L/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24] ==> dir [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24]
+          arg [-L/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android] ==> dir [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android]
+          arg [-L/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib] ==> dir [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib]
+          arg [--build-id=sha1] ==> ignore
+          arg [--no-rosegment] ==> ignore
+          arg [--no-undefined-version] ==> ignore
+          arg [--fatal-warnings] ==> ignore
+          arg [--no-undefined] ==> ignore
+          arg [CMakeFiles/cmTC_81162.dir/CMakeCCompilerABI.c.o] ==> ignore
+          arg [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/libclang_rt.builtins-aarch64-android.a] ==> lib [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/libclang_rt.builtins-aarch64-android.a]
+          arg [-l:libunwind.a] ==> lib [-l:libunwind.a]
+          arg [-ldl] ==> lib [dl]
+          arg [-lc] ==> lib [c]
+          arg [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/libclang_rt.builtins-aarch64-android.a] ==> lib [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/libclang_rt.builtins-aarch64-android.a]
+          arg [-l:libunwind.a] ==> lib [-l:libunwind.a]
+          arg [-ldl] ==> lib [dl]
+          arg [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/crtend_android.o] ==> obj [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/crtend_android.o]
+        linker tool for 'C': /root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld
+        remove lib [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/libclang_rt.builtins-aarch64-android.a]
+        remove lib [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/libclang_rt.builtins-aarch64-android.a]
+        collapse library dir [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/aarch64] ==> [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/aarch64]
+        collapse library dir [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24] ==> [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24]
+        collapse library dir [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android] ==> [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android]
+        collapse library dir [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib] ==> [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib]
+        implicit libs: [-l:libunwind.a;dl;c;-l:libunwind.a;dl]
+        implicit objs: [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/crtbegin_dynamic.o;/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24/crtend_android.o]
+        implicit dirs: [/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/lib/clang/21/lib/linux/aarch64;/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/24;/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android;/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib]
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/Internal/CMakeDetermineLinkerId.cmake:36 (message)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeDetermineCompilerABI.cmake:299 (cmake_determine_linker_id)"
+      - "/root/android-sdk/cmake/4.1.0/share/cmake-4.1/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:2 (project)"
+    message: |
+      Running the C compiler's linker: "/root/android-sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld" "-v"
+      LLD 21.0.0 (compatible with GNU linkers)
+...

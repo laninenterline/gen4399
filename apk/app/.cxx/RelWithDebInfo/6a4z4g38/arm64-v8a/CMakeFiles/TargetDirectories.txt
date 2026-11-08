@@ -1,0 +1,3 @@
+/data/data/com.termux/files/home/lead-workspace/apk/app/.cxx/RelWithDebInfo/6a4z4g38/arm64-v8a/CMakeFiles/gen4399.dir
+/data/data/com.termux/files/home/lead-workspace/apk/app/.cxx/RelWithDebInfo/6a4z4g38/arm64-v8a/CMakeFiles/edit_cache.dir
+/data/data/com.termux/files/home/lead-workspace/apk/app/.cxx/RelWithDebInfo/6a4z4g38/arm64-v8a/CMakeFiles/rebuild_cache.dir

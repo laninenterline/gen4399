@@ -37,3 +37,8 @@ ports/android/.kotlin/
 web/node_modules/
 web/dist/
 web/tsconfig.tsbuildinfo
+
+# APK 签名材料（不入库）
+apk/keystore/
+apk/keystore.properties
+apk/art/

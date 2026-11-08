@@ -16,12 +16,44 @@
 ## 构建
 
 ```bash
+# 调试包
 proot-distro login ubuntu -- bash -lc '
   cd /data/data/com.termux/files/home/lead-workspace/apk &&
   export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64 &&
-  /opt/gradle-9.7.0/gradle-9.7.0/bin/gradle assembleDebug --no-daemon'
-# 产物 app/build/outputs/apk/debug/app-debug.apk
+  /opt/gradle-9.7.0/gradle-9.7.0/bin/gradle assembleRelease --no-daemon'
+# 产物 app/build/outputs/apk/release/app-release.apk（已签名）
 ```
+
+**release 签名**：`keystore.properties`（不入库）指向自己的 keystore：
+
+```properties
+storeFile=keystore/gen4399-release.jks
+storePassword=...
+keyAlias=gen4399
+keyPassword=...
+```
+
+没有这个文件时 release 不签名（`assembleRelease` 仍能出未签名包）。
+
+首次生成 keystore：
+
+```bash
+keytool -genkeypair -keystore keystore/gen4399-release.jks -alias gen4399 \
+  -keyalg RSA -keysize 2048 -validity 10000
+```
+
+## 图标
+
+`art/icon-source.jpg` 是原图（828×808），构建前用 ImageMagick 生成各密度：
+
+```bash
+magick art/icon-source.jpg -gravity center -crop 808x808+0+0 +repage art/icon-square.png
+# mdpi 48 / hdpi 72 / xhdpi 96 / xxhdpi 144 / xxxhdpi 192
+# 另外生成 720×720 前景图给 adaptive icon（API 26+，底色 #8A8A8A）
+```
+
+产物：`mipmap-*/ic_launcher.png`、`ic_launcher_round.png`、`ic_launcher_foreground.png`、
+`mipmap-anydpi-v26/ic_launcher.xml`。
 
 ## 功能
 

@@ -1,0 +1,1 @@
+/data/data/com.termux/files/home/lead-workspace/apk/app/build/intermediates/cxx/RelWithDebInfo/6a4z4g38/obj/arm64-v8a

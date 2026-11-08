@@ -2,6 +2,24 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.14.0] - 2026-11-08
+
+### 改进
+
+- **APK 加上图标**：用提供的图片作 launcher icon
+  - 五种密度 PNG（48/72/96/144/192）+ 圆形版本
+  - API 26+ 的自适应图标：720×720 前景 + 底色 `#8A8A8A`
+- **release 签名构建**：`keystore.properties`（不入库）+ 自有 keystore，
+  `gradle assembleRelease` 直接出签名包
+  - 产物 8.6MB，`versionCode 3 / versionName 1.1.1`
+  - 证书 `CN=gen4399, O=gen4399`，SHA-256 `dbd639e9…80a957`
+  - `aapt2 dump badging` 确认 `application-icon` 指向 `res/BW.xml`（adaptive），
+    图标 PNG 与源图一致
+
+### 说明
+
+- 签名材料（`apk/keystore/`、`apk/keystore.properties`、`apk/art/`）已加进 `.gitignore`。
+
 ## [3.13.0] - 2026-11-08
 
 ### 改进
