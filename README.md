@@ -53,6 +53,7 @@ from gen4399 import RegistrationProfile, prepare_registration, submit_registrati
 | `gen4399.transport` | `TransportOptions`（超时 / 代理 / 代理池 / 随机 UA / 重试） |
 | `gen4399.proxy` | `ProxyPool`、`ProxyError`、`normalize_proxy()` |
 | `gen4399.ua` | `random_user_agent()` |
+| `gen4399.login` | `login()`、`LoginResult`（账号密码换登录 Cookie） |
 
 > `gen4399.constants` 是常量的**完整**出口：`UNIFIED_DROP_FIELDS`、`VERIFY_URL`
 > 这类实现细节只在这里（以及 `gen4399.submit`）导出，不占顶层命名空间。
@@ -215,6 +216,29 @@ repr(acc)                                 # 密码打码，可安全写日志
 > 4399 没有密码校验接口，只有注册提交时才校验（2.1.0 起可显式提交，见
 > [提交注册（web / unified，2.4.0）](#提交注册web--unified240)）。
 > 密码侧只能保证通过公开规则（本库 `validate()` 在本地保证）。
+
+## 登录（2.10.0）
+
+拿账号密码换登录 Cookie，用来确认「这个号真的能登」：
+
+```python
+from gen4399 import login
+
+r = login("myaccount", "mypassword")
+r.ok          # True
+r.kind        # 'success' / 'rejected' / 'captcha' / 'unknown'
+r.cookies     # ('Pauth', 'Uauth', 'Xauth', ...)，只有名字
+```
+
+```bash
+gen4399 login myaccount --password 'mypassword'   # 不给 --password 会交互输入
+python scripts/make_account.py --yes --verify-login   # 注册完自动登录复核
+```
+
+协议：`POST https://ptlogin.4399.com/ptlogin/login.do?v=1`，
+body 只有 `appId` / `username` / `password`（AES）/ `sec=1`。
+**不要**把 `loginFrame.do` 的全套隐藏域一起回传——实测那样会拿到空白
+「4399提示」页（和注册路径是同一个坑）。失败时返回 `<div id="Msg">密码错误</div>`。
 
 ## 注册表单（字段定义 + 本地校验）
 

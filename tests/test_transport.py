@@ -234,3 +234,64 @@ class TestStickyAndThreadSafety(unittest.TestCase):
         self.assertEqual(len(results), 100)
         counts = {p: results.count(p) for p in set(results)}
         self.assertEqual(set(counts.values()), {25})
+
+
+class TestProxyHealthCheck(unittest.TestCase):
+    """verify_proxy：坏的代理自动跳过，全坏则抛 ProxyError。"""
+
+    class FakeSession:
+        alive: dict = {}
+        made: list = []
+
+        def __init__(self, *, timeout=0, policy=None, referer=None,
+                     user_agent=None, proxy=None):
+            self.proxy = proxy
+            TestProxyHealthCheck.FakeSession.made.append(proxy)
+            self.cookies = {}
+
+        def get(self, url):
+            from gen4399.remote import RemoteError
+
+            if not TestProxyHealthCheck.FakeSession.alive.get(self.proxy, True):
+                raise RemoteError("dead")
+            return mock.Mock(body="ok")
+
+    def setUp(self):
+        self.FakeSession_made = self.FakeSession.made = []
+        self.FakeSession.alive = {}
+
+    def _patch(self):
+        return mock.patch(
+            "gen4399.transport._http.RemoteSession", self.FakeSession
+        )
+
+    def test_dead_proxy_skipped(self):
+        self.FakeSession.alive = {"http://1.1.1.1:80": False, "http://2.2.2.2:80": True}
+        pool = ProxyPool(["1.1.1.1:80", "2.2.2.2:80"])
+        opts = TransportOptions(proxy_pool=pool, verify_proxy=True)
+        with self._patch():
+            session = opts.new_session()
+        self.assertEqual(session.proxy, "http://2.2.2.2:80")
+
+    def test_all_dead_raises(self):
+        from gen4399.proxy import ProxyError
+
+        self.FakeSession.alive = {"http://1.1.1.1:80": False, "http://2.2.2.2:80": False}
+        pool = ProxyPool(["1.1.1.1:80", "2.2.2.2:80"])
+        opts = TransportOptions(proxy_pool=pool, verify_proxy=True)
+        with self._patch():
+            with self.assertRaises(ProxyError):
+                opts.new_session()
+
+    def test_no_check_by_default(self):
+        self.FakeSession.alive = {"http://1.1.1.1:80": False}
+        opts = TransportOptions(proxy="1.1.1.1:80")
+        with self._patch():
+            session = opts.new_session()
+        self.assertEqual(session.proxy, "http://1.1.1.1:80")
+
+    def test_direct_connection_not_probed(self):
+        opts = TransportOptions(verify_proxy=True)
+        with self._patch():
+            session = opts.new_session()
+        self.assertIsNone(session.proxy)

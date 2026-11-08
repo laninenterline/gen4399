@@ -217,6 +217,7 @@ def _build_transport(args, *, timeout, policy):
         timeout=timeout,
         retry_policy=policy,
         sticky=bool(getattr(args, "proxy_sticky", False)),
+        verify_proxy=bool(getattr(args, "proxy_check", False)),
     )
 
 
@@ -812,6 +813,51 @@ def _cmd_check_available(args) -> int:
     return 0 if res.available else 1
 
 
+def _cmd_login(args) -> int:
+    """gen4399 login：用账号密码登录，打印结果与 Cookie 名。"""
+    import getpass
+
+    from .login import login as do_login
+
+    timeout = DEFAULT_TIMEOUT if args.timeout is None else args.timeout
+    try:
+        policy = _retry_policy(args)
+        transport = _build_transport(args, timeout=timeout, policy=policy)
+    except (Gen4399Error, TypeError, ValueError, OSError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+
+    password = args.password
+    if not password:
+        try:
+            password = getpass.getpass("4399 密码（不回显）：")
+        except EOFError:
+            print("错误：没有读到密码", file=sys.stderr)
+            return 2
+
+    try:
+        result = do_login(
+            args.username,
+            password,
+            app_id=args.app_id or DEFAULT_APP_ID,
+            timeout=timeout,
+            retry_policy=policy,
+            transport=transport,
+        )
+    except (Gen4399Error, TypeError, ValueError, OSError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        _emit_json(result.to_dict())
+    elif result.ok:
+        print(f"OK: 登录成功 {result.username}")
+        print(f"  说明: {result.message}")
+    else:
+        print(f"FAIL[{result.kind}]: {result.username} → {result.message}")
+    return 0 if result.ok else 1
+
+
 def _cmd_fetch(args) -> int:
     if _offline(args):
         print("错误：--fetch-username 需要联网，不能与 --offline/--no-verify 同用",
@@ -928,7 +974,7 @@ def _cmd_generate(args) -> int:
 # ---------------------------------------------------------------------------
 
 _SUBCOMMANDS = {
-    "generate", "check", "account", "fetch", "available",
+    "generate", "check", "account", "fetch", "available", "login",
     "form", "prepare", "submit", "profile", "rules", "version",
 }
 
@@ -994,6 +1040,8 @@ def _add_transport_opts(sp: argparse.ArgumentParser) -> None:
                     help="每个会话随机生成浏览器 User-Agent")
     sp.add_argument("--proxy-sticky", action="store_true",
                     help="粘住代理池里的第一个代理（查重+提交用同一个 IP）")
+    sp.add_argument("--proxy-check", action="store_true",
+                    help="建会话前先探活代理，坏的自动换下一个")
 
 
 def _add_io_opts(sp: argparse.ArgumentParser) -> None:
@@ -1071,6 +1119,15 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
     f.add_argument("--offline", action="store_true")
     _add_io_opts(f)
     _add_remote_opts(f)
+
+    lg = new("login", "用账号密码登录 4399（换登录 Cookie）")
+    lg.add_argument("username")
+    lg.add_argument("--password", default=None, metavar="PWD",
+                    help="明文密码；不给则从终端交互输入（不回显）")
+    lg.add_argument("--app-id", default=None, metavar="APPID")
+    _add_io_opts(lg)
+    _add_remote_opts(lg)
+    _add_transport_opts(lg)
 
     v = new("available", "查询用户名是否可注册")
     v.add_argument("name")
@@ -1224,6 +1281,8 @@ def _normalize_subcommand(args) -> None:
         args.prepare = True
     elif cmd == "submit":
         args.submit = True
+    elif cmd == "login":
+        args.login_cmd = True
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1261,6 +1320,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_check_form(args)
     if getattr(args, "submit", False):
         return _cmd_submit(args)
+    if getattr(args, "login_cmd", False):
+        return _cmd_login(args)
     if args.prepare:
         return _cmd_prepare(args)
     if args.build_form is not None:

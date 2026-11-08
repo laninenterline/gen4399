@@ -2,6 +2,30 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.10.0] - 2026-11-08
+
+### 新增
+
+- **登录能力**（`gen4399.login`）：`login(username, password)` 走
+  `POST /ptlogin/login.do?v=1`，body 只发 `appId/username/password(AES)/sec=1`，
+  成功时拿回 `Pauth/Uauth/Xauth/...` 一组登录 Cookie；失败返回
+  `LoginResult(kind="rejected", message="密码错误")`。CLI 加了
+  `gen4399 login <账号> [--password]`（不给密码则交互输入、不回显）。
+- `make_account.py --verify-login`：注册成功后立刻登录一次，确认「号真的能用」，
+  结果写进 `--json` 输出的 `login` 字段。
+- **限流自动退避**：`submit_registration(..., throttle_retries=1, throttle_backoff=20)`
+  遇到 `kind="throttled"`（服务端 202 +「请稍后再试」）会自动等待重试，指数退避
+  （20s → 40s …）；这类响应确定没建号，重试是安全的。传 `throttle_retries=0` 关闭。
+- **代理健康检查**：`TransportOptions(verify_proxy=True)` / CLI `--proxy-check`，
+  建会话前先 GET 探活 `https://www.4399.com/`，坏代理自动换下一个；
+  代理池全不可用时抛 `ProxyError`。
+
+### 实测
+
+- `login("vjjglf4d7jv1", ...)` → `success`，8 个登录 Cookie；
+  错密码 → `rejected`「密码错误」。
+- `make_account.py --verify-login` 一次跑通：注册账号 `h6hm1cihpviu` 后登录复核 OK。
+
 ## [2.9.0] - 2026-11-08
 
 ### 变更（公共 API 收敛）

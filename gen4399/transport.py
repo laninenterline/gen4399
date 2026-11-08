@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .proxy import ProxyPool, normalize_proxy
-from .remote import DEFAULT_TIMEOUT, RetryPolicy, _http
+from .proxy import ProxyError, ProxyPool, normalize_proxy
+from .remote import DEFAULT_TIMEOUT, RemoteError, RetryPolicy, _http
 from .ua import random_user_agent
 
 __all__ = ["TransportOptions", "build_transport"]
@@ -33,6 +33,9 @@ class TransportOptions:
         retry_policy: GET 重试策略（POST 永远单次）。
         sticky: 是否「粘住」第一个代理——整个注册流程（查重 + 提交）用同一个 IP。
             默认 False（每次 :meth:`new_session` 轮换）。
+        verify_proxy: 建会话前先探活代理（GET ``verify_url``），坏的自动跳过；
+            代理池里全不可用时抛 :class:`ProxyError`。
+        verify_url: 探活用的地址，默认 4399 首页（轻量、同域）。
     """
 
     timeout: float = DEFAULT_TIMEOUT
@@ -41,6 +44,8 @@ class TransportOptions:
     random_user_agent: bool = False
     retry_policy: RetryPolicy | None = None
     sticky: bool = False
+    verify_proxy: bool = False
+    verify_url: str = "https://www.4399.com/"
 
     def __post_init__(self) -> None:
         if not isinstance(self.timeout, (int, float)) or isinstance(self.timeout, bool):
@@ -75,17 +80,48 @@ class TransportOptions:
         """清掉 sticky 缓存（下次 :meth:`pick_proxy` 会重新选一个代理）。"""
         self._sticky_slot[0] = None
 
-    def new_session(self, *, referer: str | None = None) -> "_http.RemoteSession":
-        """按配置创建一个新的 :class:`RemoteSession`。"""
+    def _make_session(self, proxy: str | None, referer: str | None):
         kwargs = {
             "timeout": self.timeout,
             "policy": self.retry_policy,
-            "proxy": self.pick_proxy(),
+            "proxy": proxy,
             "user_agent": random_user_agent() if self.random_user_agent else None,
         }
         if referer is not None:
             kwargs["referer"] = referer
         return _http.RemoteSession(**kwargs)
+
+    def _probe(self, session) -> bool:
+        try:
+            session.get(self.verify_url)
+            return True
+        except RemoteError:
+            return False
+
+    def new_session(self, *, referer: str | None = None) -> "_http.RemoteSession":
+        """按配置创建一个新的 :class:`RemoteSession`。
+
+        开了 ``verify_proxy`` 时会先探活；代理不可用就换下一个（池里的每个最多
+        试一次），全都不通抛 :class:`ProxyError`。
+        """
+        proxy = self.pick_proxy()
+        session = self._make_session(proxy, referer)
+        if not self.verify_proxy or proxy is None:
+            return session
+
+        tries = len(self.proxy_pool) if self.proxy_pool is not None else 1
+        for attempt in range(max(1, tries)):
+            if self._probe(session):
+                return session
+            if self.proxy_pool is None:
+                break
+            if self.sticky:
+                self.reset_sticky()
+            proxy = self.pick_proxy()
+            session = self._make_session(proxy, referer)
+        raise ProxyError(
+            f"代理不可用（已尝试 {max(1, tries)} 个，探活地址 {self.verify_url}）"
+        )
 
 
 def build_transport(
@@ -97,6 +133,7 @@ def build_transport(
     timeout: float = DEFAULT_TIMEOUT,
     retry_policy: RetryPolicy | None = None,
     sticky: bool = False,
+    verify_proxy: bool = False,
 ) -> TransportOptions | None:
     """按「命令行式」参数拼一个 :class:`TransportOptions`。
 
@@ -126,4 +163,5 @@ def build_transport(
         random_user_agent=random_user_agent,
         retry_policy=retry_policy,
         sticky=sticky,
+        verify_proxy=verify_proxy,
     )

@@ -466,7 +466,7 @@ class TestClassify(SubmitTestBase):
 
     def test_throttled(self):
         FakeSession.post_response = response(THROTTLE_HTML, status=202)
-        result = submit_registration(self.bundle)
+        result = submit_registration(self.bundle, throttle_retries=0)
         self.assertEqual(result.kind, "throttled")
         self.assertFalse(result.ok)
         self.assertIn("限流", result.message)
@@ -751,3 +751,79 @@ class TestMaskProxy(unittest.TestCase):
             app_id="", proxy="http://***@1.2.3.4:8080",
         )
         self.assertEqual(r.to_dict()["proxy"], "http://***@1.2.3.4:8080")
+
+
+class ThrottleBackoffTest(SubmitTestBase):
+    """服务端限流（202）时的自动退避重试。"""
+
+    def setUp(self):
+        super().setUp()
+        self._responses = []
+        outer = self
+
+        class SeqSession(FakeSession):
+            def post(self, url, data):  # noqa: D401 - 测试替身
+                self.post_calls.append((url, dict(data)))
+                resp = outer._responses.pop(0)
+                if isinstance(resp, Exception):
+                    raise resp
+                return resp
+
+        self.session_patch.stop()
+        self.session_patch = mock.patch(
+            "gen4399.submit._http.RemoteSession", SeqSession
+        )
+        self.session_patch.start()
+        self.addCleanup(self.session_patch.stop)
+
+    def test_retry_then_success(self):
+        self._responses = [
+            response(THROTTLE_HTML, status=202),
+            response(SUCCESS_HTML),
+        ]
+        with mock.patch("gen4399.submit.time.sleep") as sleep:
+            result = submit_registration(
+                self.bundle, throttle_retries=1, throttle_backoff=5.0
+            )
+        self.assertEqual(result.kind, "success")
+        sleep.assert_called_once_with(5.0)
+
+    def test_backoff_doubles(self):
+        self._responses = [
+            response(THROTTLE_HTML, status=202),
+            response(THROTTLE_HTML, status=202),
+            response(SUCCESS_HTML),
+        ]
+        with mock.patch("gen4399.submit.time.sleep") as sleep:
+            result = submit_registration(
+                self.bundle, throttle_retries=2, throttle_backoff=5.0
+            )
+        self.assertEqual(result.kind, "success")
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5.0, 10.0])
+
+    def test_exhausted_adds_note(self):
+        self._responses = [
+            response(THROTTLE_HTML, status=202),
+            response(THROTTLE_HTML, status=202),
+        ]
+        with mock.patch("gen4399.submit.time.sleep"):
+            result = submit_registration(
+                self.bundle, throttle_retries=1, throttle_backoff=0.0
+            )
+        self.assertEqual(result.kind, "throttled")
+        self.assertIn("已自动退避重试 1 次", result.message)
+
+    def test_zero_retries_no_sleep(self):
+        self._responses = [response(THROTTLE_HTML, status=202)]
+        with mock.patch("gen4399.submit.time.sleep") as sleep:
+            result = submit_registration(self.bundle, throttle_retries=0)
+        self.assertEqual(result.kind, "throttled")
+        sleep.assert_not_called()
+
+    def test_invalid_retry_args(self):
+        with self.assertRaises(TypeError):
+            submit_registration(self.bundle, throttle_retries="1")  # type: ignore[arg-type]
+        with self.assertRaises(ValueError):
+            submit_registration(self.bundle, throttle_retries=-1)
+        with self.assertRaises(ValueError):
+            submit_registration(self.bundle, throttle_backoff=-1.0)

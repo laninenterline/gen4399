@@ -787,6 +787,8 @@ def submit_registration(
     captcha_attempts: int = 3,
     verify: bool = True,
     transport: "TransportOptions | None" = None,
+    throttle_retries: int = 1,
+    throttle_backoff: float = 20.0,
 ) -> SubmitResult:
     """把准备好的注册数据真正提交到 4399（支持 ``web`` / ``unified``）。
 
@@ -814,6 +816,10 @@ def submit_registration(
             web 路径服务端返回 ``code=200`` 时调用；不传则直接返回
             ``kind="captcha"``。本库不内置破解，需调用方接入人工/OCR。
         captcha_attempts: 验证码最多重试轮数（含重新取图），必须 >= 1。
+        throttle_retries: 遇到 `kind="throttled"`（服务端 202 +「请稍后再试」）时
+            额外重试几次，默认 1。这类响应**确定没有建号**，重试是安全的；
+            传 0 关闭自动退避。
+        throttle_backoff: 首次退避秒数，之后按 2 倍递增（默认 20 秒）。
 
     Returns:
         :class:`SubmitResult`；``.kind == "success"`` 表示（可判定为）成功。
@@ -834,7 +840,68 @@ def submit_registration(
     _validate_args(
         bundle, app_id, level, timeout, captcha, captcha_attempts, transport
     )
+    for name, value in (
+        ("throttle_retries", throttle_retries),
+        ("throttle_backoff", throttle_backoff),
+    ):
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise TypeError(f"{name} 必须是数字")
+        if value < 0:
+            raise ValueError(f"{name} 不能为负")
+    if not isinstance(throttle_retries, int):
+        raise TypeError("throttle_retries 必须是 int")
+
     started = time.monotonic()
+    total_attempts = throttle_retries + 1
+    for attempt in range(total_attempts):
+        result = _submit_once(
+            bundle,
+            app_id=app_id,
+            level=level,
+            timeout=timeout,
+            dry_run=dry_run,
+            retry_policy=retry_policy,
+            started=started,
+            on_response=on_response,
+            captcha=captcha,
+            captcha_attempts=captcha_attempts,
+            verify=verify,
+            transport=transport,
+        )
+        if result.kind != "throttled" or attempt == total_attempts - 1:
+            if attempt:
+                result = _with_throttle_note(result, attempt)
+            return result
+        delay = throttle_backoff * (2 ** attempt)
+        time.sleep(delay)
+
+
+def _with_throttle_note(result: SubmitResult, attempts: int) -> SubmitResult:
+    """在「限流后重试过」的结果上加一句说明（字段其余不变）。"""
+    from dataclasses import replace
+
+    return replace(
+        result,
+        message=f"{result.message}（已自动退避重试 {attempts} 次）",
+    )
+
+
+def _submit_once(
+    bundle: RegistrationBundle,
+    *,
+    app_id: str,
+    level: int,
+    timeout: float,
+    dry_run: bool,
+    retry_policy: RetryPolicy | None,
+    started: float,
+    on_response: ResponseHook | None,
+    captcha: CaptchaSolver | None,
+    captcha_attempts: int,
+    verify: bool,
+    transport: "TransportOptions | None",
+) -> SubmitResult:
+    """按路径提交一次（不含限流退避）。"""
     if bundle.path == "web":
         return _submit_web(
             bundle,

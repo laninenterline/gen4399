@@ -71,6 +71,7 @@ from .forms import (
     validate_qq,
     validate_realname,
 )
+from .login import LoginResult, login
 from .registration import (
     RegistrationBundle,
     RegistrationError,
@@ -147,7 +148,7 @@ from .core import (
     validate_username,
 )
 
-__version__ = "2.9.0"
+__version__ = "2.10.0"
 
 __all__ = [
     # ---- 核心：日常只需要这些 ----
@@ -174,6 +175,8 @@ __all__ = [
     "submit_registration",
     "SubmitResult",
     "SubmitError",
+    "login",
+    "LoginResult",
     "CaptchaSolver",
     "CaptchaSolverError",
     # 远程

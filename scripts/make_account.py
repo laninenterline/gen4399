@@ -117,6 +117,10 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="每个会话随机生成浏览器 User-Agent")
     p.add_argument("--proxy-sticky", action="store_true",
                    help="粘住代理池里的第一个代理（查重+提交用同一个 IP）")
+    p.add_argument("--proxy-check", action="store_true",
+                   help="建会话前先探活代理，坏的自动换下一个")
+    p.add_argument("--verify-login", action="store_true",
+                   help="注册成功后立刻用账号密码登录一次，确认号真的能用")
     p.add_argument("--captcha-attempts", type=int, default=3, metavar="N",
                    help="验证码最多重试轮数，默认 3")
     p.add_argument("--output", default="accounts.json", metavar="FILE",
@@ -143,6 +147,7 @@ def _build_transport(args, *, timeout, policy):
         timeout=timeout,
         retry_policy=policy,
         sticky=args.proxy_sticky,
+        verify_proxy=args.proxy_check,
     )
 
 
@@ -356,6 +361,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"错误：{exc}", file=sys.stderr)
         return 2
 
+    login_check = None
+    if args.verify_login and result.ok:
+        from gen4399.login import login as do_login
+
+        try:
+            login_check = do_login(
+                bundle.username,
+                bundle.password,
+                app_id=args.app_id,
+                timeout=args.timeout,
+                transport=transport,
+            )
+        except Gen4399Error as exc:
+            print(f"# 警告：登录复核失败：{exc}", file=sys.stderr)
     if args.diagnose:
         if "response" in captured:
             _diagnose_response(captured["response"], bundle, args.response_file)
@@ -367,6 +386,7 @@ def main(argv: list[str] | None = None) -> int:
             "result": result.to_dict(),
             "username": bundle.username,
             "password": None if result.kind == "dry_run" else bundle.password,
+            "login": None if login_check is None else login_check.to_dict(),
         }
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
@@ -374,6 +394,11 @@ def main(argv: list[str] | None = None) -> int:
             result, bundle, show_credentials=True, output_path=args.output
         )
         print(f"  身份证: {bundle.masked_idcard()}")
+        if login_check is not None:
+            if login_check.ok:
+                print(f"  登录复核: OK（{len(login_check.cookies)} 个登录 Cookie）")
+            else:
+                print(f"  登录复核: FAIL[{login_check.kind}] {login_check.message}")
 
     if result.kind in ("success", "unknown"):
         try:

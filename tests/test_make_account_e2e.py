@@ -161,6 +161,9 @@ class MakeAccountE2E(unittest.TestCase):
         self.assertNotIn(saved[0]["password"], content)
 
     def test_throttled_does_not_save_account(self):
+        sleep = mock.patch("gen4399.submit.time.sleep")
+        sleep.start()
+        self.addCleanup(sleep.stop)
         # 限流（202 + 请稍后再试）→ kind=throttled，肯定没建号，不写 accounts.json
         FakeSession.unified_post_body = (
             "<html><head><title>4399提示</title></head>"
