@@ -52,6 +52,14 @@ int g4399_recognize_unified(const uint32_t *argb, int width, int height, char *o
 /** 传 150×45 的 ARGB 像素，成功时 out 写入 4 个字符；返回 1 成功 */
 int g4399_recognize_web(const uint32_t *argb, int width, int height, char *out);
 
+/* ---------- 自学习字库（web） ---------- */
+/** 用服务端已确认的验证码扩充字库；返回加入的字形数 */
+int g4399_learn_web(const uint32_t *argb, int width, int height, const char *code);
+/** 读取/保存用户字库（每行 `字符\t打包点集`） */
+int g4399_web_bank_load(const char *path);
+int g4399_web_bank_save(const char *path);
+int g4399_web_bank_count(void);
+
 /* ---------- HTTP ---------- */
 typedef struct g4399_session g4399_session;
 

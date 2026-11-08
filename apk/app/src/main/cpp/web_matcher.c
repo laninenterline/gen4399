@@ -303,6 +303,96 @@ static float chamfer(const point *pts, int count, const int16_t *map)
     return (float)total / (float)count;
 }
 
+/* ---------------- 自学习字库（用户运行时确认过的样本） ---------------- */
+
+#define DYN_MAX_CHARS 128
+#define DYN_MAX_PER_CHAR 64
+#define DYN_MAX_PTS 512
+
+typedef struct {
+    char ch;
+    int count;                              /* 已有样本数 */
+    point samples[DYN_MAX_PER_CHAR][DYN_MAX_PTS];
+    int lengths[DYN_MAX_PER_CHAR];
+} dyn_entry;
+
+static dyn_entry g_dyn[DYN_MAX_CHARS];
+static int g_dyn_count = 0;
+
+static dyn_entry *dyn_find(char ch)
+{
+    for (int i = 0; i < g_dyn_count; i++) {
+        if (g_dyn[i].ch == ch) return &g_dyn[i];
+    }
+    if (g_dyn_count >= DYN_MAX_CHARS) return NULL;
+    dyn_entry *entry = &g_dyn[g_dyn_count++];
+    memset(entry, 0, sizeof(*entry));
+    entry->ch = ch;
+    return entry;
+}
+
+int g4399_web_bank_count(void)
+{
+    int total = 0;
+    for (int i = 0; i < g_dyn_count; i++) total += g_dyn[i].count;
+    return total;
+}
+
+int g4399_web_bank_add(char ch, const point *points, int count)
+{
+    if (!points || count <= 0 || count > DYN_MAX_PTS) return 0;
+    dyn_entry *entry = dyn_find(ch);
+    if (!entry) return 0;
+    if (entry->count >= DYN_MAX_PER_CHAR) return 0;   /* 单字样本上限，避免无限膨胀 */
+    memcpy(entry->samples[entry->count], points, sizeof(point) * (size_t)count);
+    entry->lengths[entry->count] = count;
+    entry->count++;
+    return 1;
+}
+
+/** 存盘：每行 `字符\t打包点集` */
+int g4399_web_bank_save(const char *path)
+{
+    if (!path) return 0;
+    ensure_pack();
+    FILE *fp = fopen(path, "w");
+    if (!fp) return 0;
+    int written = 0;
+    for (int i = 0; i < g_dyn_count; i++) {
+        for (int j = 0; j < g_dyn[i].count; j++) {
+            fprintf(fp, "%c\t", g_dyn[i].ch);
+            for (int k = 0; k < g_dyn[i].lengths[j]; k++) {
+                fputc(PACK[g_dyn[i].samples[j][k].x & 63], fp);
+                fputc(PACK[g_dyn[i].samples[j][k].y & 63], fp);
+            }
+            fputc('\n', fp);
+            written++;
+        }
+    }
+    fclose(fp);
+    return written;
+}
+
+int g4399_web_bank_load(const char *path)
+{
+    if (!path) return 0;
+    ensure_pack();
+    FILE *fp = fopen(path, "r");
+    if (!fp) return 0;
+    char line[4096];
+    int loaded = 0;
+    while (fgets(line, sizeof(line), fp)) {
+        size_t len = strlen(line);
+        while (len && (line[len - 1] == '\n' || line[len - 1] == '\r')) line[--len] = '\0';
+        if (len < 3 || line[1] != '\t') continue;
+        point pts[DYN_MAX_PTS];
+        int count = unpack(line + 2, pts, DYN_MAX_PTS);
+        if (count > 0 && g4399_web_bank_add(line[0], pts, count)) loaded++;
+    }
+    fclose(fp);
+    return loaded;
+}
+
 static const int SHIFT_X[5] = {0, 1, -1, 0, 0};
 static const int SHIFT_Y[5] = {0, 0, 0, 1, -1};
 
@@ -316,11 +406,35 @@ static char match_glyph(const point *query, int query_count, float *best_distanc
     char best_ch = '?';
     float best = 99.0f;
 
-    for (int c = 0; c < WEB_BANK_CHARS; c++) {
-        const web_bank_entry *entry = &web_bank[c];
-        for (int s = 0; s < entry->count; s++) {
+    for (int c = 0; c < WEB_BANK_CHARS + g_dyn_count; c++) {
+        const char *sample_text = NULL;
+        const point *dyn_points = NULL;
+        int dyn_count = 0;
+        char entry_ch = '?';
+        int samples = 0;
+
+        if (c < WEB_BANK_CHARS) {
+            entry_ch = web_bank[c].ch;
+            samples = web_bank[c].count;
+        } else {
+            const dyn_entry *d = &g_dyn[c - WEB_BANK_CHARS];
+            entry_ch = d->ch;
+            samples = d->count;
+        }
+
+        for (int s = 0; s < samples; s++) {
             point base[MAX_PTS];
-            int base_count = unpack(entry->samples[s], base, MAX_PTS);
+            int base_count = 0;
+            if (c < WEB_BANK_CHARS) {
+                sample_text = web_bank[c].samples[s];
+                base_count = unpack(sample_text, base, MAX_PTS);
+            } else {
+                const dyn_entry *d = &g_dyn[c - WEB_BANK_CHARS];
+                dyn_points = d->samples[s];
+                dyn_count = d->lengths[s];
+                base_count = dyn_count;
+                memcpy(base, dyn_points, sizeof(point) * (size_t)dyn_count);
+            }
             if (base_count <= 0) continue;
             for (int v = 0; v < 5; v++) {
                 point variant[MAX_PTS];
@@ -341,12 +455,40 @@ static char match_glyph(const point *query, int query_count, float *best_distanc
                 /* 与 Python 一致：variant→查询的距离图 + 查询→variant 的距离图 */
                 float d = (chamfer(variant, count, query_map) +
                            chamfer(query, query_count, variant_map)) / 2.0f;
-                if (d < best) { best = d; best_ch = entry->ch; }
+                if (d < best) { best = d; best_ch = entry_ch; }
             }
         }
     }
     if (best_distance) *best_distance = best;
     return best_ch;
+}
+
+/**
+ * 用一张**已被服务端确认正确**的验证码来扩充字库。
+ * code 必须是 4 个字符；返回实际加入的字形数（0~4）。
+ */
+int g4399_learn_web(const uint32_t *argb, int width, int height, const char *code)
+{
+    if (!argb || !code || strlen(code) != 4) return 0;
+    if (width != 150 || height != 45) return 0;
+
+    bitmap bmp;
+    if (!bitmap_from_argb(argb, width, height, &bmp)) return 0;
+
+    span spans[MAX_SPANS];
+    int count = build_spans(&bmp, spans, MAX_SPANS);
+    count = force_four(&bmp, spans, count);
+    if (count != 4) { bitmap_free(&bmp); return 0; }
+
+    int added = 0;
+    for (int i = 0; i < 4; i++) {
+        point glyph[MAX_PTS];
+        int glyph_count = normalize_glyph(&bmp, spans[i].x0, spans[i].x1, glyph, MAX_PTS);
+        if (glyph_count <= 0) continue;
+        if (g4399_web_bank_add(code[i], glyph, glyph_count)) added++;
+    }
+    bitmap_free(&bmp);
+    return added;
 }
 
 /**

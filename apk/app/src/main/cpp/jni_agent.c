@@ -16,6 +16,7 @@ typedef struct {
     jmethodID captcha;
     jmethodID fetch_binary;
     jmethodID account_start;
+    jmethodID captcha_feedback;
 } jni_ctx;
 
 static const char *to_c(JNIEnv *env, jstring value)
@@ -145,6 +146,17 @@ static unsigned char *jni_fetch_binary(void *ctx, const char *url,
     return buffer;
 }
 
+static void jni_captcha_feedback(void *ctx, const char *code, int passed)
+{
+    jni_ctx *j = (jni_ctx *)ctx;
+    JNIEnv *env = j->env;
+    if (!j->captcha_feedback) return;
+    jstring j_code = (*env)->NewStringUTF(env, code ? code : "");
+    (*env)->CallVoidMethod(env, j->callback, j->captcha_feedback, j_code, (jboolean)(passed ? JNI_TRUE : JNI_FALSE));
+    (*env)->DeleteLocalRef(env, j_code);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+}
+
 static void jni_account_start(void *ctx, int index)
 {
     jni_ctx *j = (jni_ctx *)ctx;
@@ -197,7 +209,9 @@ Java_io_gen4399_app_Native_runBatch(JNIEnv *env, jobject thiz, jstring identitie
     ctx.fetch_binary = (*env)->GetMethodID(env, cls, "fetchBinary",
         "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/Object;");
     ctx.account_start = (*env)->GetMethodID(env, cls, "onAccountStart", "(I)V");
-    if (!ctx.transport || !ctx.progress || !ctx.captcha || !ctx.fetch_binary || !ctx.account_start) return -1;
+    ctx.captcha_feedback = (*env)->GetMethodID(env, cls, "onCaptchaResult",
+        "(Ljava/lang/String;Z)V");
+    if (!ctx.transport || !ctx.progress || !ctx.captcha || !ctx.fetch_binary || !ctx.account_start || !ctx.captcha_feedback) return -1;
 
     const char *c_ids = to_c(env, identities);
     const char *c_path = to_c(env, path);
@@ -223,6 +237,7 @@ Java_io_gen4399_app_Native_runBatch(JNIEnv *env, jobject thiz, jstring identitie
     hooks.progress = jni_progress;
     hooks.fetch_binary = jni_fetch_binary;
     hooks.captcha = jni_captcha;
+    hooks.captcha_feedback = jni_captcha_feedback;
     hooks.account_start = jni_account_start;
     hooks.log = NULL;
 

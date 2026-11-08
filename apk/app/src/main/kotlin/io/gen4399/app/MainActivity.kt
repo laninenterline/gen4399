@@ -44,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -119,9 +120,15 @@ fun App() {
     var atEof by remember { mutableStateOf(true) }
     var pageIndex by remember { mutableStateOf(0) }
     val prefs = remember { context.getSharedPreferences("gen4399", android.content.Context.MODE_PRIVATE) }
+    val bankPath = remember { java.io.File(context.filesDir, "web_captcha_bank.txt").absolutePath }
 
     fun appendLog(line: String) {
         logText = (logText + line + "\n").takeLast(4000)
+    }
+
+    LaunchedEffect(Unit) {
+        val loaded = runCatching { Native.loadWebBank(bankPath) }.getOrDefault(0)
+        if (loaded > 0) appendLog("已加载自学习字库 $loaded 条")
     }
 
     fun parseSfz(text: String) {
@@ -238,6 +245,15 @@ fun App() {
 
             override fun fetchBinary(url: String, cookieHeader: String, referer: String): Array<Any> =
                 HttpTransport.fetchBytes(url, cookieHeader, referer)
+
+            override fun onCaptchaResult(code: String, passed: Boolean) {
+                if (!passed) return
+                val added = CaptchaAuto.learnIfConfirmed(code)
+                if (added > 0) {
+                    val saved = Native.saveWebBank(bankPath)
+                    scope.launch { appendLog("自学习：$code 新增 $added 个字形（已存 $saved 条）") }
+                }
+            }
 
             override fun onAccountStart(index: Int) {
                 HttpTransport.beginAccount()

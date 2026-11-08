@@ -75,7 +75,7 @@ static char *fake_captcha(void *ctx, const unsigned char *image, int length)
 int main(void)
 {
     g4399_agent_hooks hooks = {NULL, fake_transport, fake_progress, fake_fetch_binary, fake_captcha,
-                               NULL, NULL};
+                               NULL, NULL, NULL};
     g4399_agent_config config = {"unified", 1, "", "", 0, 0, 1, 0, "u4399", 4};
 
     int success = g4399_agent_run("王五|110105198803121893\n", &config, &hooks);

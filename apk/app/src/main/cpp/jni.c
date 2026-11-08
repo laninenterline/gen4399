@@ -213,3 +213,47 @@ Java_io_gen4399_app_Native_randomUserAgent(JNIEnv *env, jobject thiz)
     g4399_random_user_agent(buffer, sizeof(buffer));
     return (*env)->NewStringUTF(env, buffer);
 }
+
+JNIEXPORT jint JNICALL
+Java_io_gen4399_app_Native_learnWeb(JNIEnv *env, jobject thiz, jintArray pixels,
+                                    jint width, jint height, jstring code)
+{
+    (void)thiz;
+    if (pixels == NULL || code == NULL) return 0;
+    if (width != 150 || height != 45) return 0;
+    jsize length = (*env)->GetArrayLength(env, pixels);
+    if (length < width * height) return 0;
+
+    const char *chars = (*env)->GetStringUTFChars(env, code, NULL);
+    if (!chars) return 0;
+    jint *raw = (*env)->GetIntArrayElements(env, pixels, NULL);
+    int added = 0;
+    if (raw != NULL) {
+        added = g4399_learn_web((const uint32_t *)raw, (int)width, (int)height, chars);
+        (*env)->ReleaseIntArrayElements(env, pixels, raw, JNI_ABORT);
+    }
+    (*env)->ReleaseStringUTFChars(env, code, chars);
+    return added;
+}
+
+JNIEXPORT jint JNICALL
+Java_io_gen4399_app_Native_loadWebBank(JNIEnv *env, jobject thiz, jstring path)
+{
+    (void)thiz;
+    if (path == NULL) return 0;
+    const char *chars = (*env)->GetStringUTFChars(env, path, NULL);
+    int loaded = chars ? g4399_web_bank_load(chars) : 0;
+    if (chars) (*env)->ReleaseStringUTFChars(env, path, chars);
+    return loaded;
+}
+
+JNIEXPORT jint JNICALL
+Java_io_gen4399_app_Native_saveWebBank(JNIEnv *env, jobject thiz, jstring path)
+{
+    (void)thiz;
+    if (path == NULL) return 0;
+    const char *chars = (*env)->GetStringUTFChars(env, path, NULL);
+    int saved = chars ? g4399_web_bank_save(chars) : 0;
+    if (chars) (*env)->ReleaseStringUTFChars(env, path, chars);
+    return saved;
+}

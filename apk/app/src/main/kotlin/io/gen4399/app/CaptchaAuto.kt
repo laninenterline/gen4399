@@ -10,6 +10,20 @@ import android.graphics.BitmapFactory
  * web 的 150×45 字形完全不同，仍需人工/字库。
  */
 object CaptchaAuto {
+    /** 最近一次 web 验证码的像素与识别结果（服务端确认后拿去学习） */
+    private var lastPixels: IntArray? = null
+    private var lastCode: String? = null
+    private var lastWidth = 0
+    private var lastHeight = 0
+
+    /** 服务端确认识别正确 → 把这几个字形加进字库 */
+    fun learnIfConfirmed(code: String): Int {
+        if (lastCode == null || lastCode != code) return 0
+        val pixels = lastPixels ?: return 0
+        if (lastWidth != WEB_W || lastHeight != WEB_H) return 0
+        return runCatching { Native.learnWeb(pixels, lastWidth, lastHeight, code) }.getOrDefault(0)
+    }
+
     private const val UNIFIED_W = 60
     private const val UNIFIED_H = 30
     private const val WEB_W = 150
@@ -39,7 +53,15 @@ object CaptchaAuto {
             val pixels = IntArray(WEB_W * WEB_H)
             bitmap.getPixels(pixels, 0, WEB_W, 0, 0, WEB_W, WEB_H)
             val code = Native.recognizeWeb(pixels, WEB_W, WEB_H)
-            if (code != null && code.length == 4 && '?' !in code) code else null
+            if (code != null && code.length == 4 && '?' !in code) {
+                lastPixels = pixels
+                lastCode = code
+                lastWidth = WEB_W
+                lastHeight = WEB_H
+                code
+            } else {
+                null
+            }
         }.getOrNull()
     }
 

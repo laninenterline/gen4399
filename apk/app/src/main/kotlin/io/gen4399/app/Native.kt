@@ -40,6 +40,9 @@ object Native {
             message: String,
         )
 
+        /** 验证码校验结果（passed=true 表示服务端认了这次识别，可用于自学习） */
+        fun onCaptchaResult(code: String, passed: Boolean) {}
+
         /** 每个账号开始时（可在这里切换代理/UA） */
         fun onAccountStart(index: Int) {}
 
@@ -97,4 +100,11 @@ object Native {
 
     /** web 150×45 验证码识别（骨架 + 字库） */
     external fun recognizeWeb(pixels: IntArray, width: Int, height: Int): String?
+
+    /** 用服务端确认过的验证码扩充字库，返回加入的字形数 */
+    external fun learnWeb(pixels: IntArray, width: Int, height: Int, code: String): Int
+
+    /** 用户字库读写 */
+    external fun loadWebBank(path: String): Int
+    external fun saveWebBank(path: String): Int
 }

@@ -66,6 +66,9 @@ magick art/icon-source.jpg -gravity center -crop 808x808+0+0 +repage art/icon-sq
 
 图片解码交给平台（`BitmapFactory`），识别全在 C，零外部依赖。
 
+**自学习**：服务端 `verifyCode` 认了之后，这张图的 4 个字形会加进用户字库
+（`filesDir/web_captcha_bank.txt`），越用越准；只学服务端确认过的样本。
+
 ## 大文件与断点续跑
 
 25MB 的 `sfz.txt` 有 80 多万行，不可能一次读进内存：

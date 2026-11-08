@@ -470,6 +470,7 @@ static void run_web(const g4399_agent_hooks *hooks, cookie_jar *jar, const ident
         free(verify.data);
         int passed = verified.body && strstr(verified.body, "\"state\":true") != NULL;
         free(verified.body);
+        if (hooks->captcha_feedback) hooks->captcha_feedback(hooks->ctx, code, passed);
         if (!passed) {
             free(code);
             continue;
