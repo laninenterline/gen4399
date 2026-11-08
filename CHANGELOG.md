@@ -2,6 +2,28 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.13.0] - 2026-11-08
+
+### 改进
+
+- **APK 全部逻辑下沉到 native**：新增 `ports/c/src/agent.c`（C 批量编排）
+  - 身份解析、账号生成（含前后缀）、Cookie 罐、unified/web 两条通道、
+    验证码重试、间隔等待、结果判定 —— 全在 C
+  - `Native.runBatch(identities, path, count, prefix, suffix, intervalSec,
+    dryRun, sendRealname, callback)` 一次性把整批交给 C
+  - `jni_agent.c` 把 Kotlin 的 `Callback` 适配成 C 的 hooks
+    （`transport` / `askCaptcha` / `onProgress`）
+- Kotlin 侧删掉 `Protocol.kt`（原编排与协议代码），只保留：
+  `HttpTransport.kt`（发 HTTP —— Android 只有平台层有 TLS，C 侧无可链接的 TLS 库）、
+  `Rules.kt`（校验薄封装）、`Model.kt`、`MainActivity.kt`（Compose 展示 + 验证码弹窗）
+- `libgen4399.so` 44KB，导出 `Java_io_gen4399_app_Native_runBatch`
+
+### 测试
+
+- 新增 `ports/c/src/agent_selftest.c`（主机侧、假 transport）：
+  表单 → 要求验证码 → 带 `inputCaptcha` 重试 → 判定 success；
+  dry-run 只发一次 GET。`make test` 一并跑。
+
 ## [3.12.0] - 2026-11-08
 
 ### 改进

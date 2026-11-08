@@ -7,7 +7,9 @@ add_library(gen4399 SHARED
     ./crypto_self.c
     ./rules.c
     ./payload.c
+    ./agent.c
     ./jni.c
+    ./jni_agent.c
 )
 
 target_include_directories(gen4399 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

@@ -159,33 +159,63 @@ fun App() {
         running = true
         progress = 0f
         results.clear()
+        val sfz = identities.joinToString("\n") { "${it.name}|${it.idcard}|${it.qq}" }
         appendLog("开始：${minOf(settings.count, identities.size)} 个账号，通道 ${settings.channel}，dry-run=${settings.dryRun}")
-        scope.launch {
-            val targets = identities.take(if (settings.count > 0) settings.count else identities.size)
-            targets.forEachIndexed { index, identity ->
-                val username = Rules.generateUsername(12, settings.prefix, settings.suffix)
-                val password = Rules.generatePassword(settings.passwordLength)
-                val result = withContext(Dispatchers.IO) {
-                    runCatching {
-                        Protocol.submit(identity, username, password, settings.channel, settings.dryRun) { image ->
-                            val deferred = CompletableDeferred<String?>()
-                            withContext(Dispatchers.Main) { pendingCaptcha = PendingCaptcha(image, deferred) }
-                            val answer = deferred.await()
-                            withContext(Dispatchers.Main) { pendingCaptcha = null }
-                            answer
-                        }
-                    }.getOrElse { SubmitResult("error", false, it.message ?: "异常", username, password, settings.channel) }
-                }
-                results += result
-                progress = (index + 1).toFloat() / targets.size
-                statusLine = "${index + 1}/${targets.size} 完成：${result.kind}"
-                appendLog("[$index] $username ${result.kind} ${result.message.take(60)}")
-                if (!settings.dryRun && index < targets.size - 1 && settings.intervalSec > 0) {
-                    kotlinx.coroutines.delay(settings.intervalSec * 1000L)
+
+        // 真正的编排在 C（libgen4399.so）里跑，这里只做回调展示
+        val callback = object : Native.Callback {
+            override fun transport(
+                url: String,
+                method: String,
+                contentType: String,
+                body: String,
+                cookieHeader: String,
+            ): Array<String> = HttpTransport.send(url, method, contentType, body, cookieHeader)
+
+            override fun onProgress(
+                index: Int,
+                total: Int,
+                username: String,
+                password: String,
+                kind: String,
+                ok: Boolean,
+                message: String,
+            ) {
+                scope.launch {
+                    results += SubmitResult(kind, ok, message, username, password, settings.channel)
+                    progress = index.toFloat() / total.coerceAtLeast(1)
+                    statusLine = "$index/$total：$kind"
+                    appendLog("[$index] $username $kind ${message.take(60)}")
                 }
             }
+
+            override fun askCaptcha(image: ByteArray): String? {
+                val deferred = CompletableDeferred<String?>()
+                scope.launch { pendingCaptcha = PendingCaptcha(image, deferred) }
+                val code = kotlinx.coroutines.runBlocking { deferred.await() }
+                scope.launch { pendingCaptcha = null }
+                return code
+            }
+        }
+
+        scope.launch {
+            val success = withContext(Dispatchers.IO) {
+                runCatching {
+                    Native.runBatch(
+                        identities = sfz,
+                        path = settings.channel,
+                        count = settings.count,
+                        prefix = settings.prefix,
+                        suffix = settings.suffix,
+                        intervalSec = if (settings.dryRun) 0 else settings.intervalSec,
+                        dryRun = settings.dryRun,
+                        sendRealname = true,
+                        callback = callback,
+                    )
+                }.getOrElse { -1 }
+            }
             running = false
-            appendLog("全部完成：成功 ${results.count { it.ok }}/${results.size}")
+            appendLog(if (success >= 0) "全部完成：成功 $success/${results.size}" else "运行出错（native 返回 $success）")
         }
     }
 

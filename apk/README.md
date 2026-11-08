@@ -33,26 +33,36 @@ proot-distro login ubuntu -- bash -lc '
   遇到图形验证码**弹出图片**让人填（unified 的 `inputCaptcha` 与 web 的 `code=200` 都支持）
 - **导出**：SAF 保存 CSV（账号 / 密码 / 结果 / 说明）
 
-## 架构：协议内核是 C（libgen4399.so）
+## 架构：全部逻辑在 C（libgen4399.so），Kotlin 只管显示
 
-加密、规则、表单解析、载荷组装、响应判定全部在 **C 库**里，Kotlin 只做界面和 HTTP。
+| 层 | 负责 | 位置 |
+|---|---|---|
+| **C 内核** | 账号生成、AES/DES 加密、表单解析、载荷组装、注册流程、验证码重试、节奏控制、结果判定、Cookie 罐 | `app/src/main/cpp/` |
+| **Kotlin** | Compose 界面 + 一个 `transport()`（发 HTTP，因为 Android 只有平台层有 TLS） | `MainActivity.kt` / `HttpTransport.kt` |
+
+`Native.runBatch(identities, path, count, prefix, suffix, intervalSec, dryRun, sendRealname, callback)`
+把整批任务交给 C；C 通过 `Callback.transport` 发请求、`Callback.askCaptcha` 要验证码、
+`Callback.onProgress` 回传每个账号的结果。Kotlin 端没有循环、没有重试、没有判定。
 
 ```
 app/src/main/cpp/          ← 直接复用 ports/c 的实现
 ├── crypto_self.c           AES-256-CBC / DES-EDE3-ECB / MD5 / Base64（自带实现，不依赖 OpenSSL）
 ├── rules.c                 生成/校验、身份证 GB 11643
 ├── payload.c               form URL、隐藏域解析、unified 载荷组装（含 13 个剔除字段）、结果判定
-├── jni.c                   JNI 桥（Java_io_gen4399_app_Native_*）
+├── agent.c                 批量编排：身份解析、账号生成、cookie 罐、两条通道、验证码重试、间隔
+├── jni.c                   基础 JNI（生成/校验/加密/载荷/判定）
+├── jni_agent.c             runBatch 的 JNI 桥（把 Callback 适配成 C 的 hooks）
 ├── gen4399.h / payload.h
 └── CMakeLists.txt          → libgen4399.so
 ```
 
 | Kotlin | 作用 |
 |---|---|
-| `Native.kt` | `System.loadLibrary("gen4399")` + external 声明 |
-| `Rules.kt` | 薄封装，全部转发到 C |
-| `Protocol.kt` | 只用 C 做加密/组装/判定；HTTP 用 `HttpURLConnection`，Cookie/Referer 手工维护 |
-| `MainActivity.kt` | Compose UI（身份/设置/运行 + 验证码弹窗） |
+| `Native.kt` | `loadLibrary("gen4399")` + external 声明 + `Callback` 接口 |
+| `HttpTransport.kt` | 唯一非界面的 Kotlin 代码：把参数发出去、回传 `[状态码, Set-Cookie, body]` |
+| `Rules.kt` | 校验用的薄封装（转发到 C，供界面提示） |
+| `Model.kt` | `Identity` / `SubmitResult` 两个数据类 |
+| `MainActivity.kt` | Compose UI（身份/设置/运行 + 验证码弹窗），不含任何流程逻辑 |
 
 `libgen4399.so` 只有 32KB，`readelf` 显示无外部依赖（不链 OpenSSL、不链 libcurl）。
 
@@ -66,6 +76,18 @@ OK   encode4399('hello world','abc')     = 0xd22da7b2be6ea575df93303f8204c05a
 OK   encode4399('P@ss!','1234567890abcdef') = 0x9b5112a937ab4658
 AES: C 加密 → Python decrypt_aes 解出「王五的密码123」
 载荷: 9 个字段，fCaptcha / mainDivId 已剔除，password 为 AES 密文
+JNI : Java_io_gen4399_app_Native_runBatch 符号存在
+```
+
+C 侧的编排逻辑还有一份**主机自测**（`ports/c/src/agent_selftest.c`）：
+用假 transport 模拟「表单 → 验证码 → 成功」的服务端行为，验证重试与 dry-run：
+
+```
+captcha: 9 字节图片，回答 ABCD
+progress: [1/1] rhy1yj0en5g0 -> success (ok=1) 注册成功（isAutoRegSuccess=true）
+[OK] 编排跑通并判定 success
+[OK] 验证码重试生效
+[OK] dry-run 只发了一次 GET
 ```
 
 ## 与其它版本的关系
