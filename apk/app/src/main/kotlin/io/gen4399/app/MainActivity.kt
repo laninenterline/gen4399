@@ -84,6 +84,7 @@ data class Settings(
     val randomize: Boolean = true,
     val proxies: String = "",
     val proxyStrategy: String = "round-robin",
+    val autoAdvance: Boolean = true,
     val passwordLength: Int = 16,
 )
 
@@ -319,6 +320,10 @@ fun App() {
             }
             appendLog(statusLine)
             if (success >= 0) prefs.edit().putLong("sfz_offset", nextOffset).apply()
+            if (success >= 0 && settings.autoAdvance && !atEof) {
+                appendLog("自动载入下一批…")
+                fileUri?.let { loadPage(it, nextOffset, firstPage = false) }
+            }
         }
     }
 
@@ -333,27 +338,23 @@ fun App() {
             }
             when (tab) {
                 0 -> IdentityTab(
-                    text = sfzText,
-                    onTextChange = { value ->
-                        sfzText = if (value.length > MAX_TEXT_CHARS) {
-                            statusLine = "文本过长，已截断到 $MAX_TEXT_CHARS 字符"
-                            value.take(MAX_TEXT_CHARS)
-                        } else {
-                            value
-                        }
-                    },
                     identities = identities,
                     pageIndex = pageIndex,
                     atEof = atEof,
                     hint = if (importStats.lines > 0) {
                         "文件 ${importStats.lines} 行 · 有效 ${importStats.valid} 条 · 已载入 ${importStats.kept} 条"
                     } else "",
-                    onParse = { parseSfz(sfzText) },
+                )
+                1 -> SettingsTab(
+                    settings = settings,
+                    onChange = { settings = it },
+                    identityCount = identities.size,
+                    pageIndex = pageIndex,
+                    atEof = atEof,
+                    importStats = importStats,
                     onImport = { importLauncher.launch(arrayOf("text/plain", "*/*")) },
-                    canContinue = fileUri != null && !atEof,
                     onContinue = { fileUri?.let { loadPage(it, nextOffset, firstPage = false) } },
                 )
-                1 -> SettingsTab(settings = settings, onChange = { settings = it }, identityCount = identities.size)
                 else -> RunTab(
                     running = running,
                     progress = progress,
@@ -386,53 +387,35 @@ fun App() {
 
 @Composable
 private fun IdentityTab(
-    text: String,
-    onTextChange: (String) -> Unit,
     identities: List<Identity>,
     pageIndex: Int,
     atEof: Boolean,
     hint: String,
-    onParse: () -> Unit,
-    onImport: () -> Unit,
-    canContinue: Boolean,
-    onContinue: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-        Text("每行格式：姓名|身份证[|QQ]", style = MaterialTheme.typography.bodySmall)
+        if (identities.isEmpty()) {
+            Text("还没有身份", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "去「设置 → 身份来源」导入 sfz.txt，每行 姓名|身份证[|QQ]",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+            return@Column
+        }
         if (hint.isNotEmpty()) {
             Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
-        Text(
-            "大文件只载入前 $MAX_IDENTITIES 条，其余不占内存",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline,
-        )
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = text,
-            onValueChange = onTextChange,
-            modifier = Modifier.fillMaxWidth().height(180.dp),
-            placeholder = { Text("张三|110105198803121893") },
-        )
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onParse) { Text("解析") }
-            OutlinedButton(onClick = onImport) { Text("导入 sfz.txt") }
-            OutlinedButton(onClick = onContinue, enabled = canContinue) {
-                Text(if (canContinue) "继续下一批" else "已到末尾")
-            }
-        }
         if (pageIndex > 0) {
             Text(
-                "当前第 $pageIndex 批 · 断点续跑已开启（上面文本只是前 100 行预览，" +
-                    "直接点「解析」会以预览内容为准）",
+                "第 $pageIndex 批 · 共 ${identities.size} 条" +
+                    if (atEof) "（已到文件末尾）" else "（还有后续，可在设置里续批）",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
         Text("共 ${identities.size} 条", style = MaterialTheme.typography.titleSmall)
-        identities.take(50).forEachIndexed { index, identity ->
+        identities.take(200).forEachIndexed { index, identity ->
             val problems = Rules.validateIdcard(identity.idcard) + Rules.validateRealname(identity.name)
             Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                 Column(Modifier.padding(10.dp)) {
@@ -446,12 +429,63 @@ private fun IdentityTab(
                 }
             }
         }
+        if (identities.size > 200) {
+            Text(
+                "只显示前 200 条，运行时会用完这一批（${identities.size} 条）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
     }
 }
 
 @Composable
-private fun SettingsTab(settings: Settings, onChange: (Settings) -> Unit, identityCount: Int) {
+private fun SettingsTab(
+    settings: Settings,
+    onChange: (Settings) -> Unit,
+    identityCount: Int,
+    pageIndex: Int,
+    atEof: Boolean,
+    importStats: ImportStats,
+    onImport: () -> Unit,
+    onContinue: () -> Unit,
+) {
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
+        Text("身份来源", style = MaterialTheme.typography.titleSmall)
+        Text(
+            if (importStats.lines > 0) {
+                "文件 ${importStats.lines} 行 · 有效 ${importStats.valid} 条 · 已载入 ${importStats.kept} 条"
+            } else {
+                "还没有导入身份（每行 姓名|身份证[|QQ]，大文件自动分批）"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onImport) { Text("导入 sfz.txt") }
+            OutlinedButton(onClick = onContinue, enabled = pageIndex > 0 && !atEof) {
+                Text(if (pageIndex > 0 && !atEof) "继续下一批" else "已到末尾")
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(
+                checked = settings.autoAdvance,
+                onCheckedChange = { onChange(settings.copy(autoAdvance = it)) },
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("跑完自动载入下一批", style = MaterialTheme.typography.bodySmall)
+        }
+        Text(
+            if (pageIndex > 0) {
+                "当前第 $pageIndex 批 · 断点续跑已开启（导入后自动解析，不用再点解析）"
+            } else {
+                "导入后会自动解析并载入第一批"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
+        Spacer(Modifier.height(16.dp))
+
         Text("通道", style = MaterialTheme.typography.titleSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("unified", "web").forEach { channel ->
