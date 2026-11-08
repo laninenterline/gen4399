@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 
 /* 身份数量硬上限：25MB 的 sfz.txt 可能有上百万行，这里兜底防止内存爆掉 */
 #define MAX_IDENTITIES 5000
@@ -17,6 +18,7 @@
 #define WEB_REG_URL "https://web.4399.com/user/?_c=reg&jsoncallback=cb"
 #define WEB_CHECK_URL "https://web.4399.com/user/?_c=login&_a=checkUser"
 #define WEB_CAPTCHA_URL "https://web.4399.com/util/?_c=code&t=reg"
+#define WEB_VERIFY_URL "https://web.4399.com/user/?_c=reg&_a=verifyCode"
 
 typedef struct { char *data; size_t len; size_t cap; } sbuf;
 
@@ -328,6 +330,26 @@ static void run_web(const g4399_agent_hooks *hooks, cookie_jar *jar, const ident
         char *code = hooks->captcha(hooks->ctx, (const unsigned char *)image.body, image_len);
         free(image.body);
         if (!code || !*code) { free(code); break; }
+
+        /* 先 verifyCode 确认这次识别对不对，不对就重新取图 */
+        sbuf verify;
+        sbuf_init(&verify);
+        sbuf_add(&verify, WEB_VERIFY_URL "&jsoncallback=cb&code=");
+        sbuf_add_encoded(&verify, code);
+        {
+            char suffix[32];
+            snprintf(suffix, sizeof(suffix), "&_=%lld", (long long)time(NULL) * 1000);
+            sbuf_add(&verify, suffix);
+        }
+        http_result verified = do_request(hooks, jar, verify.data, "GET", NULL, NULL,
+                                          "https://web.4399.com/user/reg.php");
+        free(verify.data);
+        int passed = verified.body && strstr(verified.body, "\"state\":true") != NULL;
+        free(verified.body);
+        if (!passed) {
+            free(code);
+            continue;
+        }
 
         sbuf retry;
         sbuf_init(&retry);

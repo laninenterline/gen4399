@@ -22,6 +22,8 @@ static char *fake_transport(void *ctx, const char *url, const char *method,
                    "<input type=\"hidden\" name=\"sec\" value=\"1\">"
                    "<input type=\"hidden\" name=\"mainDivId\" value=\"popup_reg_div\">"
                    "<input type=\"hidden\" name=\"fCaptcha\" value=\"\"></form>";
+    } else if (strstr(url, "verifyCode")) {
+        response = "cb({\"state\":true})";
     } else if (strstr(url, "captcha.do")) {
         response = "IMAGEDATA";
     } else if (strstr(url, "register.do") && strstr(body, "inputCaptcha")) {

@@ -59,6 +59,20 @@ static void sbuf_add_encoded(sbuf *b, const char *value)
     }
 }
 
+/* 这些字段由我们统一追加，隐藏域里的同名项要跳过（否则会重复，服务端可能取到空值） */
+static const char *OVERRIDE_FIELDS[] = {
+    "username", "password", "passwordveri", "realname", "idcard",
+    "appId", "level", "sec", "regMode", NULL,
+};
+
+static int is_override(const char *name)
+{
+    for (int i = 0; OVERRIDE_FIELDS[i]; i++) {
+        if (strcmp(OVERRIDE_FIELDS[i], name) == 0) return 1;
+    }
+    return 0;
+}
+
 static int is_dropped(const char *name)
 {
     for (int i = 0; DROP_FIELDS[i]; i++) {
@@ -183,7 +197,7 @@ char *g4399_build_unified_payload(const char *hidden_pairs, const char *username
             char *tab = strchr(pair, '\t');
             if (tab) {
                 *tab = '\0';
-                if (!is_dropped(pair)) {
+                if (!is_dropped(pair) && !is_override(pair)) {
                     if (fields++) sbuf_add(&body, "&");
                     sbuf_add_encoded(&body, pair);
                     sbuf_add(&body, "=");
@@ -223,18 +237,22 @@ char *g4399_build_unified_payload(const char *hidden_pairs, const char *username
         sbuf_add_encoded(&body, extra[i].value);
     }
 
-    /* 3) 固定字段 */
+    /* 3) 固定字段（regMode 只在隐藏域里没有时才补） */
+    char reg_mode[32] = {0};
+    hidden_lookup(hidden_pairs, "regMode", reg_mode, sizeof(reg_mode));
     if (fields++) sbuf_add(&body, "&");
     sbuf_add(&body, "appId=u4399&level=4");
-    if (strstr(hidden_pairs ? hidden_pairs : "", "regMode\t") == NULL) {
-        sbuf_add(&body, "&regMode=reg_normal");
-    }
+    if (!reg_mode[0]) sbuf_add(&body, "&regMode=reg_normal");
+    if (fields++) sbuf_add(&body, "&");
+    sbuf_add(&body, reg_mode[0] ? "regMode=" : "regMode=");
+    sbuf_add(&body, reg_mode[0] ? reg_mode : "reg_normal");
     if (sec[0]) {
-        sbuf_add(&body, "&sec=");
+        if (fields++) sbuf_add(&body, "&");
+        sbuf_add(&body, "sec=");
         sbuf_add(&body, sec);
     }
 
-    if (field_count) *field_count = fields + 2;
+    if (field_count) *field_count = fields;
     if (encrypted_count) *encrypted_count = encrypted;
     return body.data;
 }
