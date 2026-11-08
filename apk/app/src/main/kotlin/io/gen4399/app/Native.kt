@@ -84,4 +84,7 @@ object Native {
     ): String?
 
     external fun classify(path: String, status: Int, body: String): String
+
+    /** unified 60×30 验证码识别：传 ARGB 像素，成功返回 4 个字符 */
+    external fun recognizeUnified(pixels: IntArray, width: Int, height: Int): String?
 }

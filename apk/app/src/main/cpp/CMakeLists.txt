@@ -7,6 +7,7 @@ add_library(gen4399 SHARED
     ./crypto_self.c
     ./rules.c
     ./payload.c
+    ./matcher.c
     ./agent.c
     ./jni.c
     ./jni_agent.c

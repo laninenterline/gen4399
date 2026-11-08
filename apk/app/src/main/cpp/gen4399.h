@@ -7,6 +7,7 @@
 #define GEN4399_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 /* ---------- 规则 ---------- */
 #define G4399_PWD_MIN 6
@@ -39,6 +40,10 @@ char *g4399_aes_encrypt(const char *plaintext, const char *passphrase);
 
 /** 复刻 encode_4399：DES/3DES-ECB + "0x" hex；返回 malloc 字符串或 NULL */
 char *g4399_encode_4399(const char *value, const char *key);
+
+/* ---------- 验证码识别（unified 60×30） ---------- */
+/** 传 60×30 的 ARGB 像素，成功时 out 写入 4 个字符；返回 1 成功 */
+int g4399_recognize_unified(const uint32_t *argb, int width, int height, char *out);
 
 /* ---------- HTTP ---------- */
 typedef struct g4399_session g4399_session;

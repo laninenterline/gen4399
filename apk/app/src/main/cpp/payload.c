@@ -282,8 +282,15 @@ void g4399_classify(const char *path, int status, const char *body,
             snprintf(kind, kind_len, "captcha");
             snprintf(message, message_len, "服务端要求图形验证码（code=200）");
         } else {
+            char snippet[80];
+            size_t i = 0;
+            for (const char *p = body; *p && i + 1 < sizeof(snippet) && i < 60; p++) {
+                snippet[i++] = (*p == '\n' || *p == '\r' || *p == '\t') ? ' ' : *p;
+            }
+            snippet[i] = '\0';
             snprintf(kind, kind_len, "rejected");
-            snprintf(message, message_len, "注册被拒绝");
+            snprintf(message, message_len, "注册被拒绝（HTTP %d，%zu 字节）：%s",
+                     status, strlen(body), snippet);
         }
         return;
     }

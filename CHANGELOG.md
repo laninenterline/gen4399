@@ -2,6 +2,26 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.17.0] - 2026-11-08
+
+### 新增（APK）
+
+- **unified 验证码自动识别**（不用再手动填）：
+  - 把 `gen4399/_captcha_matcher.py` 的算法移植成 C（`apk/.../matcher.c`），
+    25 个字形模板编成 `captcha_templates.h`（16KB），判据保留上游的「包含」逻辑
+  - 图片解码交给平台（`BitmapFactory` → ARGB 像素），识别在 C（零依赖）
+  - `Native.recognizeUnified(pixels, 60, 30)`，`askCaptcha` 先自动试，认不出才弹窗
+  - 自测：25 模板 × 4 槽位 = **100/100 命中**
+
+### 改进
+
+- web 通道判定 `rejected` 时也带上 HTTP 状态与响应片段（和 unified 一致）
+
+### 说明
+
+- web 的 150×45 验证码字形与 unified 完全不同（自学习字库那套），
+  目前仍走人工弹窗；要自动需要把骨架+chamfer 那套也移植到 C。
+
 ## [3.16.0] - 2026-11-08
 
 ### 修复（APK，关键）

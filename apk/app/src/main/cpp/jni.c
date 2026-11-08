@@ -168,3 +168,21 @@ Java_io_gen4399_app_Native_classify(JNIEnv *env, jobject thiz, jstring path, jin
     snprintf(combined, sizeof(combined), "%s\t%s", kind, message);
     return (*env)->NewStringUTF(env, combined);
 }
+
+JNIEXPORT jstring JNICALL
+Java_io_gen4399_app_Native_recognizeUnified(JNIEnv *env, jobject thiz, jintArray pixels,
+                                            jint width, jint height)
+{
+    (void)thiz;
+    if (pixels == NULL) return NULL;
+    jsize length = (*env)->GetArrayLength(env, pixels);
+    if (length < width * height || width != 60 || height != 30) return NULL;
+
+    jint *raw = (*env)->GetIntArrayElements(env, pixels, NULL);
+    if (raw == NULL) return NULL;
+    char out[8] = {0};
+    int ok = g4399_recognize_unified((const uint32_t *)raw, (int)width, (int)height, out);
+    (*env)->ReleaseIntArrayElements(env, pixels, raw, JNI_ABORT);
+    if (!ok) return NULL;
+    return (*env)->NewStringUTF(env, out);
+}
