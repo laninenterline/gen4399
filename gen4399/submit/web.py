@@ -125,11 +125,11 @@ def _verify_web_captcha(
 
 def _solve_web_captcha(
     session: "_http.RemoteSession", solver: CaptchaSolver
-) -> str:
-    """拉图 → 调用调用方的识别回调 → 返回去掉首尾空白的验证码文本。"""
+) -> tuple[bytes, str]:
+    """拉图 → 调用识别回调 → 返回 ``(图片字节, 去掉首尾空白的验证码)``。"""
     image = _fetch_web_captcha(session)
     raw_code = solver(image)
-    return str(raw_code or "").strip()
+    return image, str(raw_code or "").strip()
 
 
 def submit_web(
@@ -195,10 +195,11 @@ def submit_web(
         )
     while needs_captcha and captcha is not None and rounds < captcha_attempts:
         rounds += 1
-        code = _solve_web_captcha(session, captcha)
+        image, code = _solve_web_captcha(session, captcha)
         if not code:
             continue
         passed, reason = _verify_web_captcha(session, code)
+        _common.notify_captcha_feedback(captcha, image, code, passed)
         if not passed:
             message = f"验证码未通过（{reason}），已重新取图重试"
             continue
@@ -217,9 +218,9 @@ def submit_web(
         if rounds:
             message = (
                 f"图形验证码 {rounds} 轮仍未通过（最后提示：{message}）；"
-                "web 的验证码是 150×45，内置识别器只覆盖 unified 的 60×30，"
-                "建议改用 --captcha-prompt --captcha-zoom 8 人工输入，"
-                "--captcha-cmd 接外部 OCR，或直接走 --form-path unified"
+                "web 的验证码是 150×45，它的识别要用 --captcha-learn"
+                "（自学习字库，实测字符准确率约 80%）或 --captcha-prompt "
+                "--captcha-zoom 8 人工输入；unified 路径的 60×30 才走 --captcha-matcher"
             )
 
     verified = _common.verify_account(session, bundle.username) if (ok and verify) else None

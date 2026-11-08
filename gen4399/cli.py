@@ -573,6 +573,7 @@ def _cmd_submit(args) -> int:
             auto=bool(getattr(args, "captcha_auto", False)),
             matcher=bool(getattr(args, "captcha_matcher", False)),
             zoom=int(getattr(args, "captcha_zoom", 1) or 1),
+            learn=getattr(args, "captcha_learn", None),
         )
         captcha_attempts = int(getattr(args, "captcha_attempts", 3))
     except (Gen4399Error, TypeError, ValueError, OSError) as exc:
@@ -1101,6 +1102,11 @@ def _add_captcha_opts(sp: argparse.ArgumentParser) -> None:
     sp.add_argument(
         "--captcha-zoom", type=int, default=1, metavar="N",
         help="人工识别时把验证码放大 N 倍（需本机 ImageMagick；unified 的 60×30 小图建议 6~8）",
+    )
+    sp.add_argument(
+        "--captcha-learn", nargs="?", const="", default=None, metavar="BANK",
+        help="用自学习字库识别 web 验证码（150×45）；"
+             "不给 BANK 就用 ~/.gen4399/web_captcha_bank.json",
     )
     sp.add_argument(
         "--captcha-attempts", type=int, default=3, metavar="N",

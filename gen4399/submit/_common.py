@@ -12,6 +12,7 @@ from ..transport import TransportOptions
 from . import UNIFIED_SEND_REALNAME  # noqa: F401 - 供文档/测试引用
 
 __all__ = [
+    "notify_captcha_feedback",
     "verify_account",
     "present_login_cookies",
     "jsonp_callback",
@@ -97,3 +98,17 @@ def validate_args(
         or captcha_attempts < 1
     ):
         raise ValueError("captcha_attempts 必须是 >= 1 的 int")
+
+
+def notify_captcha_feedback(solver, image: bytes, code: str, accepted: bool) -> None:
+    """如果识别器支持 ``feedback``（自学习字库），把这次结果告诉它。
+
+    识别器抛异常不影响注册流程——学习是尽力而为。
+    """
+    callback = getattr(solver, "feedback", None)
+    if not callable(callback):
+        return
+    try:
+        callback(image, code, accepted)
+    except Exception:  # pragma: no cover - 学习失败不影响主流程
+        pass

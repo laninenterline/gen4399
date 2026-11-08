@@ -251,13 +251,28 @@ def make_solver(
     auto: bool = False,
     matcher: bool = False,
     zoom: int = 1,
+    learn: str | None = None,
 ) -> CaptchaSolver | None:
     """按 CLI 参数组合出 solver；都不给时返回 ``None``（不识别验证码）。
 
-    优先级：``command`` > ``auto``（有 OCR 用 OCR，否则人工）> ``prompt``。
+    优先级：``learn``（自学习字库）> ``command`` > ``matcher`` > ``auto`` > ``prompt``。
     """
+    if learn is not None:
+        from .captcha_web import learning_captcha_solver
+
+        fallback = None
+        if command:
+            fallback = command_captcha_solver(command)
+        elif prompt:
+            fallback = prompt_captcha_solver(directory=directory, zoom=zoom)
+        solver: CaptchaSolver = learning_captcha_solver(
+            learn or None, prompt=fallback
+        )
+        if directory is not None:
+            solver = save_captcha_images(solver, directory)
+        return solver
     if command:
-        solver: CaptchaSolver = command_captcha_solver(command)
+        solver = command_captcha_solver(command)
     elif matcher:
         solver = matcher_captcha_solver()
     elif auto:

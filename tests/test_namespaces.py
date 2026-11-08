@@ -67,10 +67,15 @@ class TestNamespaceModules(unittest.TestCase):
                 self.assertTrue(hasattr(constants_ns, name), name)
 
     def test_captcha_aliases_private_module(self):
-        from gen4399 import _captcha
+        from gen4399 import _captcha, captcha_web
 
         for name in captcha_ns.__all__:
-            self.assertIs(getattr(captcha_ns, name), getattr(_captcha, name))
+            source = (
+                captcha_web
+                if name in ("learning_captcha_solver", "WebCaptchaBank", "segment_glyphs")
+                else _captcha
+            )
+            self.assertIs(getattr(captcha_ns, name), getattr(source, name))
 
     def test_submit_result_reachable_from_submit_namespace(self):
         self.assertIs(submit_ns.SubmitResult, gen4399.SubmitResult)

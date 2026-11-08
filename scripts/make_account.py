@@ -107,6 +107,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="把验证码图片保存到该目录（便于人工查看/留存）")
     p.add_argument("--captcha-zoom", type=int, default=1, metavar="N",
                    help="人工识别时把验证码放大 N 倍（需 ImageMagick）")
+    p.add_argument("--captcha-learn", nargs="?", const="", default=None,
+                   metavar="BANK", help="用自学习字库识别 web 验证码（150×45）")
     p.add_argument("--proxy", default=None, metavar="URL",
                    help="HTTP(S) 代理，如 http://127.0.0.1:8080")
     p.add_argument("--proxy-file", default=None, metavar="FILE",
@@ -310,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
             auto=args.captcha_auto,
             matcher=args.captcha_matcher,
             zoom=args.captcha_zoom,
+            learn=args.captcha_learn,
         )
     except (Gen4399Error, TypeError, ValueError, OSError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
