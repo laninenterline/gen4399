@@ -111,6 +111,11 @@ fun App() {
     var logText by remember { mutableStateOf("") }
     var pendingCaptcha by remember { mutableStateOf<PendingCaptcha?>(null) }
     var importStats by remember { mutableStateOf(ImportStats()) }
+    var fileUri by remember { mutableStateOf<String?>(null) }
+    var nextOffset by remember { mutableStateOf(0L) }
+    var atEof by remember { mutableStateOf(true) }
+    var pageIndex by remember { mutableStateOf(0) }
+    val prefs = remember { context.getSharedPreferences("gen4399", android.content.Context.MODE_PRIVATE) }
 
     fun appendLog(line: String) {
         logText = (logText + line + "\n").takeLast(4000)
@@ -137,49 +142,63 @@ fun App() {
         appendLog(statusLine)
     }
 
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    fun applyPage(page: SfzFile.Page, source: String, firstPage: Boolean) {
+        identities.clear()
+        identities.addAll(page.identities)
+        importStats = page.stats
+        nextOffset = page.nextOffset
+        atEof = page.eof
+        if (firstPage) {
+            pageIndex = 1
+            sfzText = page.preview
+            results.clear()   // 新文件才清空结果，续跑会累积
+        } else {
+            pageIndex++
+        }
+        prefs.edit()
+            .putString("sfz_uri", source)
+            .putLong("sfz_offset", page.nextOffset)
+            .putInt("sfz_page", pageIndex)
+            .apply()
+        statusLine = buildString {
+            append("第 $pageIndex 批：${page.identities.size} 条")
+            if (page.stats.encoding.isNotEmpty()) append("，编码 ${page.stats.encoding}")
+            append(if (page.eof) "（已到文件末尾）" else "（还有后续）")
+        }
+        appendLog(statusLine)
+    }
+
+    fun loadPage(uriString: String, offset: Long, firstPage: Boolean) {
         statusLine = "正在读取文件…"
         scope.launch {
-            val outcome = withContext(Dispatchers.IO) {
-                runCatching { SfzFile.load(context, uri, MAX_IDENTITIES) }
-            }.getOrNull()
-            if (outcome == null) {
+            val page = withContext(Dispatchers.IO) {
+                runCatching {
+                    SfzFile.loadPage(context, android.net.Uri.parse(uriString), offset, MAX_IDENTITIES)
+                }.getOrNull()
+            }
+            if (page == null) {
                 statusLine = "读取文件失败"
                 return@launch
             }
-            identities.clear()
-            identities.addAll(outcome.identities)
-            importStats = outcome.stats
-            sfzText = outcome.preview
-            statusLine = buildString {
-                append("文件 ${outcome.stats.lines} 行，有效 ${outcome.stats.valid} 条")
-                if (outcome.stats.valid > outcome.stats.kept) {
-                    append("，仅载入前 ${outcome.stats.kept} 条（上限 $MAX_IDENTITIES）")
-                }
-                if (outcome.stats.encoding.isNotEmpty()) append("，编码 ${outcome.stats.encoding}")
-            }
-            appendLog(statusLine)
+            fileUri = uriString
+            applyPage(page, uriString, firstPage)
         }
     }
 
-    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        loadPage(uri.toString(), 0L, firstPage = true)
+    }
+
+    var exportFormat by remember { mutableStateOf("csv") }
+
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
-            val csv = buildString {
-                appendLine("index,username,password,kind,ok,message,path")
-                results.forEachIndexed { index, r ->
-                    appendLine(
-                        listOf(
-                            index + 1, r.username, r.password, r.kind, r.ok,
-                            r.message.replace(",", "，").replace("\n", " "), r.path,
-                        ).joinToString(",")
-                    )
-                }
-            }
+            val content = AccountExport.render(results, exportFormat)
             val ok = runCatching {
-                context.contentResolver.openOutputStream(uri)?.use { it.write(csv.toByteArray()) }
+                context.contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) }
             }.isSuccess
-            statusLine = if (ok) "已导出 ${results.size} 条到所选文件" else "导出失败"
+            statusLine = if (ok) "已导出 ${results.size} 条（${exportFormat.uppercase()}）" else "导出失败"
             appendLog(statusLine)
         }
     }
@@ -192,7 +211,6 @@ fun App() {
         }
         running = true
         progress = 0f
-        results.clear()
         val sfz = identities.joinToString("\n") { "${it.name}|${it.idcard}|${it.qq}" }
         appendLog("开始：${minOf(settings.count, identities.size)} 个账号，通道 ${settings.channel}，dry-run=${settings.dryRun}")
 
@@ -250,6 +268,7 @@ fun App() {
             }
             running = false
             appendLog(if (success >= 0) "全部完成：成功 $success/${results.size}" else "运行出错（native 返回 $success）")
+            if (success >= 0) prefs.edit().putLong("sfz_offset", nextOffset).apply()
         }
     }
 
@@ -274,11 +293,15 @@ fun App() {
                         }
                     },
                     identities = identities,
+                    pageIndex = pageIndex,
+                    atEof = atEof,
                     hint = if (importStats.lines > 0) {
                         "文件 ${importStats.lines} 行 · 有效 ${importStats.valid} 条 · 已载入 ${importStats.kept} 条"
                     } else "",
                     onParse = { parseSfz(sfzText) },
                     onImport = { importLauncher.launch(arrayOf("text/plain", "*/*")) },
+                    canContinue = fileUri != null && !atEof,
+                    onContinue = { fileUri?.let { loadPage(it, nextOffset, firstPage = false) } },
                 )
                 1 -> SettingsTab(settings = settings, onChange = { settings = it }, identityCount = identities.size)
                 else -> RunTab(
@@ -288,9 +311,13 @@ fun App() {
                     log = logText,
                     results = results,
                     onStart = { startRun() },
-                    onExport = {
-                        if (results.isEmpty()) statusLine = "还没有结果可导出"
-                        else exportLauncher.launch("gen4399-accounts.csv")
+                    onExport = { format ->
+                        if (results.isEmpty()) {
+                            statusLine = "还没有结果可导出"
+                        } else {
+                            exportFormat = format
+                            exportLauncher.launch("gen4399-accounts.$format")
+                        }
                     },
                 )
             }
@@ -311,9 +338,13 @@ private fun IdentityTab(
     text: String,
     onTextChange: (String) -> Unit,
     identities: List<Identity>,
+    pageIndex: Int,
+    atEof: Boolean,
     hint: String,
     onParse: () -> Unit,
     onImport: () -> Unit,
+    canContinue: Boolean,
+    onContinue: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Text("每行格式：姓名|身份证[|QQ]", style = MaterialTheme.typography.bodySmall)
@@ -336,6 +367,16 @@ private fun IdentityTab(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onParse) { Text("解析") }
             OutlinedButton(onClick = onImport) { Text("导入 sfz.txt") }
+            OutlinedButton(onClick = onContinue, enabled = canContinue) {
+                Text(if (canContinue) "继续下一批" else "已到末尾")
+            }
+        }
+        if (pageIndex > 0) {
+            Text(
+                "当前第 $pageIndex 批 · 断点续跑已开启",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
         Spacer(Modifier.height(12.dp))
         Text("共 ${identities.size} 条", style = MaterialTheme.typography.titleSmall)
@@ -438,12 +479,14 @@ private fun RunTab(
     log: String,
     results: List<SubmitResult>,
     onStart: () -> Unit,
-    onExport: () -> Unit,
+    onExport: (String) -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onStart, enabled = !running) { Text(if (running) "运行中…" else "开始") }
-            OutlinedButton(onClick = onExport) { Text("导出 CSV") }
+            OutlinedButton(onClick = { onExport("csv") }) { Text("导出 CSV") }
+            OutlinedButton(onClick = { onExport("json") }) { Text("导出 JSON") }
+            OutlinedButton(onClick = { onExport("txt") }) { Text("导出 TXT") }
             if (running) CircularProgressIndicator(Modifier.width(24.dp).height(24.dp))
         }
         Spacer(Modifier.height(10.dp))

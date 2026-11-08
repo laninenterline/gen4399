@@ -55,6 +55,23 @@ magick art/icon-source.jpg -gravity center -crop 808x808+0+0 +repage art/icon-sq
 产物：`mipmap-*/ic_launcher.png`、`ic_launcher_round.png`、`ic_launcher_foreground.png`、
 `mipmap-anydpi-v26/ic_launcher.xml`。
 
+## 大文件与断点续跑
+
+25MB 的 `sfz.txt` 有 80 多万行，不可能一次读进内存：
+
+- `SfzFile.loadPage(uri, offset, 2000)` **流式读一页**，返回 `nextOffset` / `eof`
+- 跑完一批点「继续下一批」，断点存 `SharedPreferences`，重启 App 也能续
+- 结果列表跨批次累积，最后统一导出
+- 分页正确性：5000 行切 8 批，无丢行/重复/乱序（固定样本验证）
+
+## 导出格式
+
+| 格式 | 内容 |
+|---|---|
+| CSV | `index,username,password,kind,ok,message,path` |
+| JSON | 对象数组，字段同上 |
+| TXT | `账号\|密码\|结果`，每行一条 |
+
 ## 功能
 
 - **身份**：粘贴或 `导入 sfz.txt`（SAF 文件选择器），按 `姓名|身份证[|QQ]` 解析，
