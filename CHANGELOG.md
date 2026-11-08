@@ -2,6 +2,28 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.10.0] - 2026-11-08
+
+### 新增
+
+- **独立 Android App**（仓库根目录 `apk/`，Kotlin + Jetpack Compose）：
+  - 自己实现协议，**不依赖 WebUI**：`Crypto.kt`（AES-256-CBC + `encode_4399`）、
+    `Rules.kt`（生成/校验/身份证）、`Protocol.kt`（会话、unified/web 提交、结果判定）、
+    `MainActivity.kt`（Compose UI）
+  - 功能：导入 sfz.txt（SAF）、设定生成数量/密码长度/用户名前后缀/通道/间隔/dry-run、
+    后台跑批量、**弹图输入验证码**、导出 CSV（SAF）
+  - 工具链：Gradle **9.7.0**、AGP **9.4.0**、Kotlin **2.4.20**、SDK **37**、
+    Compose BOM **2026.08.00**（compose-ui **1.12.0**）、
+    aapt2 `/root/android-sdk/build-tools/36.1.0/aapt2`
+  - 产物 `dist/gen4399.apk`（11.9MB），`minSdk 24 / targetSdk 37`，debug 签名可装
+- 移除上一版的两套 WebView 外壳（`ports/android*`）——APK 不再依附 WebUI。
+
+### 说明
+
+- **Material 3 1.9.0 并不存在**：仓库里最新是 1.5.0-rc01，稳定线 1.4.x。
+  BOM 2026.08.00 把 material3 定为 1.4.0；需要覆盖可在 `app/build.gradle` 里显式写版本。
+- apt 里的 aapt2 是 box64 转译的 x86_64 二进制，启动会打印 `nftw not found` 告警，不影响构建。
+
 ## [3.9.1] - 2026-11-08
 
 ### 改进

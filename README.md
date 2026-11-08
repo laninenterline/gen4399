@@ -106,16 +106,18 @@ python -m gen4399.webui --dry-run-only   # 演示模式：禁止真实提交
 页面里能：导入 `sfz.txt`（粘贴/选文件）→ 设定数量、前后缀、通道、间隔、验证码模式
 → 后台跑 → 实时进度 → 导出 CSV/JSON。web 通道遇到验证码会**在浏览器里弹图**让你填。
 
-Android 壳在 `ports/android/`（Kotlin + Gradle 工程，AGP 9.4.0 / Kotlin 2.4.20 / SDK 37）：
-把上面的页面装进 WebView，连不上时可改服务器地址。
+**Android App 是独立的**（仓库根目录 `apk/`）：原生 Kotlin + Compose 应用，
+自己实现协议，不依赖 WebUI。Gradle 9.7.0 / AGP 9.4.0 / Kotlin 2.4.20 / SDK 37 /
+Compose BOM 2026.08.00（compose-ui 1.12.0）。功能：导入 sfz.txt、设定数量与前后缀、
+选通道、跑批量、弹图识别验证码、导出 CSV。
 
 ```bash
 proot-distro login ubuntu -- bash -lc '
-  cd ports/android && export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64 &&
+  cd apk && export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64 &&
   /opt/gradle-9.7.0/gradle-9.7.0/bin/gradle assembleDebug --no-daemon'
 ```
 
-另有一份不依赖 Gradle 的手工构建（Java，12KB）在 `ports/android-manual/`。
+WebUI（`gen4399/webui.py`）与 APK 互不影响，各用各的。
 
 注册逻辑始终跑在 Termux 的 Python 服务里，APK 只是前端——协议改动只维护一处。
 
@@ -127,6 +129,7 @@ gen4399/           运行时包（core/identity/forms/registration/cli/submit/re
   captcha_web.py   web 150×45 自学习识别器（种子字库 _web_captcha_seed.json）
 tests/             778 个用例（覆盖率 93%）
 scripts/           make_account.py（跑一次拿一个号）、verify_rules.py（规则冒烟）
+apk/               独立 Android App（Kotlin + Compose，自带协议实现）
 ports/             Node 版与 C 版移植（核心协议，见 ports/README.md）
 docs/              rules / submit / faq / project-overview / notes（早期自审记录）
 ```

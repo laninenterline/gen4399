@@ -6,7 +6,6 @@ Python 版（仓库根目录）是主实现，功能最全。这里放两个移�
 |---|---|---|---|
 | Node | [node/](node/) | 零依赖（`node:crypto` + 内置 `fetch`） | 生成/校验、身份校验、AES/DES、unified+web 提交、登录 |
 | C | [c/](c/) | OpenSSL + libcurl | 同上（提交与登录都在，验证码只判断状态不做识别） |
-| Android | [android/](android/) | Gradle 9.7 + AGP 9.4 + Kotlin 2.4.20 + SDK 37 | WebUI 的 WebView 外壳（APK） |
 
 ```bash
 # Node
@@ -24,6 +23,11 @@ cd ports/c && make && make test && ./build/gen4399 generate -n 12
 | `encode_4399('hello world','abc')` | 三边都是 `0xd22da7b2be6ea575df93303f8204c05a` |
 | AES 密文互解 | Node 加密 → Python 解密 ✅；C 加密 → Python 解密 ✅ |
 | 身份证校验 | 三边对 `110105198803121893` 都通过、对错误校验码都拒绝 |
+
+## Android App
+
+原生 Compose 应用在仓库根目录的 [../apk/](../apk/)，与 WebUI 互相独立，
+不走 ports/ 这套移植路线（它自己实现协议）。
 
 ## 只有 Python 版才有的
 

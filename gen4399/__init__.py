@@ -150,7 +150,7 @@ from .core import (
     validate_username,
 )
 
-__version__ = "3.9.1"
+__version__ = "3.10.0"
 
 __all__ = [
     # ---- 核心：日常只需要这些 ----
