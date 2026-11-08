@@ -323,6 +323,9 @@ static void run_unified(const g4399_agent_hooks *hooks, cookie_jar *jar, const i
     char *form_url = g4399_form_url(config->app_id, config->level);
     http_result page = do_request(hooks, jar, form_url, "GET", NULL, NULL);
     free(form_url);
+    int page_status = page.status;
+    size_t page_len = page.body ? strlen(page.body) : 0;
+    char *page_body_copy = page.body ? strdup(page.body) : NULL;
 
     if (!page.body || page.status == 202 || strstr(page.body, "请稍后再试")) {
         snprintf(result->kind, sizeof(result->kind), "throttled");
@@ -332,12 +335,21 @@ static void run_unified(const g4399_agent_hooks *hooks, cookie_jar *jar, const i
     }
     char *hidden = g4399_parse_hidden(page.body);
     free(page.body);
+    page.body = NULL;
     if (!hidden || !*hidden) {
+        char snippet[96] = {0};
+        const char *source = page_body_copy ? page_body_copy : "";
+        for (int i = 0; i < 60 && source[i]; i++) {
+            snippet[i] = (source[i] == '\n' || source[i] == '\r') ? ' ' : source[i];
+        }
         snprintf(result->kind, sizeof(result->kind), "unknown");
-        snprintf(result->message, sizeof(result->message), "注册页没有隐藏域，可能是风控页");
+        snprintf(result->message, sizeof(result->message),
+                 "注册页没有隐藏域（HTTP %d，响应 %zu 字节）：%s", page_status, page_len, snippet);
         free(hidden);
+        free(page_body_copy);
         return;
     }
+    free(page_body_copy);
 
     char *body = g4399_build_unified_payload(hidden, username, password, who->name, who->idcard,
                                              config->send_realname, NULL, NULL);

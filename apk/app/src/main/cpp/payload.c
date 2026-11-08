@@ -73,7 +73,7 @@ char *g4399_form_url(const char *app_id, int level)
 {
     sbuf b;
     sbuf_init(&b);
-    sbuf_add(&b, "https://ptlogin.4399.com/ptlogin/register.do?regMode=reg_normal"
+    sbuf_add(&b, "https://ptlogin.4399.com/ptlogin/regFrame.do?regMode=reg_normal"
                  "&postLoginHandler=refreshParent&displayMode=&bizId=&redirectUrl=&css=&appId=");
     sbuf_add_encoded(&b, app_id ? app_id : "u4399");
     char tail[256];

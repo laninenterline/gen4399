@@ -2,6 +2,27 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.15.1] - 2026-11-08
+
+### 修复（协议，关键）
+
+- **unified 通道取表单用错了接口**：C / Node 移植版一直对
+  `register.do` 发 GET（那是 POST 的目标），拿到的是没有表单的页面，
+  于是每个账号都是 `unknown / 注册页没有隐藏域`。
+  正确接口是 **`regFrame.do`**（实测 31 个隐藏域）。
+  - 修 `ports/c/src/payload.c` 的 `g4399_form_url()`、`ports/c/src/submit.c`
+    的 CLI 路径、`ports/node/client.mjs` 的 `REG_FRAME_URL`
+  - APK 里的 `libgen4399.so` 同步修复
+  - 验证：从 APK 提取 .so，调用 `g4399_form_url()` → 请求 → `g4399_parse_hidden()`
+    解析出 **31 个隐藏域**（修复前是 0）
+
+### 修复（UI）
+
+- 运行页按钮改 `FlowRow`，导出 TXT 不再被挤出屏幕
+- 导入后提示「文本框只是前 100 行预览，直接点解析会以预览为准」，避免误操作把
+  2000 条批次覆盖成 100 条
+- 隐藏域为空时的报错补上 HTTP 状态码与响应片段，便于排查
+
 ## [3.15.0] - 2026-11-08
 
 ### 新增（APK）

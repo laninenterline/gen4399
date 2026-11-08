@@ -373,7 +373,8 @@ private fun IdentityTab(
         }
         if (pageIndex > 0) {
             Text(
-                "当前第 $pageIndex 批 · 断点续跑已开启",
+                "当前第 $pageIndex 批 · 断点续跑已开启（上面文本只是前 100 行预览，" +
+                    "直接点「解析」会以预览内容为准）",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -482,7 +483,10 @@ private fun RunTab(
     onExport: (String) -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Button(onClick = onStart, enabled = !running) { Text(if (running) "运行中…" else "开始") }
             OutlinedButton(onClick = { onExport("csv") }) { Text("导出 CSV") }
             OutlinedButton(onClick = { onExport("json") }) { Text("导出 JSON") }

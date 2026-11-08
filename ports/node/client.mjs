@@ -5,7 +5,7 @@ import { validateIdcard, validateRealname } from './identity.mjs';
 import { validatePassword as vp, validateUsername } from './rules.mjs';
 
 export const APP_ID = 'u4399';
-export const REG_FRAME_URL = 'https://ptlogin.4399.com/ptlogin/register.do';
+export const REG_FRAME_URL = 'https://ptlogin.4399.com/ptlogin/regFrame.do';
 export const REGISTER_URL = 'https://ptlogin.4399.com/ptlogin/register.do';
 export const WEB_REG_API = 'https://web.4399.com/user/?_c=reg';
 export const WEB_CHECK_USER_API = 'https://web.4399.com/user/?_c=login&_a=checkUser';

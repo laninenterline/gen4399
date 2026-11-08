@@ -8,6 +8,7 @@
 #include <time.h>
 
 #define UNIFIED_URL "https://ptlogin.4399.com/ptlogin/register.do"
+#define REG_FRAME_URL "https://ptlogin.4399.com/ptlogin/regFrame.do"
 #define WEB_REG_URL "https://web.4399.com/user/?_c=reg"
 #define WEB_CHECK_URL "https://web.4399.com/user/?_c=login&_a=checkUser"
 #define LOGIN_URL "https://ptlogin.4399.com/ptlogin/login.do?v=1"
@@ -234,7 +235,7 @@ static int submit_unified(const g4399_submit_options *o, g4399_submit_result *r)
 {
     sbuf url;
     sbuf_init(&url);
-    sbuf_add(&url, UNIFIED_URL "?regMode=reg_normal&postLoginHandler=refreshParent"
+    sbuf_add(&url, REG_FRAME_URL "?regMode=reg_normal&postLoginHandler=refreshParent"
              "&displayMode=&bizId=&redirectUrl=&css=&appId=");
     sbuf_add(&url, o->app_id ? o->app_id : "u4399");
     char tail[256];

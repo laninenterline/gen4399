@@ -12,10 +12,10 @@ static int captcha_asked = 0;
 static char *fake_transport(void *ctx, const char *url, const char *method,
                             const char *content_type, const char *body, const char *cookie)
 {
-    (void)ctx; (void)content_type; (void)cookie;
+    (void)ctx; (void)method; (void)content_type; (void)cookie;
     call_count++;
     const char *response;
-    if (strstr(url, "register.do?")) {
+    if (strstr(url, "regFrame.do")) {
         /* 1) 拉注册表单 */
         response = "<form action=\"/ptlogin/register.do\"><input type=\"hidden\" name=\"appId\" value=\"u4399\">"
                    "<input type=\"hidden\" name=\"sec\" value=\"1\">"
