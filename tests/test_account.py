@@ -74,3 +74,49 @@ class TestAppendAccount(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class TestExportHelpers(unittest.TestCase):
+    def _records(self):
+        return [
+            {"username": "a", "password": "p1", "kind": "success", "ok": True, "path": "web"},
+            {"username": "a", "password": "p1", "kind": "success", "ok": True, "path": "web"},
+            {"username": "b", "password": "p2", "kind": "unknown", "ok": False, "path": "unified"},
+        ]
+
+    def test_dedupe(self):
+        from gen4399.account import dedupe_accounts
+
+        unique, removed = dedupe_accounts(self._records())
+        self.assertEqual(len(unique), 2)
+        self.assertEqual(removed, 1)
+
+    def test_csv_masks_password(self):
+        from gen4399.account import accounts_to_csv
+
+        text = accounts_to_csv(self._records())
+        self.assertNotIn("p1", text)
+        self.assertIn("password_masked", text.splitlines()[0])
+
+    def test_csv_with_secrets(self):
+        from gen4399.account import accounts_to_csv
+
+        text = accounts_to_csv(self._records(), include_secrets=True)
+        self.assertIn("p1", text)
+
+    def test_jsonl(self):
+        import json as _json
+        from gen4399.account import accounts_to_jsonl
+
+        lines = accounts_to_jsonl(self._records()).strip().splitlines()
+        self.assertEqual(len(lines), 3)
+        self.assertNotIn("password", _json.loads(lines[0]))
+        self.assertEqual(_json.loads(lines[0])["password_masked"], "**")
+
+    def test_stats(self):
+        from gen4399.account import account_stats
+
+        stats = account_stats(self._records())
+        self.assertEqual(stats["total"], 3)
+        self.assertEqual(stats["ok"], 2)
+        self.assertEqual(stats["by_path"], {"web": 2, "unified": 1})

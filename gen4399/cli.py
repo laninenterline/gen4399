@@ -813,6 +813,86 @@ def _cmd_check_available(args) -> int:
     return 0 if res.available else 1
 
 
+def _cmd_accounts(args) -> int:
+    """gen4399 accounts：列出 / 统计 / 导出 / 去重本地账号文件。"""
+    from .account import (
+        account_stats,
+        accounts_to_csv,
+        accounts_to_jsonl,
+        dedupe_accounts,
+        load_accounts,
+    )
+
+    records = load_accounts(args.file)
+    if not records:
+        print(f"错误：{args.file} 里没有账号记录", file=sys.stderr)
+        return 2
+
+    cmd = args.accounts_cmd
+    if cmd == "stats":
+        stats = account_stats(records)
+        if args.json:
+            _emit_json(stats)
+        else:
+            print(f"总数: {stats['total']}  成功: {stats['ok']}")
+            print("按路径: " + "、".join(f"{k}={v}" for k, v in stats["by_path"].items()))
+            print("按结果: " + "、".join(f"{k}={v}" for k, v in stats["by_kind"].items()))
+        return 0
+
+    if cmd == "dedupe":
+        unique, removed = dedupe_accounts(records)
+        if args.dry_run:
+            print(f"可去掉 {removed} 条重复（共 {len(records)} 条）")
+            return 0
+        _write_private(args.file, json.dumps(unique, ensure_ascii=False, indent=2))
+        print(f"已去重：{len(records)} → {len(unique)} 条（去掉 {removed} 条）")
+        return 0
+
+    if cmd == "list":
+        if args.json:
+            from .account import _public
+
+            _emit_json([_public(r, include_secrets=args.include_secrets) for r in records])
+            return 0
+        for idx, record in enumerate(records, 1):
+            password = record.get("password", "")
+            shown = password if args.include_secrets else "*" * len(password)
+            print(
+                f"{idx:3d}. {record.get('username', '?'):<20} "
+                f"{record.get('kind', '?'):<9} {record.get('path', '?'):<8} "
+                f"{record.get('created_at', '')[:19]}  {shown}"
+            )
+        return 0
+
+    text = (
+        accounts_to_csv(records, include_secrets=args.include_secrets)
+        if args.format == "csv"
+        else accounts_to_jsonl(records, include_secrets=args.include_secrets)
+    )
+    if args.out:
+        _write_private(args.out, text)
+        print(f"已导出 {len(records)} 条到 {args.out}（0600）")
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
+def _write_private(path: str, text: str) -> None:
+    """把文本原子写入文件并设 0600。"""
+    target = Path(path)
+    tmp = target.with_name(target.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, text.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.replace(tmp, target)
+    try:
+        os.chmod(target, 0o600)
+    except OSError:  # pragma: no cover
+        pass
+
+
 def _cmd_login(args) -> int:
     """gen4399 login：用账号密码登录，打印结果与 Cookie 名。"""
     import getpass
@@ -974,7 +1054,7 @@ def _cmd_generate(args) -> int:
 # ---------------------------------------------------------------------------
 
 _SUBCOMMANDS = {
-    "generate", "check", "account", "fetch", "available", "login",
+    "generate", "check", "account", "accounts", "fetch", "available", "login",
     "form", "prepare", "submit", "profile", "rules", "version",
 }
 
@@ -1162,6 +1242,36 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
     _add_identity_opts(fb)
     _add_io_opts(fb)
 
+    acc = new("accounts", "查看 / 导出 / 去重本地账号文件（accounts.json）")
+    acc.set_defaults(**defaults)
+    asub = acc.add_subparsers(dest="accounts_command", required=True)
+
+    def _acct_base(sp):
+        sp.set_defaults(**defaults)
+        sp.add_argument("--file", default="accounts.json", metavar="FILE",
+                        help="账号文件，默认 ./accounts.json")
+        sp.add_argument("--json", action="store_true")
+
+    al = asub.add_parser("list", help="列出账号（密码默认打码）")
+    _acct_base(al)
+    al.add_argument("--include-secrets", action="store_true",
+                    help="输出明文密码")
+
+    ast_ = asub.add_parser("stats", help="统计：总数 / 成功数 / 按路径分组")
+    _acct_base(ast_)
+
+    ae = asub.add_parser("export", help="导出为 CSV / JSONL")
+    _acct_base(ae)
+    ae.add_argument("--format", choices=["csv", "jsonl"], default="csv")
+    ae.add_argument("--out", default=None, metavar="FILE",
+                    help="写入文件（0600）；不给则打到 stdout")
+    ae.add_argument("--include-secrets", action="store_true",
+                    help="导出明文密码（默认打码）")
+
+    ad = asub.add_parser("dedupe", help="按 (账号, 密码) 去重并原地重写")
+    _acct_base(ad)
+    ad.add_argument("--dry-run", action="store_true", help="只报告，不改文件")
+
     subcmd = new("submit", "准备并提交注册（web / unified；默认 dry-run，需 --yes）")
     subcmd.add_argument(
         "--form-path", choices=["web", "unified"], default="unified",
@@ -1283,6 +1393,8 @@ def _normalize_subcommand(args) -> None:
         args.submit = True
     elif cmd == "login":
         args.login_cmd = True
+    elif cmd == "accounts":
+        args.accounts_cmd = args.accounts_command
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1322,6 +1434,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_submit(args)
     if getattr(args, "login_cmd", False):
         return _cmd_login(args)
+    if getattr(args, "accounts_cmd", None):
+        return _cmd_accounts(args)
     if args.prepare:
         return _cmd_prepare(args)
     if args.build_form is not None:

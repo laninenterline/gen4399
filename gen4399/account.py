@@ -22,7 +22,15 @@ from pathlib import Path
 from .registration import RegistrationBundle
 from .submit import SubmitResult
 
-__all__ = ["account_record", "append_account", "load_accounts"]
+__all__ = [
+    "account_record",
+    "append_account",
+    "load_accounts",
+    "dedupe_accounts",
+    "accounts_to_csv",
+    "accounts_to_jsonl",
+    "account_stats",
+]
 
 
 def account_record(
@@ -102,3 +110,80 @@ def append_account(
     except OSError:  # pragma: no cover - 非 POSIX
         pass
     return file_path
+
+
+def dedupe_accounts(records: list[dict]) -> tuple[list[dict], int]:
+    """按 ``(username, password)`` 去重，保留最早的一条。
+
+    Returns:
+        ``(去重后的列表, 被去掉的条数)``。
+    """
+    seen: set[tuple] = set()
+    out: list[dict] = []
+    for record in records:
+        key = (record.get("username"), record.get("password"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(record)
+    return out, len(records) - len(out)
+
+
+def _public(record: dict, *, include_secrets: bool) -> dict:
+    """去掉敏感字段（密码）后的记录副本。"""
+    if include_secrets:
+        return dict(record)
+    item = dict(record)
+    password = item.pop("password", None)
+    item["password_masked"] = (
+        "*" * len(password) if isinstance(password, str) and password else ""
+    )
+    return item
+
+
+_CSV_FIELDS = (
+    "created_at", "path", "username", "password", "password_masked",
+    "kind", "ok", "message", "endpoint", "http_status", "idcard_masked",
+)
+
+
+def accounts_to_csv(
+    records: list[dict], *, include_secrets: bool = False
+) -> str:
+    """把账号记录渲染成 CSV 文本（默认把密码打码）。"""
+    import csv
+    import io
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=_CSV_FIELDS, extrasaction="ignore")
+    writer.writeheader()
+    for record in records:
+        writer.writerow(_public(record, include_secrets=include_secrets))
+    return buffer.getvalue()
+
+
+def accounts_to_jsonl(
+    records: list[dict], *, include_secrets: bool = False
+) -> str:
+    """把账号记录渲染成 JSON Lines 文本（默认把密码打码）。"""
+    return "\n".join(
+        json.dumps(_public(r, include_secrets=include_secrets), ensure_ascii=False)
+        for r in records
+    ) + ("\n" if records else "")
+
+
+def account_stats(records: list[dict]) -> dict:
+    """汇总：总数、按 kind / path 分组、成功数。"""
+    by_kind: dict[str, int] = {}
+    by_path: dict[str, int] = {}
+    for record in records:
+        kind = str(record.get("kind") or "?")
+        path = str(record.get("path") or "?")
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+        by_path[path] = by_path.get(path, 0) + 1
+    return {
+        "total": len(records),
+        "ok": sum(1 for r in records if r.get("ok")),
+        "by_kind": by_kind,
+        "by_path": by_path,
+    }
