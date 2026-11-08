@@ -818,6 +818,40 @@ def _cmd_captcha(args) -> int:
     """gen4399 captcha：标注样本 / 用字库识别一张图。"""
     from .captcha_web import WebCaptchaBank, learning_captcha_solver, segment_glyphs
 
+    if args.captcha_command == "fetch":
+        from .remote import _http
+
+        target = Path(args.dir)
+        target.mkdir(parents=True, exist_ok=True)
+        try:
+            transport = _build_transport(args, timeout=DEFAULT_TIMEOUT, policy=None)
+        except (Gen4399Error, TypeError, ValueError, OSError) as exc:
+            print(f"错误：{exc}", file=sys.stderr)
+            return 2
+        session = (
+            transport.new_session()
+            if transport is not None
+            else _http.RemoteSession(timeout=DEFAULT_TIMEOUT)
+        )
+        saved = 0
+        for index in range(max(0, args.count)):
+            try:
+                response = session.get(
+                    "https://web.4399.com/util/?_c=code&t=reg"
+                )
+            except Gen4399Error as exc:
+                print(f"错误：{exc}", file=sys.stderr)
+                break
+            if response.status == 200 and len(response.raw) > 400:
+                (target / f"cap_{index:03d}.png").write_bytes(response.raw)
+                saved += 1
+            if args.interval > 0 and index < args.count - 1:
+                import time as _time
+
+                _time.sleep(args.interval)
+        print(f"已保存 {saved} 张到 {target}/（标注用：gen4399 captcha label {target}）")
+        return 0 if saved else 1
+
     if args.captcha_command == "bench":
         from .captcha_web import benchmark
 
@@ -1458,6 +1492,14 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
     cl.add_argument("--bank", default=None, metavar="FILE",
                     help="字库路径（默认 ~/.gen4399/web_captcha_bank.json）")
     cl.add_argument("--ext", default=".png", help="只处理这个后缀，默认 .png")
+
+    cf = csub.add_parser("fetch", help="抓一批 web 验证码图片，供人工标注")
+    cf.set_defaults(**defaults)
+    cf.add_argument("--count", type=int, default=20, metavar="N")
+    cf.add_argument("--dir", default="captcha-samples", metavar="DIR")
+    cf.add_argument("--interval", type=float, default=0.3, metavar="SEC")
+    _add_remote_opts(cf)
+    _add_transport_opts(cf)
 
     cb = csub.add_parser("bench", help="对已标注目录做留一法评估")
     cb.set_defaults(**defaults)

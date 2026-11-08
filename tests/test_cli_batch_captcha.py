@@ -112,3 +112,30 @@ class TestCaptchaCommand(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class TestCaptchaFetch(unittest.TestCase):
+    def test_fetch_saves_images(self):
+        response = mock.Mock(status=200, raw=b"x" * 800)
+        session = mock.Mock()
+        session.get.return_value = response
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "gen4399.remote._http.RemoteSession", return_value=session
+        ):
+            code, out, _ = run([
+                "captcha", "fetch", "--count", "2", "--dir", tmp, "--interval", "0",
+            ])
+            files = sorted(Path(tmp).glob("cap_*.png"))
+        self.assertEqual(code, 0)
+        self.assertEqual(len(files), 2)
+
+    def test_fetch_nothing_saved_exit_1(self):
+        session = mock.Mock()
+        session.get.return_value = mock.Mock(status=500, raw=b"")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "gen4399.remote._http.RemoteSession", return_value=session
+        ):
+            code, _, _ = run([
+                "captcha", "fetch", "--count", "1", "--dir", tmp, "--interval", "0",
+            ])
+        self.assertEqual(code, 1)

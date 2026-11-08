@@ -74,33 +74,58 @@ gen4399 是一个**零运行时依赖**（只用标准库）的 Python 工具库
 
 ```
 lead-workspace/
-├── gen4399/                  # 运行时包（零依赖）
-│   ├── __init__.py   约 235 行 # 公共门面：submit / 验证码 / 端点常量导出；__version__ = "2.4.0"
-│   ├── __main__.py     6 行  # python -m gen4399 → cli.main()
-│   ├── core.py       661 行  # 生成/校验/熵/异常/常量（纯规则，无 IO）
-│   ├── identity.py   396 行  # 姓名/身份证/QQ 校验 + RegistrationProfile + txt 读取
-│   ├── forms.py      399 行  # 两条注册路径字段定义 + 整表校验 + 字段组装
-│   ├── registration.py 327行 # prepare_registration 编排 + RegistrationBundle
-│   ├── _aes.py       399 行  # 2.1.0 新增：CryptoJS 兼容 AES-256-CBC（纯标准库）
-│   ├── _des.py       249 行  # 2.2.0 新增：4399 web 路径 DES/3DES encode_4399（纯标准库）
-│   ├── _captcha.py   约 150 行 # 2.3.0 新增：验证码回调实现（人工/外部命令/落盘）+ CaptchaSolverError
-│   ├── submit.py     约 915 行 # 2.1.0–2.4.0：submit_registration + SubmitResult/SubmitError + UNIFIED_DROP_FIELDS/UNIFIED_SEND_REALNAME
-│   ├── remote/
-│   │   ├── __init__.py 65 行 # 再导出（兼容旧 from gen4399.remote import ...）
-│   │   ├── _http.py  691 行  # 传输层：urllib、RetryPolicy、错误类型、HTML 解析、CookieJar 会话、POST
-│   │   └── _api.py   626 行  # 业务层：取号/查重/批量/Account/generate_*
-│   ├── _rules.py      35 行  # 规则快照版本/来源/关键字
-│   ├── _width.py      50 行  # CJK 终端显示宽度（表格对齐）
-│   └── py.typed              # 类型标记（随包分发）
-├── tests/            17 个文件，约 5,700 行，519+ 用例 + 457 subtests（含 test_aes/test_des/test_submit/test_submit_http/test_make_account*、2.3.0 验证码流程测试）
-├── scripts/verify_rules.py   # 规则页面关键词冒烟检查（GET + 子串匹配）
-├── scripts/make_account.py   # 便捷脚本：每次运行准备并（--yes 时）提交一个账号，追加 accounts.json（0600）；无效身份行默认跳过（--index/--strict）；--diagnose 保存脱敏响应；2.3.0 起支持验证码参数
-├── docs/rules.md             # 规则快照、复核流程、改规则清单、提交协议摘要
-├── docs/submit.md            # 2.1.0–2.4.0：web/unified 提交协议/字段/AES/DES/图形验证码/隐藏域剔除/判定/安全/限制
-├── .github/workflows/ci.yml  # 3.10–3.13 矩阵 × 7 道门禁
-├── pyproject.toml            # 版本单一来源、pytest/coverage/ruff/mypy 配置、dev extras
-├── README.md / CHANGELOG.md / SECURITY.md / CONTRIBUTING.md / REVIEW.md / SUGGESTIONS.md
-└── dist/gen4399-2.0.0-py3-none-any.whl   # 旧构建产物（2.0 时代；2.4.0 请重新构建）
+├── gen4399/                    # 运行时包（核心零依赖，验证码识别可选依赖 ImageMagick）
+│   ├── __init__.py             220 行  # 公共门面：核心 __all__（41 个名字）+ re-export
+│   ├── __main__.py               6 行  # python -m gen4399 → cli.main()
+│   ├── core.py                 661 行  # 生成/校验/熵/异常/常量（纯规则，无 IO）
+│   ├── identity.py             452 行  # 姓名/身份证/QQ 校验 + RegistrationProfile + txt 读取
+│   ├── forms.py                400 行  # 两条注册路径字段定义 + 整表校验
+│   ├── registration.py         331 行  # prepare_registration + RegistrationBundle
+│   ├── cli.py                 1701 行  # 命令行（子命令：generate/check/account/accounts/batch/captcha/…）
+│   ├── batch.py                 228 行  # 批量注册编排（节奏/熔断/断点续跑）
+│   ├── login.py                 169 行  # 登录（账号密码换 Cookie）
+│   ├── account.py               299 行  # 账号记录：落盘/去重/导出/体检
+│   ├── config.py                 45 行  # configure() 运行期配置入口
+│   ├── transport.py             167 行  # TransportOptions：超时/代理/代理池/随机 UA
+│   ├── proxy.py                 110 行  # ProxyPool（轮换/粘性/线程安全）
+│   ├── ua.py                     53 行  # random_user_agent()
+│   ├── captcha.py                46 行  # 验证码命名空间（人工/外部命令/模板/自学习）
+│   ├── captcha_web.py           515 行  # web 150×45 自学习识别器（骨架+chamfer+字库）
+│   ├── _captcha.py               289 行  # 验证码回调实现 + make_solver
+│   ├── _captcha_matcher.py     154 行  # unified 60×30 模板匹配（移植 MIT 上游）
+│   ├── _captcha_templates.py   238 行  # 25 个字形的模板数据（vendored）
+│   ├── _web_captcha_seed.json      # web 字库种子（102 个标注样本 / 414 字形）
+│   ├── _aes.py                  399 行  # CryptoJS 兼容 AES-256-CBC（纯标准库）
+│   ├── _des.py                  249 行  # web 路径 DES/3DES encode_4399（纯标准库）
+│   ├── _rules.py                 35 行  # 规则快照版本/来源/关键字
+│   ├── _width.py                 50 行  # CJK 终端显示宽度
+│   ├── _submit_types.py         252 行  # SubmitResult/SubmitError + 脱敏工具
+│   ├── _submit_classify.py      186 行  # 提交响应分类器
+│   ├── submit/                 # 提交流程包
+│   │   ├── __init__.py          396 行  # 常量 + _build_payload + submit_registration 编排
+│   │   ├── web.py                 281 行  # web 路径（DES + JSONP + 验证码重提交）
+│   │   ├── unified.py             255 行  # unified 路径（AES + 表单页 + 验证码重提交）
+│   │   └── _common.py             114 行  # 账号复核 / 登录 Cookie 名 / 参数校验
+│   ├── remote/                 # 远程接口层
+│   │   ├── __init__.py           77 行  # 再导出
+│   │   ├── _http.py               732 行  # 传输层：urllib/RetryPolicy/错误/HTML 解析/会话/POST
+│   │   └── _api.py                654 行  # 业务层：取号/查重/批量/Account
+│   ├── constants.py            # 常量命名空间（规则/端点/字段策略）
+│   └── py.typed                # 类型标记（随包分发）
+├── tests/                      # 31 个测试文件 / 778 用例（覆盖率 93%）
+├── scripts/
+│   ├── make_account.py          423 行  # 便捷脚本：跑一次拿一个号（--yes 才提交）
+│   └── verify_rules.py           52 行  # 规则页面关键词冒烟检查
+├── docs/
+│   ├── rules.md                 161 行  # 规则快照 + 复核流程
+│   ├── submit.md                627 行  # web/unified 提交协议、字段、加密、验证码
+│   ├── faq.md                    51 行  # 常见问题
+│   ├── project-overview.md    516 行  # 项目全景（本文）
+│   └── notes/                  # 早期自审记录（review-1.8.1 / suggestions-1.10.0）
+├── .github/workflows/ci.yml    # 3.10–3.13 矩阵 × ruff / mypy / pytest / 覆盖率
+├── pyproject.toml              # 版本单一来源、pytest/coverage/ruff/mypy 配置
+├── README.md / CHANGELOG.md / SECURITY.md / CONTRIBUTING.md / LICENSE
+└── （本地，不入库）accounts.json / .probe/captcha-dataset/ / sfz.txt
 ```
 
 依赖关系（实际 import）：
@@ -358,7 +383,7 @@ check_username(name)
 
 工程配置：`pyproject.toml` 版本单一来源（`attr = "gen4399.__version__"`）、pytest/coverage/ruff/mypy 配置、dev extras；CI 矩阵 **3.10–3.13**，7 道门禁（ruff 硬门禁 → mypy 观察 → pytest → coverage 90 → doctest → build+twine）；`.pre-commit-config.yaml` 带 ruff + whitespace/EOF/yaml/toml 检查；MIT License；`py.typed` 随包。
 
-文档链完整：README（安装/API/CLI/安全/FAQ）、`docs/rules.md`（规则快照 + 复核流程 + 提交协议摘要）、`docs/submit.md`（2.1.0/2.2.0 web+unified 提交协议/字段/AES+DES/判定/未验证项）、CHANGELOG（1.8.1 → 2.2.0 逐版本）、SECURITY.md（PII 边界 + 提交同意要求）、CONTRIBUTING.md、REVIEW.md 与 SUGGESTIONS.md（前两轮自审记录，均已标注闭环）。
+文档链完整：README（安装/API/CLI/安全/FAQ）、`docs/rules.md`（规则快照 + 复核流程 + 提交协议摘要）、`docs/submit.md`（2.1.0/2.2.0 web+unified 提交协议/字段/AES+DES/判定/未验证项）、CHANGELOG（1.8.1 → 2.2.0 逐版本）、SECURITY.md（PII 边界 + 提交同意要求）、CONTRIBUTING.md、`docs/notes/`（前两轮自审记录，均已标注闭环）。
 
 ---
 
@@ -392,7 +417,7 @@ check_username(name)
 | 版本 | 内容 |
 |---|---|
 | 1.8.1 | 初始基线：生成/校验、远程、表单、prepare、CLI |
-| 1.9.0 | 修 REVIEW.md 的 P0：响应结构化（kind）、HTML 解析健壮性、批量凑满、CLI 异常兜底、QQ strip、Bundle 只读、repr 打码；加 unique 批量、License/CI/CHANGELOG/类型 |
+| 1.9.0 | 修 `docs/notes/review-1.8.1.md` 的 P0：响应结构化（kind）、HTML 解析健壮性、批量凑满、CLI 异常兜底、QQ strip、Bundle 只读、repr 打码；加 unique 批量、License/CI/CHANGELOG/类型 |
 | 1.10.0 | 身份文件 `load_profiles/parse_profile_line` + CLI `--profile-file` 批量 |
 | 2.0.0 | 子命令 CLI + 全局增强（--json/--offline/--output/重试参数）、`RetryPolicy`、类型收紧、模块拆分（remote 拆包、identity 拆出）、规则版本 + verify_rules、property 测试、CI 门禁、SECURITY/CONTRIBUTING/pre-commit、`requires-python>=3.10` |
 | 2.1.0 | **真实提交（unified）**：`submit_registration()` / `SubmitResult` / `SubmitError` + `gen4399 submit` 子命令 + legacy `--submit/--yes`；`gen4399/_aes.py`（CryptoJS 兼容 AES-256-CBC，纯标准库）；`RemoteSession`（CookieJar，GET 重试/POST 单次）+ `parse_registration_form()`；`docs/submit.md`；库不自动提交（API 调用即提交、CLI 默认 dry-run）、成功判定为推断、POST 不自动重试 |
@@ -400,7 +425,7 @@ check_username(name)
 | 2.3.0 | **web 图形验证码 + 实测建号**：`code=200` → 取图 → 调用方 `captcha` 回调识别 → `verifyCode` → 带 `chk_code` 重提交（最多 `captcha_attempts` 轮）；`SubmitResult.captcha_attempts`；`HttpResponse.raw` / `is_binary`；`_captcha.py`（人工/外部命令/落盘）+ `CaptchaSolverError`；CLI/脚本验证码参数；**web 实测建号成功（2026-11-08）** |
 | 2.4.0 | **unified 修复 + 实测建号**：定位空白「4399提示」页根因（回传 13 个隐藏域，非风控封 IP），新增 `UNIFIED_DROP_FIELDS` 并剔除；新增 `UNIFIED_SEND_REALNAME`（默认 **True**，实际提交 23 字段、4 个 AES 字段）；**unified 实测建号成功（2026-11-08，账号 `abnsm4uw2s77` 含实名、`abkeq7xvesft` 不含实名）** |
 
-`REVIEW.md`（1.8.1 审查）与 `SUGGESTIONS.md`（1.10.0 评估）是两轮「审查 → 修复 → 验证」的记录，文件头均标注了闭环状态；本次深读也核对了其中大部分 P0/P1 确实已在代码中修复（如 `unknown` 抛解析错、`validate_fixed_part` 公开、Bundle MappingProxyType、`unique` 凑满、CLI 子命令等）。项目在单日内完成 16 次提交、从 1.8.1 演进到 2.0.0，属于典型的「先做对、再补工程质量」路径；2.1.0 补上 unified 真实提交层，2.2.0 又补齐 web 路径提交。
+`docs/notes/review-1.8.1.md` 与 `docs/notes/suggestions-1.10.0.md` 是两轮「审查 → 修复 → 验证」的记录，文件头均标注了闭环状态；本次深读也核对了其中大部分 P0/P1 确实已在代码中修复（如 `unknown` 抛解析错、`validate_fixed_part` 公开、Bundle MappingProxyType、`unique` 凑满、CLI 子命令等）。项目在单日内完成 16 次提交、从 1.8.1 演进到 2.0.0，属于典型的「先做对、再补工程质量」路径；2.1.0 补上 unified 真实提交层，2.2.0 又补齐 web 路径提交。
 
 ---
 

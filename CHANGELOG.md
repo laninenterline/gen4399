@@ -2,6 +2,19 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.7.1] - 2026-11-08
+
+### 整理
+
+- 早期自审记录 `REVIEW.md` / `SUGGESTIONS.md` 移入 `docs/notes/`（附索引），
+  根目录只留 README / CHANGELOG / SECURITY / CONTRIBUTING / LICENSE。
+- `docs/project-overview.md` 的仓库地图改为**按真实文件行数生成**，补上
+  `submit/` 包、`batch` / `login` / `account` / `config` / `transport` / `proxy` /
+  `ua` / `captcha_web` 等新模块。
+- README 增加「目录结构」小节。
+- 新增 `gen4399 captcha fetch`：抓取 web 验证码素材，配合 `label` / `bench`
+  形成「抓取 → 标注 → 评估」闭环。
+
 ## [3.7.0] - 2026-11-08
 
 ### 改进

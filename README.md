@@ -95,6 +95,19 @@ python scripts/make_account.py --yes --form-path unified --proxy-file proxies.tx
 > 只支持 HTTP(S) 代理（SOCKS 需要额外依赖，本库保持零运行时依赖）。
 > 每次调用会自动取下一个代理；同一会话内（GET→POST→验证码）始终用同一个 IP。
 
+## 目录结构
+
+```
+gen4399/           运行时包（core/identity/forms/registration/cli/submit/remote/…）
+  submit/          提交流程包：web.py / unified.py / _common.py
+  captcha_web.py   web 150×45 自学习识别器（种子字库 _web_captcha_seed.json）
+tests/             778 个用例（覆盖率 93%）
+scripts/           make_account.py（跑一次拿一个号）、verify_rules.py（规则冒烟）
+docs/              rules / submit / faq / project-overview / notes（早期自审记录）
+```
+
+完整的逐文件说明见 [docs/project-overview.md](docs/project-overview.md#3-仓库地图)。
+
 ## 安装
 
 ```bash
