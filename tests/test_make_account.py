@@ -192,10 +192,12 @@ class MakeAccountTest(unittest.TestCase):
         self.assertIsNone(data["password"])
 
     def test_append_keeps_existing(self):
+        from gen4399.account import append_account
+
         Path("accounts.json").write_text(
             json.dumps([{"username": "old"}]), encoding="utf-8"
         )
-        make_account._append_account(
+        append_account(
             Path("accounts.json"),
             {"username": "new", "password": "x"},
         )

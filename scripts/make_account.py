@@ -49,6 +49,7 @@ from gen4399 import (  # noqa: E402
     prepare_registration,
     submit_registration,
 )
+from gen4399.account import account_record, append_account  # noqa: E402
 from gen4399.identity import load_profiles_auto  # noqa: E402
 from gen4399.remote import RetryPolicy  # noqa: E402
 from gen4399.submit import SubmitResult  # noqa: E402
@@ -114,6 +115,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    default="round-robin", help="代理池取用策略")
     p.add_argument("--random-ua", action="store_true",
                    help="每个会话随机生成浏览器 User-Agent")
+    p.add_argument("--proxy-sticky", action="store_true",
+                   help="粘住代理池里的第一个代理（查重+提交用同一个 IP）")
     p.add_argument("--captcha-attempts", type=int, default=3, metavar="N",
                    help="验证码最多重试轮数，默认 3")
     p.add_argument("--output", default="accounts.json", metavar="FILE",
@@ -139,6 +142,7 @@ def _build_transport(args, *, timeout, policy):
         random_user_agent=args.random_ua,
         timeout=timeout,
         retry_policy=policy,
+        sticky=args.proxy_sticky,
     )
 
 
@@ -256,31 +260,6 @@ def _diagnose_response(response, bundle, output: str | None) -> None:
     print(f"  [诊断] 原始响应（已脱敏）已保存: {path}", file=sys.stderr)
 
 
-def _append_account(path: Path, record: dict) -> None:
-    """把账号记录追加到 JSON 文件（保持 0600）。"""
-    existing: list = []
-    if path.exists():
-        try:
-            existing = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(existing, list):
-                existing = [existing]
-        except (OSError, json.JSONDecodeError):
-            print(f"# 警告：{path} 不是合法 JSON，将覆盖写入", file=sys.stderr)
-            existing = []
-    existing.append(record)
-    tmp = path.with_name(path.name + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        os.write(fd, json.dumps(existing, ensure_ascii=False, indent=2).encode("utf-8"))
-    finally:
-        os.close(fd)
-    os.replace(tmp, path)
-    try:
-        os.chmod(path, 0o600)
-    except OSError:  # pragma: no cover - 非 POSIX
-        pass
-
-
 def _print_result(
     result: SubmitResult, bundle, *, show_credentials: bool, output_path: str
 ) -> None:
@@ -303,21 +282,6 @@ def _print_result(
     if result.kind == "unknown":
         print("  警告：结果未知；请先登录 https://u.4399.com/ 确认，"
               "不要立即重跑 --yes")
-
-
-def _make_record(bundle, result: SubmitResult) -> dict:
-    return {
-        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "path": result.path,
-        "username": bundle.username,
-        "password": bundle.password,
-        "kind": result.kind,
-        "ok": result.ok,
-        "message": result.message,
-        "endpoint": result.endpoint,
-        "http_status": result.http_status,
-        "idcard_masked": bundle.masked_idcard(),
-    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -413,7 +377,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if result.kind in ("success", "unknown"):
         try:
-            _append_account(Path(args.output), _make_record(bundle, result))
+            append_account(args.output, account_record(bundle, result))
         except OSError as exc:
             print(f"错误：写账号文件失败：{exc}", file=sys.stderr)
             return 2

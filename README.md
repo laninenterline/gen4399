@@ -85,6 +85,7 @@ python scripts/make_account.py --yes --form-path unified --proxy-file proxies.tx
 | `--proxy-file FILE` | 代理池，一行一个，`#` 注释 |
 | `--proxy-strategy` | `round-robin`（默认）/ `random` |
 | `--random-ua` | 每个会话随机生成真实格式的浏览器 UA |
+| `--proxy-sticky` | 粘住代理池里的第一个代理（查重 + 提交同一个 IP） |
 
 > 只支持 HTTP(S) 代理（SOCKS 需要额外依赖，本库保持零运行时依赖）。
 > 每次调用会自动取下一个代理；同一会话内（GET→POST→验证码）始终用同一个 IP。
@@ -383,56 +384,19 @@ python -m gen4399 --check-form abc12345 Abc123456 --profile-file ids.txt
 > `kind="rejected"`；该文案无法区分「已绑定」与「实名不通过」）。
 > 请只使用本人、且未绑定过 4399 的身份证。
 
-### web 图形验证码流程（2.3.0）
+### 验证码与字段剔除（协议细节见 [docs/submit.md](docs/submit.md)）
 
-首次 `POST /user/?_c=reg` 常返回 `{"state":false,"code":200,"msg":"注册异常，需校验验证码"}`。
-此时按下列顺序处理（全部在同一会话内，`WEBSESSION` Cookie 必须一致）：
-
-| 步骤 | 请求 | 作用 |
-|---|---|---|
-| 1 | `GET https://web.4399.com/util/?_c=code&t=reg` | 返回 `image/png`（150×45）；下发/绑定 `WEBSESSION` |
-| 2 | 本地调用 `captcha(image_bytes)` | 调用方识别，返回验证码文本 |
-| 3 | `GET https://web.4399.com/user/?_c=reg&_a=verifyCode&jsoncallback=<cb>&code=<code>` | JSONP `{"state":true}` 通过；`{"state":false}` 错误 |
-| 4 | `POST https://web.4399.com/user/?_c=reg&jsoncallback=<cb>`，body 额外带 `chk_code=<code>` | 成功：`{"state":true,"code":300,"msg":"","validateState":"2","toUrl":"/hall.html"}` + 登录 Cookie |
-
-- **未传 `captcha`**：返回 `kind="captcha"`，不重试（消息里提示传回调）。
-- **传了 `captcha`**：最多 `captcha_attempts` 轮（默认 3，必须 ≥ 1）；每轮重新取图，
-  识别结果为空串会跳过 `verifyCode`、直接进入下一轮；`verifyCode` 不通过也重新取图。
-  轮次记录在 `SubmitResult.captcha_attempts`。
-- `code=360` 表示**手机验证码**错误（与图形验证码不同），本库只归类为 `captcha`，
-  需人工处理。
-- 重提交的 payload 才带 `chk_code`，首次提交不含；`field_names` 记录的是首次字段名。
-
-### unified 路径：空白「4399提示」页的根因与修复（2.4.0）
-
-2026-11-08 实测：把 `regFrame.do` 页面里的若干隐藏域**原样回传**时，
-`POST /ptlogin/register.do` 会稳定返回一个空白「4399提示」页（`info_page` 壳：
-无 `<div id="Msg">`、无登录 Cookie，注册不发生）。**根因是这些隐藏域，不是风控封 IP**；
-按 `UNIFIED_DROP_FIELDS` 剔除后，同一套数据即可正常建号。
-
-| 类别 | 剔除的字段（共 13 个） |
-|---|---|
-| 布局 / 防沉迷 / 前端开关 | `crossDomainUrl`、`mainDivId`、`showRegInfo`、`includeFcmInfo`、`expandFcmInput`、`fcmFakeValidate`、`realnameValidate`、`userNameLabel`、`iframeId` |
-| 协议开关（会另起分支） | `email`、`reg_eula_agree`、`autoLogin`、`fCaptcha` |
-
-- 现在实际提交 **23 个字段**：21 个基础字段（`appId`、`regMode`、`level`、`username`、
-  `password`、`passwordveri`、`sessionId`、`sec`、`postLoginHandler`、`displayMode`、
-  `bizId`、`gameId`、`cid`、`externalLogin`、`aid`、`ref`、`css`、`redirectUrl`、
-  `regIdcard`、`noEmail`、`crossDomainIFrame`）**+ `realname` + `idcard`**。
-- 常量可从 `gen4399.submit` 导入：`UNIFIED_DROP_FIELDS`（frozenset，13 个）、
-  `UNIFIED_SEND_REALNAME`（默认 `True`）。
-- **默认提交实名**：`realname`/`idcard` 与密码一起走 AES-256-CBC，
-  `encrypted_fields` 为 `("password", "passwordveri", "realname", "idcard")`。
-  实测账号 `abnsm4uw2s77` 就是这样建成的。
-- ⚠️ **关键**：`reg_eula_agree` / `autoLogin` / `fCaptcha` 必须继续剔除——
-  这三个和实名一起回传时服务端会回到空白「4399提示」页（26 字段版实测失败）。
-- 想要**不实名**的账号：把 `UNIFIED_SEND_REALNAME` 设为 `False`（运行期改模块属性
-  `gen4399.submit.UNIFIED_SEND_REALNAME = False`，给导入名赋值无效），此时 payload
-  只剩用户名/密码，`encrypted_fields` 为 `("password", "passwordveri")`。
-- **unified 也会要求图形验证码**：服务端风控把 `register.do` 的响应重渲染成
-  带 `inputCaptcha` / `captcha.do?captchaId=…` 的表单时（`#Msg` 为「验证码错误」），
-  传了 `captcha=` 回调就会自动取图识别并带 `fCaptcha` 重提交（轮次见
-  `SubmitResult.captcha_attempts`）；不传则返回 `kind="captcha"`。
+- **web**：首次 `POST /user/?_c=reg` 常返回 `code=200`（要图形验证码）。
+  同一会话内「取图 → 识别 → `verifyCode` → 带 `chk_code` 重提交」即可；
+  `captcha=` 不传则返回 `kind="captcha"`，不重试。
+- **unified**：`regFrame.do` 的隐藏域原样回传会让服务端返回空白「4399提示」页
+  （不是风控封 IP）。库按 `UNIFIED_DROP_FIELDS`（13 个）剔除后提交 23 个字段；
+  默认连实名一起 AES 加密（`UNIFIED_SEND_REALNAME=True`）。
+- **unified 验证码**：响应重渲染成带 `inputCaptcha` / `captcha.do?captchaId=…`
+  的表单时，`captcha=` 回调会被调用并带 `inputCaptcha` 重提交（字段名**不是**
+  `fCaptcha`，`sessionId` 要换成页面给的 captchaId）。
+- 端点、字段表、AES/DES 参数、实测样本见 [docs/submit.md](docs/submit.md)；
+  规则来源见 [docs/rules.md](docs/rules.md)。
 
 ### API
 
@@ -843,45 +807,8 @@ python -m gen4399 submit --form-path web --realname 张三 --idcard ... --yes --
 
 ## FAQ
 
-**Q：为什么密码不能预校验？**
-4399 没有密码校验接口，只有注册提交时才校验；本库只能保证通过公开规则。
-
-**Q：`fetch` 为什么经常返回空 / 报频率限制？**
-`regFrame.do` 会限流。调大 `--retry-delay`、加 `--min-interval`，或改用本地生成。
-
-**Q：规则会变吗？**
-会。`python scripts/verify_rules.py` 做冒烟检查；见 [docs/rules.md](docs/rules.md)。
-
-**Q：能自动提交注册吗？**
-2.1.0 起可以，2.2.0 起 `web` / `unified` 两条路径都行，但必须**显式触发**：
-库不会自动提交；CLI 需加 `--yes`（默认 dry-run），API 需显式调用
-`submit_registration()`（默认 `dry_run=False`，建议先传 `dry_run=True`）。
-仅限本人真实身份、遵守 4399 用户协议。两条路径的成功响应均已在 2026-11-08 实测
-建号成功（web 含图形验证码流程；unified 剔除隐藏域后跑通），但仍建议以登录
-`https://u.4399.com/` 为准。
-
-**Q：unified 会提交实名信息吗？**
-会，默认就提交：`UNIFIED_SEND_REALNAME=True`，`realname`/`idcard` 与密码一起
-AES-256-CBC 加密（`encrypted_fields` 4 个），实测账号 `abnsm4uw2s77` 即此版本。
-确实想建「不实名」账号时，把 `gen4399.submit.UNIFIED_SEND_REALNAME` 设为 `False`
-（模块属性，运行期有效），payload 会去掉姓名/身份证（`encrypted_fields` 变 2 个）。
-注意 `reg_eula_agree`/`autoLogin`/`fCaptcha` 无论如何都要剔除，否则会回到空白提示页。
-
-**Q：web 路径要图形验证码怎么办？**
-传 `captcha` 回调：`submit_registration(..., captcha=solver, captcha_attempts=3)`，
-`solver(image_bytes) -> str` 由你实现（人工输入或外部 OCR）。CLI 用
-`--captcha-prompt` / `--captcha-cmd`；脚本 `make_account.py` 同样支持。
-不传回调时遇到 `code=200` 直接返回 `kind="captcha"`，不会建号。
-本库不提供验证码破解。
-
-**Q：dry-run 会联网吗？**
-会，但只发 GET、不发注册 POST、不建号：`unified` 路径 `GET regFrame.do` 拉表单；
-`web` 路径 `GET checkUser` 取 `encryptCode`（只带用户名）。dry-run 只在内存组装字段，
-`unified` 不会发送姓名/身份证、`web` 也不会；用于确认接口/加密
-是否仍符合预期。
-
-**Q：POST 超时/失败会自动重试吗？**
-不会。POST 永远单次尝试，避免服务端其实已建号却被重复提交；超时后请先尝试登录确认。
+常见问题（密码能否预校验、fetch 为什么限流、能不能自动提交、验证码怎么办、
+dry-run 联不联网……）见 [docs/faq.md](docs/faq.md)。
 
 ## 规则来源
 

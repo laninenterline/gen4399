@@ -216,6 +216,7 @@ def _build_transport(args, *, timeout, policy):
         random_user_agent=bool(getattr(args, "random_ua", False)),
         timeout=timeout,
         retry_policy=policy,
+        sticky=bool(getattr(args, "proxy_sticky", False)),
     )
 
 
@@ -991,6 +992,8 @@ def _add_transport_opts(sp: argparse.ArgumentParser) -> None:
                     help="代理池取用策略，默认 round-robin")
     sp.add_argument("--random-ua", action="store_true",
                     help="每个会话随机生成浏览器 User-Agent")
+    sp.add_argument("--proxy-sticky", action="store_true",
+                    help="粘住代理池里的第一个代理（查重+提交用同一个 IP）")
 
 
 def _add_io_opts(sp: argparse.ArgumentParser) -> None:

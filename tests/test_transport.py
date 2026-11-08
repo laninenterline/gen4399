@@ -199,3 +199,38 @@ class TestTransportThreading(unittest.TestCase):
             registration.prepare_registration(profile, path="web", transport=opts)
         gen.assert_called_once()
         self.assertIs(gen.call_args.kwargs["transport"], opts)
+
+
+class TestStickyAndThreadSafety(unittest.TestCase):
+    def test_sticky_keeps_first_proxy(self):
+        pool = ProxyPool(["1.1.1.1:80", "2.2.2.2:80"])
+        opts = TransportOptions(proxy_pool=pool, sticky=True)
+        picks = [opts.pick_proxy() for _ in range(3)]
+        self.assertEqual(picks, ["http://1.1.1.1:80"] * 3)
+        opts.reset_sticky()
+        self.assertEqual(opts.pick_proxy(), "http://2.2.2.2:80")
+
+    def test_non_sticky_rotates(self):
+        opts = TransportOptions(proxy_pool=ProxyPool(["1.1.1.1:80", "2.2.2.2:80"]))
+        self.assertNotEqual(opts.pick_proxy(), opts.pick_proxy())
+
+    def test_pool_next_is_thread_safe(self):
+        import threading
+
+        pool = ProxyPool(["1.1.1.1:80", "2.2.2.2:80", "3.3.3.3:80", "4.4.4.4:80"])
+        results = []
+        lock = threading.Lock()
+
+        def worker():
+            local = [pool.next() for _ in range(25)]
+            with lock:
+                results.extend(local)
+
+        threads = [threading.Thread(target=worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(len(results), 100)
+        counts = {p: results.count(p) for p in set(results)}
+        self.assertEqual(set(counts.values()), {25})

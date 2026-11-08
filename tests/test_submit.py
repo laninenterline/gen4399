@@ -732,3 +732,22 @@ class TestHelpers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMaskProxy(unittest.TestCase):
+    def test_masks_credentials(self):
+        from gen4399._submit_types import mask_proxy
+
+        self.assertEqual(
+            mask_proxy("http://user:pass@1.2.3.4:8080"), "http://***@1.2.3.4:8080"
+        )
+        self.assertEqual(mask_proxy("http://1.2.3.4:80"), "http://1.2.3.4:80")
+        self.assertIsNone(mask_proxy(None))
+        self.assertIsNone(mask_proxy(object()))  # 非字符串一律当作没有
+
+    def test_to_dict_includes_proxy(self):
+        r = SubmitResult(
+            ok=True, kind="success", message="ok", username="a", path="web",
+            app_id="", proxy="http://***@1.2.3.4:8080",
+        )
+        self.assertEqual(r.to_dict()["proxy"], "http://***@1.2.3.4:8080")

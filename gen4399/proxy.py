@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import random
+import threading
 import urllib.parse
 from collections.abc import Iterable, Iterator, Sequence
 
@@ -61,6 +62,8 @@ class ProxyPool:
         self._strategy = strategy
         self._rng = rng or random
         self._index = 0
+        #: ``next()`` 在多线程下也安全（轮换下标是共享状态）
+        self._lock = threading.Lock()
 
     @classmethod
     def from_lines(
@@ -98,9 +101,10 @@ class ProxyPool:
         return iter(self._items)
 
     def next(self) -> str:
-        """按策略取下一个代理。"""
+        """按策略取下一个代理（线程安全）。"""
         if self._strategy == "random":
             return self._rng.choice(self._items)
-        value = self._items[self._index % len(self._items)]
-        self._index += 1
+        with self._lock:
+            value = self._items[self._index % len(self._items)]
+            self._index += 1
         return value

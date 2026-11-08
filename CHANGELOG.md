@@ -2,6 +2,37 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.8.0] - 2026-11-08
+
+### 新增
+
+- **粘性代理**：`TransportOptions(sticky=True)` / `--proxy-sticky`。默认每次
+  `new_session()` 轮换代理，导致「查重」和「提交」落在两个 IP；打开 sticky 后
+  整个注册流程固定用一个代理，`reset_sticky()` 可手动换。
+- **`gen4399.account`**：`account_record()` / `append_account()` / `load_accounts()`，
+  把「跑一次拿一个号」的落盘逻辑从 `scripts/make_account.py` 提到库里（原子写入、
+  0600、损坏文件容错），脚本因此减到 395 行。
+- `SubmitResult.proxy`：记录本次实际使用的代理（**已打码**，`http://***@host:port`），
+  `to_dict()` 同步输出，便于排查「哪个 IP 被风控」。
+- 验证码连续失败时，消息里会提示「识别模板可能已过期，改用人工/外部 OCR」。
+
+### 修复
+
+- `ProxyPool.next()` 加锁，多线程轮换不再跳号/重复。
+- `fetch_suggested_usernames(with_availability=True)` 复用同一个会话（同一个代理），
+  不再每个名字换一次 IP。
+
+### 重构（内部）
+
+- `submit.py` 1183 → 857 行：结果类型与文本工具拆到 `_submit_types.py`，
+  分类器拆到 `_submit_classify.py`；`gen4399.submit` 保持全部旧名字可用
+  （含 `UNIFIED_SEND_REALNAME` 这个运行期开关，测试与文档口径不变）。
+- README 914 → 837 行：协议细节统一指向 `docs/submit.md`，FAQ 挪到 `docs/faq.md`。
+
+### 测试
+
+- 690 passed（新增 account / sticky / 线程安全 / mask_proxy 等 11 例）。
+
 ## [2.7.0] - 2026-11-08
 
 ### 新增

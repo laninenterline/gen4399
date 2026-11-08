@@ -31,6 +31,8 @@ class TransportOptions:
         proxy_pool: 代理池；每次 :meth:`new_session` 按策略取一个。
         random_user_agent: 是否为每个会话随机生成 User-Agent。
         retry_policy: GET 重试策略（POST 永远单次）。
+        sticky: 是否「粘住」第一个代理——整个注册流程（查重 + 提交）用同一个 IP。
+            默认 False（每次 :meth:`new_session` 轮换）。
     """
 
     timeout: float = DEFAULT_TIMEOUT
@@ -38,6 +40,7 @@ class TransportOptions:
     proxy_pool: ProxyPool | None = None
     random_user_agent: bool = False
     retry_policy: RetryPolicy | None = None
+    sticky: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.timeout, (int, float)) or isinstance(self.timeout, bool):
@@ -50,12 +53,27 @@ class TransportOptions:
             raise TypeError("proxy_pool 必须是 ProxyPool")
         if self.proxy is not None and self.proxy_pool is not None:
             raise ValueError("proxy 与 proxy_pool 只能二选一（池优先，不必同时给）")
+        # frozen dataclass 里放一个可变小容器，用来缓存 sticky 选中的代理
+        object.__setattr__(self, "_sticky_slot", [None])
 
     def pick_proxy(self) -> str | None:
-        """按配置取本次要用的代理（没有则 ``None`` = 直连）。"""
-        if self.proxy_pool is not None:
+        """按配置取本次要用的代理（没有则 ``None`` = 直连）。
+
+        ``sticky=True`` 时第一次选中的代理会被缓存，之后一直返回它，
+        直到调用 :meth:`reset_sticky`。
+        """
+        if self.proxy_pool is None:
+            return self.proxy
+        if not self.sticky:
             return self.proxy_pool.next()
-        return self.proxy
+        slot = self._sticky_slot
+        if slot[0] is None:
+            slot[0] = self.proxy_pool.next()
+        return slot[0]
+
+    def reset_sticky(self) -> None:
+        """清掉 sticky 缓存（下次 :meth:`pick_proxy` 会重新选一个代理）。"""
+        self._sticky_slot[0] = None
 
     def new_session(self, *, referer: str | None = None) -> "_http.RemoteSession":
         """按配置创建一个新的 :class:`RemoteSession`。"""
@@ -78,6 +96,7 @@ def build_transport(
     random_user_agent: bool = False,
     timeout: float = DEFAULT_TIMEOUT,
     retry_policy: RetryPolicy | None = None,
+    sticky: bool = False,
 ) -> TransportOptions | None:
     """按「命令行式」参数拼一个 :class:`TransportOptions`。
 
@@ -106,4 +125,5 @@ def build_transport(
         proxy_pool=pool,
         random_user_agent=random_user_agent,
         retry_policy=retry_policy,
+        sticky=sticky,
     )

@@ -333,6 +333,9 @@ def fetch_suggested_usernames(
         out.append(name)
         if len(out) == count:
             if with_availability:
+                session = (
+                    transport.new_session() if transport is not None else None
+                )
                 return [
                     check_username(
                         item,
@@ -340,6 +343,7 @@ def fetch_suggested_usernames(
                         timeout=timeout,
                         retry_policy=retry_policy,
                         transport=transport,
+                        _session=session,
                     )
                     for item in out
                 ]
@@ -359,6 +363,7 @@ def check_username(
     validate_input: bool = False,
     retry_policy: RetryPolicy | None = None,
     transport=None,
+    _session=None,
 ) -> UsernameAvailability:
     """查询用户名是否还能注册（调用官方 ``isExist.do``）。
 
@@ -401,12 +406,16 @@ def check_username(
     query = urllib.parse.urlencode(
         {"username": username, "appId": app_id, "regMode": "reg_normal"}
     )
-    body = _http._http_get(
-        f"{IS_EXIST_URL}?{query}",
-        timeout,
-        policy=retry_policy or DEFAULT_CHECK_RETRY_POLICY,
-        transport=transport,
-    ).strip()
+    if _session is not None:
+        # 批量场景：复用同一个会话（同一个代理），避免每个名字换一次 IP
+        body = _session.get(f"{IS_EXIST_URL}?{query}").body.strip()
+    else:
+        body = _http._http_get(
+            f"{IS_EXIST_URL}?{query}",
+            timeout,
+            policy=retry_policy or DEFAULT_CHECK_RETRY_POLICY,
+            transport=transport,
+        ).strip()
     kind = _classify_availability(body)
     if kind == "unknown":
         raise RemoteParseError(
