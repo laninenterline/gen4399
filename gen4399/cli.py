@@ -1265,7 +1265,7 @@ def _cmd_generate(args) -> int:
 # ---------------------------------------------------------------------------
 
 _SUBCOMMANDS = {
-    "generate", "check", "account", "accounts", "batch", "captcha",
+    "generate", "check", "account", "accounts", "batch", "captcha", "webui",
     "fetch", "available", "login",
     "form", "prepare", "submit", "profile", "rules", "version",
 }
@@ -1458,6 +1458,13 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
     fb.add_argument("--show-pii", action="store_true")
     _add_identity_opts(fb)
     _add_io_opts(fb)
+
+    wu = new("webui", "本地 WebUI（浏览器里配置、导入 sfz.txt、导出账号）")
+    wu.add_argument("--host", default="127.0.0.1")
+    wu.add_argument("--port", type=int, default=8765)
+    wu.add_argument("--accounts", default="accounts.json")
+    wu.add_argument("--dry-run-only", action="store_true")
+    wu.add_argument("--open", action="store_true")
 
     bt = new("batch", "批量注册编排（多身份 + 节奏 + 落盘 + 断点续跑）")
     bt.add_argument("--form-path", choices=["web", "unified"], default="unified")
@@ -1679,6 +1686,8 @@ def _normalize_subcommand(args) -> None:
         args.accounts_cmd = args.accounts_command
     elif cmd == "batch":
         args.batch_cmd = True
+    elif cmd == "webui":
+        args.webui_cmd = True
     elif cmd == "captcha":
         args.captcha_cmd_name = args.captcha_command
 
@@ -1722,6 +1731,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_login(args)
     if getattr(args, "accounts_cmd", None):
         return _cmd_accounts(args)
+    if getattr(args, "webui_cmd", False):
+        from .webui import main as webui_main
+
+        return webui_main([
+            "--host", args.host, "--port", str(args.port),
+            "--accounts", args.accounts,
+            *(["--dry-run-only"] if args.dry_run_only else []),
+            *(["--open"] if args.open else []),
+        ])
     if getattr(args, "batch_cmd", False):
         return _cmd_batch(args)
     if getattr(args, "captcha_cmd_name", None):

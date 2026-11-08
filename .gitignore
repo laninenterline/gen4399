@@ -21,3 +21,8 @@ registration-response-*.html
 
 # C 移植版的构建产物
 ports/c/build/
+
+# Android 构建产物
+ports/android/build/
+ports/android/*.apk
+ports/android/build/debug.keystore

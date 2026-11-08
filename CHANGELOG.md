@@ -2,6 +2,32 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.9.0] - 2026-11-08
+
+### 新增
+
+- **本地 WebUI**（`gen4399/webui.py`，`gen4399 webui`，零依赖）：
+  - 导入 `sfz.txt`（粘贴或选文件）、设定数量 / 前后缀 / 通道（web/unified）/
+    间隔与抖动 / 验证码模式（内置模板、自学习字库、**浏览器人工识别**、不处理）
+  - 后台线程跑 `run_batch`，页面实时显示进度、逐条结果与日志
+  - **浏览器里弹图识别验证码**：web 通道遇到验证码时页面弹出图片，填完提交，
+    回调线程继续（`/api/captcha` 长轮询）
+  - 一键导出 CSV / JSON；`--dry-run-only` 可锁死为演示模式
+- **Android APK**（`ports/android/`）：WebView 外壳，指向 Termux 里的 WebUI
+  （`http://127.0.0.1:8765/`）；连不上时弹框改服务器地址。
+  用 `build.sh` 不依赖 Gradle 直接出包：javac → d8 → aapt2 → zipalign → apksigner，
+  产物 12.7KB，v1/v2/v3 签名齐全。
+
+### 说明
+
+- 注册逻辑仍在 Python 服务里，APK 只是前端；这样协议改动只维护一处。
+- 手里的 `android.jar` 是旧框架，因此 `targetSdkVersion=22`（默认允许明文 HTTP）。
+
+### 测试
+
+- 新增 `tests/test_webui.py`（12 例：身份解析、验证码桥、HTTP 接口、导出、
+  dry-run-only 拒绝真实提交）；792 passed。
+
 ## [3.8.0] - 2026-11-08
 
 ### 新增
