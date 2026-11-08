@@ -2,6 +2,24 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.26.0] - 2026-11-08
+
+### 新增（APK，保活）
+
+- **前台服务保活**：跑批量时挂 `KeepAliveService`（`foregroundServiceType="dataSync"`），
+  同时持 **PARTIAL_WAKE_LOCK** 与 **WifiLock(FULL_HIGH_PERF)**，
+  锁屏 / 息屏 / 切后台都不会被系统掐断
+  - 通知栏常驻进度：`12/100 · 成功 9 · success`
+  - 唤醒锁设了 12 小时上限，防止异常退出后一直占着
+- 设置页新增「保活」开关（默认开）和「忽略电池优化」按钮
+  （后者跳系统 `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`，进一步防杀）
+- 首次运行会申请通知权限（Android 13+），拒绝也不影响运行
+
+### 权限
+
+`WAKE_LOCK`、`FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_DATA_SYNC`、
+`POST_NOTIFICATIONS`、`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
+
 ## [3.25.1] - 2026-11-08
 
 ### 改进（APK，界面）

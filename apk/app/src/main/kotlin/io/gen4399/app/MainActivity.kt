@@ -1,5 +1,7 @@
 package io.gen4399.app
 
+import android.os.Build
+
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -85,6 +87,7 @@ data class Settings(
     val proxies: String = "",
     val proxyStrategy: String = "round-robin",
     val autoAdvance: Boolean = true,
+    val keepAlive: Boolean = true,
     val passwordLength: Int = 16,
 )
 
@@ -196,6 +199,10 @@ fun App() {
         }
     }
 
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
+
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         loadPage(uri.toString(), 0L, firstPage = true)
@@ -228,6 +235,15 @@ fun App() {
         running = true
         progress = 0f
         HttpTransport.configure(settings.proxies, settings.proxyStrategy)
+        if (settings.keepAlive) {
+            KeepAliveService.start(context, "准备中…")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                runCatching { notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
+            }
+        }
         val startIndex = results.size
         val planned = minOf(settings.count, identities.size)
         val sfz = identities.joinToString("\n") { "${it.name}|${it.idcard}|${it.qq}" }
@@ -270,6 +286,10 @@ fun App() {
                 ok: Boolean,
                 message: String,
             ) {
+                if (settings.keepAlive) {
+                    val success = results.count { it.ok }
+                    KeepAliveService.update(context, "$index/$total · 成功 $success · $kind")
+                }
                 scope.launch {
                     results += SubmitResult(kind, ok, message, username, password, settings.channel)
                     progress = index.toFloat() / total.coerceAtLeast(1)
@@ -310,6 +330,7 @@ fun App() {
                 }.getOrElse { -1 }
             }
             running = false
+            if (settings.keepAlive) KeepAliveService.stop(context)
             val batch = results.drop(startIndex)
             val dryRun = batch.count { it.kind == "dry_run" }
             val failed = batch.count { !it.ok && it.kind != "dry_run" }
@@ -346,6 +367,15 @@ fun App() {
                     importStats = importStats,
                     onImport = { importLauncher.launch(arrayOf("text/plain", "*/*")) },
                     onContinue = { fileUri?.let { loadPage(it, nextOffset, firstPage = false) } },
+                    onRequestBatteryExemption = {
+                        runCatching {
+                            val intent = android.content.Intent(
+                                android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                android.net.Uri.parse("package:${context.packageName}"),
+                            )
+                            context.startActivity(intent)
+                        }
+                    },
                 )
                 else -> RunTab(
                     identityCount = identities.size,
@@ -388,6 +418,7 @@ private fun SettingsTab(
     importStats: ImportStats,
     onImport: () -> Unit,
     onContinue: () -> Unit,
+    onRequestBatteryExemption: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Text("身份来源", style = MaterialTheme.typography.titleSmall)
@@ -519,6 +550,14 @@ private fun SettingsTab(
             Switch(checked = settings.randomize, onCheckedChange = { onChange(settings.copy(randomize = it)) })
             Spacer(Modifier.width(8.dp))
             Text("随机挑选身份（避免总用前几条，已被用尽）")
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = settings.keepAlive, onCheckedChange = { onChange(settings.copy(keepAlive = it)) })
+            Spacer(Modifier.width(8.dp))
+            Text("保活（前台服务 + 唤醒锁，锁屏/后台继续跑）")
+        }
+        OutlinedButton(onClick = onRequestBatteryExemption) {
+            Text("忽略电池优化（可选，进一步防杀）")
         }
 
         Spacer(Modifier.height(12.dp))
