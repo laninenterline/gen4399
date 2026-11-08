@@ -2,6 +2,27 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.6.0] - 2026-11-08
+
+### 新增
+
+- **账号体检**（`gen4399 accounts check` / `gen4399.account.check_accounts`）：
+  逐个登录复核 `accounts.json` 里的账号，报告可用性；`--fix` 回写结果
+  （成功标 `success` + `verified_at`，明确失效的标 `dead`）。
+  只有文案明确是「用户不存在 / 密码错误」才判死——空响应多半是登录被限流，
+  不能当账号失效。默认 `--delay 3` 秒，避免把登录接口打限流。
+
+### 修复
+
+- **wheel 里没有种子字库**：`tool.setuptools.package-data` 只写了 `py.typed`，
+  `_web_captcha_seed.json` 没被打进包（源码运行正常、装 wheel 后字库为空）。
+  已补 `*.json`，并做了一次隔离 venv 的安装验证（版本/字库/CLI 全部正常）。
+
+### 实测
+
+- 全量复核 15 个账号：9 个可登录，4 个「用户不存在」（就是 2026-11-07 那批
+  `unknown`，实际没建成功），1 个「密码错误」。已回写状态。
+
 ## [3.5.0] - 2026-11-08
 
 ### 改进

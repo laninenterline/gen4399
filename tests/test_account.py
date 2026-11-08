@@ -4,6 +4,7 @@ import json
 import stat
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from gen4399.account import account_record, append_account, load_accounts
@@ -120,3 +121,52 @@ class TestExportHelpers(unittest.TestCase):
         self.assertEqual(stats["total"], 3)
         self.assertEqual(stats["ok"], 2)
         self.assertEqual(stats["by_path"], {"web": 2, "unified": 1})
+
+
+class TestAccountCheck(unittest.TestCase):
+    def test_check_accounts_marks_results(self):
+        from gen4399.account import check_accounts
+
+        records = [
+            {"username": "alive", "password": "p1"},
+            {"username": "dead", "password": "p2"},
+            {"username": "nopwd"},
+        ]
+        ok = type("R", (), {"ok": True, "kind": "success", "message": "登录成功"})()
+        bad = type("R", (), {"ok": False, "kind": "rejected", "message": "用户不存在"})()
+
+        def fake_login(username, password, **kw):
+            return ok if username == "alive" else bad
+
+        with mock.patch("gen4399.login.login", fake_login):
+            results = check_accounts(records)
+        self.assertEqual([r["kind"] for r in results],
+                         ["success", "rejected", "no_password"])
+
+    def test_apply_check_results(self):
+        from gen4399.account import apply_check_results
+
+        records = [
+            {"username": "a", "kind": "unknown"},
+            {"username": "b", "kind": "unknown"},
+            {"username": "c", "kind": "success"},
+        ]
+        results = [
+            {"username": "a", "kind": "success", "ok": True, "message": "ok", "record": {}},
+            {"username": "b", "kind": "rejected", "ok": False, "message": "用户不存在", "record": {}},
+        ]
+        updated, changed = apply_check_results(records, results)
+        self.assertEqual(changed, 2)
+        self.assertEqual(updated[0]["kind"], "success")
+        self.assertTrue(updated[1]["dead"])
+        self.assertFalse(updated[2].get("dead"))
+
+    def test_vague_rejection_not_marked_dead(self):
+        from gen4399.account import apply_check_results
+
+        records = [{"username": "a", "kind": "success"}]
+        results = [{"username": "a", "kind": "rejected", "ok": False,
+                    "message": "", "record": {}}]
+        updated, changed = apply_check_results(records, results)
+        self.assertEqual(changed, 0)
+        self.assertFalse(updated[0].get("dead"))

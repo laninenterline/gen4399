@@ -984,6 +984,38 @@ def _cmd_accounts(args) -> int:
             print("按结果: " + "、".join(f"{k}={v}" for k, v in stats["by_kind"].items()))
         return 0
 
+    if cmd == "check":
+        from .account import apply_check_results, check_accounts
+
+        try:
+            transport = _build_transport(
+                args, timeout=DEFAULT_TIMEOUT, policy=None
+            )
+        except (Gen4399Error, TypeError, ValueError, OSError) as exc:
+            print(f"错误：{exc}", file=sys.stderr)
+            return 2
+        results = []
+        for item in check_accounts(
+            records,
+            timeout=DEFAULT_TIMEOUT,
+            transport=transport,
+            limit=args.limit,
+            delay=args.delay,
+        ):
+            results.append(item)
+            flag = "OK  " if item["ok"] else "FAIL"
+            print(f"{flag} {item['username']:<20} {item['kind']:<10} {item['message'][:50]}")
+        alive = sum(1 for r in results if r["ok"])
+        print(f"复核 {len(results)} 个：可用 {alive}，其余 {len(results) - alive}")
+        if args.fix:
+            updated, changed = apply_check_results(records, results)
+            if changed:
+                _write_private(
+                    args.file, json.dumps(updated, ensure_ascii=False, indent=2)
+                )
+            print(f"已回写 {changed} 条到 {args.file}")
+        return 0 if all(r["ok"] for r in results) else 1
+
     if cmd == "dedupe":
         unique, removed = dedupe_accounts(records)
         if args.dry_run:
@@ -1464,6 +1496,17 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
                     help="写入文件（0600）；不给则打到 stdout")
     ae.add_argument("--include-secrets", action="store_true",
                     help="导出明文密码（默认打码）")
+
+    ack = asub.add_parser("check", help="逐个登录复核账号是否还能用")
+    _acct_base(ack)
+    ack.add_argument("--fix", action="store_true",
+                     help="把结果回写文件（成功标 success，密码错标 dead）")
+    ack.add_argument("--limit", type=int, default=None, metavar="N",
+                     help="最多检查 N 条")
+    ack.add_argument("--delay", type=float, default=3.0, metavar="SEC",
+                     help="两次登录之间的间隔，默认 3 秒（太密会被限流）")
+    _add_remote_opts(ack)
+    _add_transport_opts(ack)
 
     ad = asub.add_parser("dedupe", help="按 (账号, 密码) 去重并原地重写")
     _acct_base(ad)

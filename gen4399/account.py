@@ -24,6 +24,7 @@ from .registration import RegistrationBundle
 from .submit import SubmitResult
 
 __all__ = [
+    "check_accounts",
     "account_record",
     "append_account",
     "load_accounts",
@@ -191,3 +192,108 @@ def account_stats(records: list[dict]) -> dict:
         "by_kind": by_kind,
         "by_path": by_path,
     }
+
+
+def check_accounts(
+    records: list[dict],
+    *,
+    timeout: float = 10.0,
+    transport=None,
+    limit: int | None = None,
+    delay: float = 0.0,
+) -> list[dict]:
+    """逐个登录，确认账号是否仍然可用。
+
+    Args:
+        records: :func:`load_accounts` 读出来的记录列表。
+        timeout: 单次登录超时（秒）。
+        transport: 可选的代理 / UA 配置。
+        limit: 最多检查多少条。
+        delay: 两次登录之间的间隔（秒）；登录接口对短时间高频请求会限流。
+
+    Returns:
+        每条一个字典：``{"username", "kind", "ok", "message", "record"}``，
+        其中 ``record`` 是原始记录（便于回写）。
+    """
+    from .login import login as do_login
+
+    import time
+
+    results = []
+    items = records[: limit if limit is not None else len(records)]
+    for index, record in enumerate(items):
+        if index and delay > 0:
+            time.sleep(delay)
+        username = record.get("username") or ""
+        password = record.get("password") or ""
+        if not username or not password:
+            results.append(
+                {
+                    "username": username or "?",
+                    "kind": "no_password",
+                    "ok": False,
+                    "message": "记录里没有密码，无法复核",
+                    "record": record,
+                }
+            )
+            continue
+        try:
+            outcome = do_login(username, password, timeout=timeout, transport=transport)
+        except Exception as exc:  # 网络问题不该中断整批
+            results.append(
+                {
+                    "username": username,
+                    "kind": "error",
+                    "ok": False,
+                    "message": str(exc),
+                    "record": record,
+                }
+            )
+            continue
+        results.append(
+            {
+                "username": username,
+                "kind": outcome.kind,
+                "ok": outcome.ok,
+                "message": outcome.message,
+                "record": record,
+            }
+        )
+    return results
+
+
+def apply_check_results(
+    records: list[dict], results: list[dict]
+) -> tuple[list[dict], int]:
+    """把复核结果回写到记录里（成功标 success，密码错标 dead）。
+
+    Returns:
+        ``(更新后的记录列表, 变更条数)``。
+    """
+    by_username = {r["username"]: r for r in results}
+    changed = 0
+    updated = []
+    for record in records:
+        item = by_username.get(record.get("username") or "")
+        if item is None:
+            updated.append(record)
+            continue
+        new = dict(record)
+        if item["ok"]:
+            new["kind"] = "success"
+            new["ok"] = True
+            new["verified_at"] = datetime.now().astimezone().isoformat(
+                timespec="seconds"
+            )
+        elif item["kind"] == "rejected" and any(
+            kw in item["message"] for kw in ("用户不存在", "密码错误")
+        ):
+            # 只有明确文案才判死；空响应/验证码多半是登录被限流，不能当账号失效
+            new["dead"] = True
+        else:
+            updated.append(record)
+            continue
+        if new != record:
+            changed += 1
+        updated.append(new)
+    return updated, changed

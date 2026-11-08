@@ -46,7 +46,7 @@ version = { attr = "gen4399.__version__" }
 include = ["gen4399*"]
 
 [tool.setuptools.package-data]
-gen4399 = ["py.typed"]
+gen4399 = ["py.typed", "*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
