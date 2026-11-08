@@ -15,6 +15,7 @@ typedef struct {
     jmethodID progress;
     jmethodID captcha;
     jmethodID fetch_binary;
+    jmethodID account_start;
 } jni_ctx;
 
 static const char *to_c(JNIEnv *env, jstring value)
@@ -144,6 +145,15 @@ static unsigned char *jni_fetch_binary(void *ctx, const char *url,
     return buffer;
 }
 
+static void jni_account_start(void *ctx, int index)
+{
+    jni_ctx *j = (jni_ctx *)ctx;
+    JNIEnv *env = j->env;
+    if (!j->account_start) return;
+    (*env)->CallVoidMethod(env, j->callback, j->account_start, index);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+}
+
 static char *jni_captcha(void *ctx, const unsigned char *image, int length)
 {
     jni_ctx *j = (jni_ctx *)ctx;
@@ -186,7 +196,8 @@ Java_io_gen4399_app_Native_runBatch(JNIEnv *env, jobject thiz, jstring identitie
     ctx.captcha = (*env)->GetMethodID(env, cls, "askCaptcha", "([B)Ljava/lang/String;");
     ctx.fetch_binary = (*env)->GetMethodID(env, cls, "fetchBinary",
         "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/Object;");
-    if (!ctx.transport || !ctx.progress || !ctx.captcha || !ctx.fetch_binary) return -1;
+    ctx.account_start = (*env)->GetMethodID(env, cls, "onAccountStart", "(I)V");
+    if (!ctx.transport || !ctx.progress || !ctx.captcha || !ctx.fetch_binary || !ctx.account_start) return -1;
 
     const char *c_ids = to_c(env, identities);
     const char *c_path = to_c(env, path);
@@ -212,6 +223,7 @@ Java_io_gen4399_app_Native_runBatch(JNIEnv *env, jobject thiz, jstring identitie
     hooks.progress = jni_progress;
     hooks.fetch_binary = jni_fetch_binary;
     hooks.captcha = jni_captcha;
+    hooks.account_start = jni_account_start;
     hooks.log = NULL;
 
     jint result = (jint)g4399_agent_run(c_ids, &config, &hooks);

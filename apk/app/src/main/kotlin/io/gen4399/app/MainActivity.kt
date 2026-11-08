@@ -81,6 +81,8 @@ data class Settings(
     val intervalSec: Int = 20,
     val dryRun: Boolean = true,
     val randomize: Boolean = true,
+    val proxies: String = "",
+    val proxyStrategy: String = "round-robin",
     val passwordLength: Int = 16,
 )
 
@@ -217,6 +219,7 @@ fun App() {
         }
         running = true
         progress = 0f
+        HttpTransport.configure(settings.proxies, settings.proxyStrategy)
         val startIndex = results.size
         val planned = minOf(settings.count, identities.size)
         val sfz = identities.joinToString("\n") { "${it.name}|${it.idcard}|${it.qq}" }
@@ -235,6 +238,11 @@ fun App() {
 
             override fun fetchBinary(url: String, cookieHeader: String, referer: String): Array<Any> =
                 HttpTransport.fetchBytes(url, cookieHeader, referer)
+
+            override fun onAccountStart(index: Int) {
+                HttpTransport.beginAccount()
+                scope.launch { appendLog("[$index] 出口 ${HttpTransport.currentProxyLabel()}") }
+            }
 
             override fun onProgress(
                 index: Int,
@@ -483,6 +491,26 @@ private fun SettingsTab(settings: Settings, onChange: (Settings) -> Unit, identi
         )
 
         Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = settings.proxies,
+            onValueChange = { onChange(settings.copy(proxies = it)) },
+            label = { Text("代理池（一行一个，可留空走直连）") },
+            placeholder = { Text("127.0.0.1:8080\nhttp://user:pass@1.2.3.4:3128") },
+            modifier = Modifier.fillMaxWidth().height(110.dp),
+            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("代理策略：", style = MaterialTheme.typography.bodySmall)
+            listOf("round-robin" to "轮询", "random" to "随机").forEach { (value, label) ->
+                FilterChip(
+                    selected = settings.proxyStrategy == value,
+                    onClick = { onChange(settings.copy(proxyStrategy = value)) },
+                    label = { Text(label) },
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Switch(checked = settings.dryRun, onCheckedChange = { onChange(settings.copy(dryRun = it)) })
             Spacer(Modifier.width(8.dp))
@@ -495,6 +523,11 @@ private fun SettingsTab(settings: Settings, onChange: (Settings) -> Unit, identi
         }
 
         Spacer(Modifier.height(12.dp))
+        Text(
+            "随机 UA：每个账号换一条；代理：每账号切一个（账号内所有请求同 IP）",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
         Text(
             "将生成 ${minOf(settings.count, identityCount)} 个账号；用户名示例：${
                 runCatching { Rules.generateUsername(12, settings.prefix, settings.suffix) }.getOrDefault("-")

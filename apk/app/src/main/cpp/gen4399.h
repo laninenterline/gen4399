@@ -31,6 +31,9 @@ const char *g4399_check_realname(const char *realname);
 const char *g4399_check_idcard(const char *idcard);
 const char *g4399_check_qq(const char *qq);
 
+/** 生成一条随机浏览器 UA，写入 out（建议 256 字节） */
+void g4399_random_user_agent(char *out, size_t out_len);
+
 /** 身份证打码写入 buf（至少 19 字节） */
 void g4399_mask_idcard(const char *idcard, char *buf, size_t buflen);
 

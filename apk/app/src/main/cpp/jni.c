@@ -204,3 +204,12 @@ Java_io_gen4399_app_Native_recognizeWeb(JNIEnv *env, jobject thiz, jintArray pix
     if (!ok) return NULL;
     return (*env)->NewStringUTF(env, out);
 }
+
+JNIEXPORT jstring JNICALL
+Java_io_gen4399_app_Native_randomUserAgent(JNIEnv *env, jobject thiz)
+{
+    (void)thiz;
+    char buffer[256] = {0};
+    g4399_random_user_agent(buffer, sizeof(buffer));
+    return (*env)->NewStringUTF(env, buffer);
+}

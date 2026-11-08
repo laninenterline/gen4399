@@ -2,6 +2,23 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.22.0] - 2026-11-08
+
+### 新增（APK）
+
+- **随机 UA**：`g4399_random_user_agent()` 在 C 里生成（Chrome/Edge/Firefox/Safari ×
+  Windows/macOS/Linux，版本号 120~133），**每个账号换一条**。
+- **代理池**：设置页可直接粘贴代理列表（一行一个，支持 `host:port`、
+  `http://host:port`、`user:pass@host:port`），策略 `round-robin` / `random`。
+  - **粘性**：每个账号开始时切一个代理（C 新增 `account_start` 钩子），
+    该账号的表单/提交/验证码全走同一出口 —— 验证码与 Cookie 都绑定在会话上，这点很关键
+  - 日志会打 `[1] 出口 1.2.3.4:8080`，能看清每个号走了哪个代理
+
+### 验证
+
+- 从新 APK 提取 `libgen4399.so` 调用 `g4399_random_user_agent()`，
+  连续三次输出不同 UA（Firefox / Edge / Chrome 各一条）
+
 ## [3.21.0] - 2026-11-08
 
 ### 新增（APK）

@@ -166,3 +166,32 @@ void g4399_mask_idcard(const char *idcard, char *buf, size_t buflen)
     memcpy(buf + 14, idcard + 14, 4);
     buf[18] = '\0';
 }
+
+/* ---------------- 随机 User-Agent ---------------- */
+
+static const char *UA_TEMPLATES[] = {
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%d.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%d.0.0.0 Safari/537.36 Edg/%d.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%d.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%d.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:%d.0) Gecko/20100101 Firefox/%d.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/%d.0 Safari/605.1.15",
+};
+
+void g4399_random_user_agent(char *out, size_t out_len)
+{
+    if (!out || out_len == 0) return;
+    seed_rng();
+    int index = rand() % (int)(sizeof(UA_TEMPLATES) / sizeof(UA_TEMPLATES[0]));
+    int major = 120 + rand() % 14;          /* 120~133 */
+    int safari = 16 + rand() % 3;           /* 16~18 */
+    if (index == 4) {
+        snprintf(out, out_len, UA_TEMPLATES[index], major, major);
+    } else if (index == 5) {
+        snprintf(out, out_len, UA_TEMPLATES[index], safari);
+    } else if (index == 1) {
+        snprintf(out, out_len, UA_TEMPLATES[index], major, major);
+    } else {
+        snprintf(out, out_len, UA_TEMPLATES[index], major);
+    }
+}

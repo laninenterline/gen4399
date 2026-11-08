@@ -642,6 +642,7 @@ int g4399_agent_run(const char *identities, const g4399_agent_config *config,
     for (int step = 0; step < target; step++) {
         int index = order[step];
         identity *who = &items[index];
+        if (hooks->account_start) hooks->account_start(hooks->ctx, step + 1);
         cookie_jar jar = {0};
         account_result result = {0};
 

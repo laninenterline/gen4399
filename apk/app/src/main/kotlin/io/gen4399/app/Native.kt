@@ -40,6 +40,9 @@ object Native {
             message: String,
         )
 
+        /** 每个账号开始时（可在这里切换代理/UA） */
+        fun onAccountStart(index: Int) {}
+
         /** 需要人工识别验证码；返回 4 位字符，null 表示跳过 */
         fun askCaptcha(image: ByteArray): String?
     }
@@ -60,6 +63,9 @@ object Native {
         randomize: Boolean,
         callback: Callback,
     ): Int
+
+    /** C 侧生成的随机浏览器 UA */
+    external fun randomUserAgent(): String
 
     external fun generatePassword(length: Int): String
     external fun generateUsername(length: Int): String
