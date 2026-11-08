@@ -106,6 +106,14 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="把验证码图片保存到该目录（便于人工查看/留存）")
     p.add_argument("--captcha-zoom", type=int, default=1, metavar="N",
                    help="人工识别时把验证码放大 N 倍（需 ImageMagick）")
+    p.add_argument("--proxy", default=None, metavar="URL",
+                   help="HTTP(S) 代理，如 http://127.0.0.1:8080")
+    p.add_argument("--proxy-file", default=None, metavar="FILE",
+                   help="代理池文件：一行一个代理，# 开头为注释")
+    p.add_argument("--proxy-strategy", choices=["round-robin", "random"],
+                   default="round-robin", help="代理池取用策略")
+    p.add_argument("--random-ua", action="store_true",
+                   help="每个会话随机生成浏览器 User-Agent")
     p.add_argument("--captcha-attempts", type=int, default=3, metavar="N",
                    help="验证码最多重试轮数，默认 3")
     p.add_argument("--output", default="accounts.json", metavar="FILE",
@@ -118,6 +126,25 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="--diagnose 时保存原始响应 HTML 的路径，"
                         "默认 registration-response-<时间戳>.html（0600）")
     return p
+
+
+def _build_transport(args, *, timeout, policy):
+    """按参数构造 TransportOptions；没有代理/随机 UA 时返回 None。"""
+    from gen4399.proxy import ProxyPool
+    from gen4399.transport import TransportOptions
+
+    pool = None
+    if args.proxy_file:
+        pool = ProxyPool.from_file(args.proxy_file, strategy=args.proxy_strategy)
+    if not args.proxy and pool is None and not args.random_ua:
+        return None
+    return TransportOptions(
+        timeout=timeout,
+        proxy=args.proxy,
+        proxy_pool=pool,
+        random_user_agent=args.random_ua,
+        retry_policy=policy,
+    )
 
 
 def _load_profile(
@@ -311,6 +338,7 @@ def main(argv: list[str] | None = None) -> int:
             index=args.index,
             strict=args.strict,
         )
+        transport = _build_transport(args, timeout=args.timeout, policy=policy)
         captcha = make_solver(
             prompt=args.captcha_prompt,
             command=args.captcha_cmd,
@@ -351,6 +379,7 @@ def main(argv: list[str] | None = None) -> int:
             app_id=args.app_id,
             timeout=args.timeout,
             retry_policy=policy,
+            transport=transport,
         )
         result = submit_registration(
             bundle,
@@ -362,6 +391,7 @@ def main(argv: list[str] | None = None) -> int:
             on_response=_capture_response if args.diagnose else None,
             captcha=captcha,
             captcha_attempts=args.captcha_attempts,
+            transport=transport,
         )
     except (Gen4399Error, TypeError, ValueError, OSError) as exc:
         print(f"错误：{exc}", file=sys.stderr)

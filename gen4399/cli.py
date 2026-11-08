@@ -184,6 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--level", type=int, default=4, metavar="N",
                    help="注册等级 level，默认 4")
     _add_captcha_opts(p)
+    _add_transport_opts(p)
     p.add_argument("--show-pii", action="store_true",
                    help="显示明文身份证号/密码/QQ（默认打码）")
     p.add_argument("--entropy", action="store_true",
@@ -202,6 +203,30 @@ def build_parser() -> argparse.ArgumentParser:
 # ---------------------------------------------------------------------------
 # 通用小工具
 # ---------------------------------------------------------------------------
+
+
+def _build_transport(args, *, timeout, policy):
+    """按 CLI 参数构造 TransportOptions（没有代理/随机 UA 时返回 None）。"""
+    from .proxy import ProxyPool
+    from .transport import TransportOptions
+
+    proxy = getattr(args, "proxy", None)
+    proxy_file = getattr(args, "proxy_file", None)
+    random_ua = bool(getattr(args, "random_ua", False))
+    pool = None
+    if proxy_file:
+        pool = ProxyPool.from_file(
+            proxy_file, strategy=getattr(args, "proxy_strategy", "round-robin")
+        )
+    if not proxy and pool is None and not random_ua:
+        return None
+    return TransportOptions(
+        timeout=timeout,
+        proxy=proxy,
+        proxy_pool=pool,
+        random_user_agent=random_ua,
+        retry_policy=policy,
+    )
 
 
 def _offline(args) -> bool:
@@ -463,6 +488,7 @@ def _cmd_prepare(args) -> int:
     policy = _retry_policy(args)
     timeout = DEFAULT_TIMEOUT if args.timeout is None else args.timeout
     try:
+        transport = _build_transport(args, timeout=timeout, policy=policy)
         profiles = _load_identity_profiles(args)
         bundles = []
         for profile in profiles:
@@ -479,6 +505,7 @@ def _cmd_prepare(args) -> int:
                 timeout=timeout,
                 retry_delay=args.retry_delay or 0.0,
                 retry_policy=policy,
+                transport=transport,
             ))
             _sleep_between(args)
     except (Gen4399Error, TypeError, ValueError, OSError) as exc:
@@ -546,6 +573,7 @@ def _cmd_submit(args) -> int:
         )
 
     try:
+        transport = _build_transport(args, timeout=timeout, policy=policy)
         captcha = _make_captcha_solver(
             prompt=bool(getattr(args, "captcha_prompt", False)),
             command=getattr(args, "captcha_cmd", None),
@@ -555,7 +583,7 @@ def _cmd_submit(args) -> int:
             zoom=int(getattr(args, "captcha_zoom", 1) or 1),
         )
         captcha_attempts = int(getattr(args, "captcha_attempts", 3))
-    except (TypeError, ValueError, OSError) as exc:
+    except (Gen4399Error, TypeError, ValueError, OSError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 2
 
@@ -578,6 +606,7 @@ def _cmd_submit(args) -> int:
                 timeout=timeout,
                 retry_delay=args.retry_delay or 0.0,
                 retry_policy=policy,
+                transport=transport,
             )
             result = submit_registration(
                 bundle,
@@ -588,6 +617,7 @@ def _cmd_submit(args) -> int:
                 retry_policy=policy,
                 captcha=captcha,
                 captcha_attempts=captcha_attempts,
+                transport=transport,
             )
         except (Gen4399Error, TypeError, ValueError, OSError) as exc:
             print(f"错误：{exc}", file=sys.stderr)
@@ -961,6 +991,18 @@ def _add_captcha_opts(sp: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_transport_opts(sp: argparse.ArgumentParser) -> None:
+    sp.add_argument("--proxy", default=None, metavar="URL",
+                    help="HTTP(S) 代理，如 http://127.0.0.1:8080（host:port 也可）")
+    sp.add_argument("--proxy-file", default=None, metavar="FILE",
+                    help="代理池文件：一行一个代理，# 开头为注释")
+    sp.add_argument("--proxy-strategy", choices=["round-robin", "random"],
+                    default="round-robin",
+                    help="代理池取用策略，默认 round-robin")
+    sp.add_argument("--random-ua", action="store_true",
+                    help="每个会话随机生成浏览器 User-Agent")
+
+
 def _add_io_opts(sp: argparse.ArgumentParser) -> None:
     sp.add_argument("--json", action="store_true")
     sp.add_argument("--output", metavar="DIR", default=None)
@@ -1094,6 +1136,7 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
     _add_io_opts(subcmd)
     _add_remote_opts(subcmd)
     _add_captcha_opts(subcmd)
+    _add_transport_opts(subcmd)
     subcmd.set_defaults(submit=True, form_path="unified")
 
     pr = new("prepare", "一键准备注册数据")

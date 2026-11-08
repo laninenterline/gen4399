@@ -218,6 +218,7 @@ def prepare_registration(
     timeout: float = DEFAULT_TIMEOUT,
     retry_delay: float = 0.0,
     retry_policy=None,
+    transport=None,
 ) -> RegistrationBundle:
     """准备一套 4399 注册数据（生成 + 查重 + 校验 + 组装字段）。
 
@@ -272,6 +273,7 @@ def prepare_registration(
                 app_id=app_id,
                 timeout=timeout,
                 retry_policy=retry_policy,
+                transport=transport,
             )
             if not res.available:
                 raise RegistrationError(

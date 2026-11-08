@@ -114,6 +114,9 @@ from .remote import (
     fetch_suggested_usernames,
     is_username_available,
 )
+from .proxy import ProxyError, ProxyPool
+from .ua import random_user_agent
+from .transport import TransportOptions
 from .core import (
     CHARSET,
     DEFAULT_LENGTH,
@@ -144,7 +147,7 @@ from .core import (
     validate_username,
 )
 
-__version__ = "2.6.0"
+__version__ = "2.7.0"
 
 __all__ = [
     "RULES_VERSION",
@@ -230,5 +233,9 @@ __all__ = [
     "generate_available_username",
     "Account",
     "generate_account",
+    "ProxyPool",
+    "ProxyError",
+    "TransportOptions",
+    "random_user_agent",
     "__version__",
 ]

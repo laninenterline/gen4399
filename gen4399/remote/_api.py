@@ -352,6 +352,7 @@ def check_username(
     timeout: float = DEFAULT_TIMEOUT,
     validate_input: bool = False,
     retry_policy: RetryPolicy | None = None,
+    transport=None,
 ) -> UsernameAvailability:
     """查询用户名是否还能注册（调用官方 ``isExist.do``）。
 
@@ -398,6 +399,7 @@ def check_username(
         f"{IS_EXIST_URL}?{query}",
         timeout,
         policy=retry_policy or DEFAULT_CHECK_RETRY_POLICY,
+        transport=transport,
     ).strip()
     kind = _classify_availability(body)
     if kind == "unknown":
@@ -420,6 +422,7 @@ def is_username_available(
     timeout: float = DEFAULT_TIMEOUT,
     validate_input: bool = False,
     retry_policy: RetryPolicy | None = None,
+    transport=None,
 ) -> bool:
     """判断用户名是否可注册（:func:`check_username` 的布尔便捷版）。
 
@@ -432,6 +435,7 @@ def is_username_available(
         timeout=timeout,
         validate_input=validate_input,
         retry_policy=retry_policy,
+        transport=transport,
     ).available
 
 

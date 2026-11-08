@@ -212,6 +212,7 @@ def _http_get(
     *,
     retries: int = 1,
     policy: RetryPolicy | None = None,
+    transport=None,
 ) -> str:
     """带重试策略的最小 HTTP GET 封装（内部函数，便于测试时打桩）。
 
@@ -230,6 +231,9 @@ def _http_get(
     """
     if retries < 1:
         raise ValueError("retries 必须 >= 1")
+    if transport is not None:
+        # 交给会话（已带代理 / UA / 重试）
+        return transport.new_session().get(url).body
     if policy is None:
         policy = RetryPolicy(attempts=retries)
 
@@ -548,18 +552,28 @@ class RemoteSession:
         timeout: float = DEFAULT_TIMEOUT,
         policy: RetryPolicy | None = None,
         referer: str = DEFAULT_REFERER,
+        user_agent: str | None = None,
+        proxy: str | None = None,
     ) -> None:
         self.timeout = timeout
         self.policy = (
             DEFAULT_FETCH_RETRY_POLICY if policy is None else policy
         )
         self.referer = referer
+        #: 本次会话使用的 User-Agent（默认内置的桌面 Chrome）
+        self.user_agent = user_agent or DEFAULT_USER_AGENT
+        #: HTTP(S) 代理，形如 ``http://host:port``；``None`` 表示直连
+        self.proxy = proxy
         #: 额外请求头（默认空；提交注册时按浏览器补 Origin / Sec-Fetch-*）。
         self.extra_headers: dict[str, str] = {}
         self._cookiejar = http.cookiejar.CookieJar()
-        self._opener = urllib.request.build_opener(
-            urllib.request.HTTPCookieProcessor(self._cookiejar)
-        )
+        handlers: list[urllib.request.BaseHandler] = []
+        if proxy:
+            handlers.append(
+                urllib.request.ProxyHandler({"http": proxy, "https": proxy})
+            )
+        handlers.append(urllib.request.HTTPCookieProcessor(self._cookiejar))
+        self._opener = urllib.request.build_opener(*handlers)
 
     @property
     def cookies(self) -> dict[str, str]:
@@ -597,7 +611,7 @@ class RemoteSession:
 
     def _base_headers(self, content_type: str | None = None) -> dict[str, str]:
         headers = {
-            "User-Agent": DEFAULT_USER_AGENT,
+            "User-Agent": self.user_agent,
             "Referer": self.referer,
             "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh;q=0.9",

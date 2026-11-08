@@ -2,6 +2,34 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.7.0] - 2026-11-08
+
+### 新增
+
+- **代理池**（`gen4399.proxy.ProxyPool`）：一行一个代理，支持 `#` 注释、
+  `host:port` 自动补 `http://`、`round-robin` / `random` 两种轮换策略。
+  用于规避 4399 的单 IP 注册频率限制（实测同 IP 连续注册会进入 202 风控）。
+- **随机 User-Agent**（`gen4399.ua.random_user_agent()`）：按 Chrome / Edge /
+  Firefox / Safari × Windows / macOS / Linux 的真实格式生成，不含 `Headless`
+  等爬虫标记，版本号落在近两年稳定区间。
+- **`TransportOptions`**（`gen4399.transport`）：把「超时 / 代理 / 代理池 /
+  随机 UA / 重试策略」打包成一个参数，传给
+  `submit_registration(..., transport=...)`、`prepare_registration(...)`、
+  `check_username(...)` 即可，不必改一堆签名。
+- CLI / `make_account.py` 新增 `--proxy URL`、`--proxy-file FILE`、
+  `--proxy-strategy {round-robin,random}`、`--random-ua`。
+
+### 说明
+
+- 只支持 HTTP(S) 代理；SOCKS 需要额外依赖，未纳入（保持零运行时依赖）。
+- 代理只影响 lib 自己发起的请求；`--proxy` 与 `--proxy-file` 同时给时以池为准
+  （`TransportOptions` 会直接拒绝两者同时出现，CLI 里池优先）。
+
+### 实测
+
+- `make_account.py --form-path unified --random-ua --captcha-matcher`：
+  随机 UA + 内置识别器一次通过，账号 `vjjglf4d7jv1`。
+
 ## [2.6.0] - 2026-11-08
 
 ### 新增

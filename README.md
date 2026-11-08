@@ -20,6 +20,7 @@
   识别 → 带 `inputCaptcha` 重提交」处理。**识别由调用方的 `captcha` 回调提供**，
   库里自带三种现成实现：内置识别器（60×30 专用）、外部 OCR 命令、人工输入
 - 身份信息：可从 `姓名|身份证号[|QQ]` 格式的 txt 批量读取
+- 传输层（2.7.0）：代理 / 代理池 / 随机 User-Agent，统一由 `TransportOptions` 传参
 
 > **默认不提交注册**：`prepare_registration()` 只准备数据，不会自动提交；
 > 真实提交必须显式调用 `submit_registration()`，命令行必须显式加 `--yes`。
@@ -50,6 +51,40 @@ from gen4399 import RegistrationProfile, prepare_registration, submit_registrati
 
 > `gen4399.constants` 是常量的**完整**出口：`UNIFIED_DROP_FIELDS`、`VERIFY_URL`
 > 这类实现细节只在这里（以及 `gen4399.submit`）导出，不占顶层命名空间。
+
+## 代理与随机 UA（2.7.0）
+
+4399 对单 IP 的注册频率有硬限制（连续注册会拿到 `202` + 「请稍后再试~」），
+需要换 IP / 换指纹时用传输层选项：
+
+```python
+from gen4399 import (
+    ProxyPool, TransportOptions, prepare_registration, submit_registration,
+)
+
+pool = ProxyPool.from_file("proxies.txt", strategy="round-robin")  # 一行一个
+opts = TransportOptions(proxy_pool=pool, random_user_agent=True, timeout=15)
+
+bundle = prepare_registration(profile, path="unified", transport=opts)
+result = submit_registration(bundle, transport=opts, captcha=matcher_captcha_solver())
+```
+
+```bash
+# CLI / make_account.py 同款参数
+gen4399 submit --form-path unified --proxy http://127.0.0.1:8080 --random-ua --yes
+gen4399 submit --form-path unified --proxy-file proxies.txt --proxy-strategy random --random-ua --yes
+python scripts/make_account.py --yes --form-path unified --proxy-file proxies.txt --random-ua
+```
+
+| 选项 | 说明 |
+|---|---|
+| `--proxy URL` | 单个 HTTP(S) 代理；`host:port` 会自动补 `http://` |
+| `--proxy-file FILE` | 代理池，一行一个，`#` 注释 |
+| `--proxy-strategy` | `round-robin`（默认）/ `random` |
+| `--random-ua` | 每个会话随机生成真实格式的浏览器 UA |
+
+> 只支持 HTTP(S) 代理（SOCKS 需要额外依赖，本库保持零运行时依赖）。
+> 每次调用会自动取下一个代理；同一会话内（GET→POST→验证码）始终用同一个 IP。
 
 ## 安装
 

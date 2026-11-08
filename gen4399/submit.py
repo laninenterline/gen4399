@@ -42,6 +42,8 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Literal
 
+from typing import TYPE_CHECKING
+
 from ._aes import encrypt_aes
 from ._captcha import CaptchaSolver as CaptchaSolverType
 from ._des import encode_4399
@@ -56,6 +58,9 @@ from .remote import (
     RetryPolicy,
 )
 from .remote import _http
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .transport import TransportOptions
 
 __all__ = [
     "CaptchaSolver",
@@ -774,6 +779,7 @@ def _submit_unified(
     captcha: CaptchaSolver | None = None,
     captcha_attempts: int = 3,
     verify: bool = True,
+    transport: "TransportOptions | None" = None,
 ) -> SubmitResult:
     """unified 路径：regFrame.do -> AES 加密 -> POST register.do。
 
@@ -781,7 +787,11 @@ def _submit_unified(
     ``captcha.do?captchaId=…``），此时若提供了 ``captcha`` 回调，就取图识别后
     带 ``fCaptcha`` 重提交，最多 ``captcha_attempts`` 轮。
     """
-    session = _http.RemoteSession(timeout=timeout, policy=retry_policy)
+    session = (
+        transport.new_session()
+        if transport is not None
+        else _http.RemoteSession(timeout=timeout, policy=retry_policy)
+    )
     form_url = _form_url(app_id, level)
     form_page = session.get(form_url)
     form = _http.parse_registration_form(form_page.body)
@@ -859,7 +869,7 @@ def _submit_unified(
         kind = "captcha"
         if captcha is None:
             message = (
-                "服务端要求图形验证码（fCaptcha）：请通过 captcha= 传入识别"
+                "服务端要求图形验证码（inputCaptcha）：请通过 captcha= 传入识别"
                 f"回调后重试；服务端提示：{message}"
             )
         elif rounds:
@@ -988,6 +998,7 @@ def _submit_web(
     captcha: CaptchaSolver | None = None,
     captcha_attempts: int = 3,
     verify: bool = True,
+    transport: "TransportOptions | None" = None,
 ) -> SubmitResult:
     """web 路径：checkUser 取 key → DES 加密密码 → POST /user/?_c=reg。
 
@@ -995,7 +1006,11 @@ def _submit_web(
     回调，则走「拉图 → 识别 → verifyCode 校验 → 带 ``chk_code`` 重提交」，
     最多 ``captcha_attempts`` 轮。
     """
-    session = _http.RemoteSession(timeout=timeout, policy=retry_policy)
+    session = (
+        transport.new_session()
+        if transport is not None
+        else _http.RemoteSession(timeout=timeout, policy=retry_policy)
+    )
     # web 流程全程用注册页做 Referer（与浏览器一致，协议保真）
     session.referer = "https://web.4399.com/user/reg.php"
     encrypt_code = _web_encrypt_code(session, bundle.username)
@@ -1087,6 +1102,7 @@ def submit_registration(
     captcha: CaptchaSolver | None = None,
     captcha_attempts: int = 3,
     verify: bool = True,
+    transport: "TransportOptions | None" = None,
 ) -> SubmitResult:
     """把准备好的注册数据真正提交到 4399（支持 ``web`` / ``unified``）。
 
@@ -1144,6 +1160,7 @@ def submit_registration(
             captcha=captcha,
             captcha_attempts=captcha_attempts,
             verify=verify,
+            transport=transport,
         )
     return _submit_unified(
         bundle,
@@ -1157,4 +1174,5 @@ def submit_registration(
         captcha=captcha,
         captcha_attempts=captcha_attempts,
         verify=verify,
+        transport=transport,
     )
