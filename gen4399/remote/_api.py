@@ -193,12 +193,15 @@ def fetch_suggested_username(
     url = f"{REG_FRAME_URL}?{urllib.parse.urlencode(params)}"
 
     policy = retry_policy or DEFAULT_FETCH_RETRY_POLICY
+    session = transport.new_session() if transport is not None else None
     started = time.monotonic()
     last_error: RemoteError | None = None
     attempts = retries
     for attempt in range(1, attempts + 1):
         logger.debug("fetch_suggested_username attempt %d/%d", attempt, attempts)
-        html = _http._http_get(url, timeout, policy=policy, transport=transport)
+        html = _http._http_get(
+            url, timeout, policy=policy, transport=transport, _session=session
+        )
         try:
             name = _parse_suggested_username(html)
         except RemoteParseError as exc:
@@ -214,6 +217,7 @@ def fetch_suggested_username(
                 timeout=timeout,
                 retry_policy=policy,
                 transport=transport,
+                _session=session,
             )
             if res.available:
                 return candidate

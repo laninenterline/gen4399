@@ -32,13 +32,15 @@
 
 ## API 分层
 
-日常只需要顶层这三个名字：
+日常只需要顶层这几个名字：
 
 ```python
 from gen4399 import RegistrationProfile, prepare_registration, submit_registration
 ```
 
-其余按域取，不必全从顶层 import（顶层 80+ 个名字仍然可用，2.x 全兼容）：
+顶层 `__all__` 是**核心 34 个**（生成/校验、身份、编排、提交、远程、传输 + `__version__`）。
+其余名字（常量、表单细节、验证码回调、错误子类等）**仍然可以 `from gen4399 import X`**，
+只是不再属于公共契约、也不进 `from gen4399 import *`。按域取更清晰：
 
 | 模块 | 内容 |
 |---|---|

@@ -2,6 +2,23 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.9.0] - 2026-11-08
+
+### 变更（公共 API 收敛）
+
+- **顶层 `__all__` 收敛到核心 34 个**（生成/校验、身份、编排、提交、远程、传输、
+  `__version__`）。其余名字仍然可以 `from gen4399 import X` 显式导入（2.x 完全兼容），
+  但不再出现在 `from gen4399 import *` 里，也不再作为公共契约承诺。
+  按域导入请走 `gen4399.forms / identity / remote / submit / captcha / constants /
+  transport / proxy / ua`。
+- `fetch_suggested_username()` 的重试现在**复用同一个会话**（同一个代理 / Cookie），
+  不再每次重试都新建连接、换出口 IP。
+
+### 测试
+
+- 新增顶层 API 契约测试（`__all__` 可解析、无重复、`import *` 与之一致、
+  高级名字仍可显式导入）；695 passed。
+
 ## [2.8.0] - 2026-11-08
 
 ### 新增

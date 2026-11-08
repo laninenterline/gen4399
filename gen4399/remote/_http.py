@@ -213,6 +213,7 @@ def _http_get(
     retries: int = 1,
     policy: RetryPolicy | None = None,
     transport=None,
+    _session=None,
 ) -> str:
     """带重试策略的最小 HTTP GET 封装（内部函数，便于测试时打桩）。
 
@@ -231,6 +232,9 @@ def _http_get(
     """
     if retries < 1:
         raise ValueError("retries 必须 >= 1")
+    if _session is not None:
+        # 复用调用方的会话（同一个代理 / Cookie / 重试策略）
+        return _session.get(url).body
     if transport is not None:
         # 交给会话（已带代理 / UA / 重试）
         return transport.new_session().get(url).body

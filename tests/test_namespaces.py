@@ -11,6 +11,40 @@ import gen4399.remote as remote_ns
 import gen4399.submit as submit_ns
 
 
+class TestTopLevelApi(unittest.TestCase):
+    """顶层公共契约：``__all__`` 是核心集，其余名字仍可用但不再对外承诺。"""
+
+    def test_all_resolves(self):
+        for name in gen4399.__all__:
+            self.assertTrue(hasattr(gen4399, name), name)
+
+    def test_all_has_no_duplicates(self):
+        self.assertEqual(len(gen4399.__all__), len(set(gen4399.__all__)))
+
+    def test_core_names_present(self):
+        core = {
+            "generate", "validate", "validate_username",
+            "RegistrationProfile", "prepare_registration",
+            "submit_registration", "SubmitResult",
+            "check_username", "TransportOptions", "ProxyPool",
+            "random_user_agent", "__version__",
+        }
+        self.assertTrue(core <= set(gen4399.__all__))
+
+    def test_advanced_names_still_importable(self):
+        # 不在 __all__ 里，但显式导入照常工作（2.x 兼容）
+        from gen4399 import MIN_LENGTH, prompt_captcha_solver  # noqa: F401
+
+        self.assertIsInstance(MIN_LENGTH, int)
+        self.assertTrue(callable(prompt_captcha_solver))
+
+    def test_star_import_matches_all(self):
+        ns: dict = {}
+        exec("from gen4399 import *", ns)  # noqa: S102 - 测试用
+        exported = {k for k in ns if not k.startswith("__")}
+        self.assertEqual(exported, {n for n in gen4399.__all__ if not n.startswith("__")})
+
+
 class TestNamespaceModules(unittest.TestCase):
     def test_all_names_resolvable(self):
         for module in (

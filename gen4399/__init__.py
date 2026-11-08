@@ -147,95 +147,64 @@ from .core import (
     validate_username,
 )
 
-__version__ = "2.8.0"
+__version__ = "2.9.0"
 
 __all__ = [
-    "RULES_VERSION",
-    "RULES_CHECKED_AT",
-    "RULES_SOURCES",
-    "CHARSET",
-    "MIN_LENGTH",
-    "MAX_LENGTH",
-    "DEFAULT_LENGTH",
-    "USERNAME_CHARSET",
-    "USERNAME_MIN_LENGTH",
-    "USERNAME_MAX_LENGTH",
-    "DEFAULT_USERNAME_LENGTH",
-    "Violation",
-    "ViolationCode",
-    "Gen4399Error",
-    "validate_fixed_part",
-    "InvalidLengthError",
-    "InvalidFixedPartError",
-    "InvalidPrefixError",
-    "InvalidSuffixError",
-    "GenerationError",
-    "check_fixed_part",
-    "validate",
-    "is_valid",
+    # ---- 核心：日常只需要这些 ----
+    # 生成 / 校验
     "generate",
     "generate_many",
-    "validate_username",
-    "is_valid_username",
     "generate_username",
     "generate_usernames",
+    "validate",
+    "is_valid",
+    "validate_username",
+    "is_valid_username",
     "entropy_bits",
-    "REG_FRAME_URL",
-    "IS_EXIST_URL",
-    "DEFAULT_APP_ID",
-    "DEFAULT_USER_AGENT",
-    "DEFAULT_TIMEOUT",
-    "RemoteError",
-    "RemoteTimeoutError",
-    "RemoteHTTPError",
-    "RemoteParseError",
-    "UsernameAvailability",
-    "FormField",
-    "FieldKind",
-    "ProfileLoadErrors",
-    "RegistrationForm",
-    "FormCheckResult",
-    "WEB_USERNAME_FORM",
-    "UNIFIED_FORM",
-    "FORMS",
-    "get_form",
-    "validate_realname",
-    "validate_idcard",
-    "validate_qq",
-    "check_registration_form",
+    # 身份
     "RegistrationProfile",
     "InvalidProfileError",
-    "parse_profile_line",
     "load_profiles",
-    "build_registration_fields",
+    "parse_profile_line",
+    # 编排
+    "prepare_registration",
     "RegistrationBundle",
     "RegistrationError",
-    "prepare_registration",
+    # 提交
+    "submit_registration",
     "SubmitResult",
     "SubmitError",
     "CaptchaSolver",
     "CaptchaSolverError",
-    "auto_captcha_solver",
-    "matcher_captcha_solver",
-    "command_captcha_solver",
-    "prompt_captcha_solver",
-    "save_captcha_images",
-    "make_solver",
-    "WEB_CAPTCHA_API",
-    "WEB_CHECK_USER_API",
-    "WEB_REG_API",
-    "WEB_VERIFY_CODE_API",
-    "submit_registration",
-    "fetch_suggested_username",
-    "fetch_suggested_usernames",
+    # 远程
+    "RemoteError",
     "check_username",
     "is_username_available",
+    "fetch_suggested_username",
+    "fetch_suggested_usernames",
     "generate_available_username",
-    "Account",
     "generate_account",
+    "Account",
+    # 传输（代理 / UA）
+    "TransportOptions",
     "ProxyPool",
     "ProxyError",
-    "TransportOptions",
     "random_user_agent",
     "__version__",
 ]
+
+# ---------------------------------------------------------------------------
+# 其余名字仍然可用（`from gen4399 import MIN_LENGTH` 照常工作），只是不再属于
+# 「公共契约」，也不出现在 `from gen4399 import *` 里。按域从子模块导入更清晰：
+#
+#   gen4399.core        常量 / Violation / 生成长度限制
+#   gen4399.forms       表单定义、整表校验、build_registration_fields
+#   gen4399.identity    姓名/身份证/QQ 校验
+#   gen4399.remote      远程错误类型、RetryPolicy、端点常量
+#   gen4399.submit      提交端点常量、UNIFIED_DROP_FIELDS
+#   gen4399.captcha     prompt/command/auto/matcher 四种识别回调
+#   gen4399.constants   规则版本 / 长度 / 端点 / unified 字段策略
+#   gen4399.transport   TransportOptions、build_transport
+#   gen4399.proxy       ProxyPool、ProxyError、normalize_proxy
+#   gen4399.ua          random_user_agent
+# ---------------------------------------------------------------------------
