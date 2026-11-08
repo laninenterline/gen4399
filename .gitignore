@@ -42,3 +42,7 @@ web/tsconfig.tsbuildinfo
 apk/keystore/
 apk/keystore.properties
 apk/art/
+
+apk/.gradle/
+apk/app/.cxx/
+apk/app/build/
