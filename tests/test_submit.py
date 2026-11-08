@@ -361,7 +361,7 @@ class TestVerifyWiring(SubmitTestBase):
     def test_success_runs_verification(self):
         FakeSession.post_response = response(SUCCESS_HTML)
         with mock.patch(
-            "gen4399.submit._verify_account", return_value=True
+            "gen4399.submit._common.verify_account", return_value=True
         ) as verify:
             result = submit_registration(self.bundle)
         self.assertTrue(result.ok)
@@ -370,14 +370,14 @@ class TestVerifyWiring(SubmitTestBase):
 
     def test_verify_false_skips(self):
         FakeSession.post_response = response(SUCCESS_HTML)
-        with mock.patch("gen4399.submit._verify_account") as verify:
+        with mock.patch("gen4399.submit._common.verify_account") as verify:
             result = submit_registration(self.bundle, verify=False)
         self.assertIsNone(result.verified)
         verify.assert_not_called()
 
     def test_rejected_does_not_verify(self):
         FakeSession.post_response = response(REJECT_HTML)
-        with mock.patch("gen4399.submit._verify_account") as verify:
+        with mock.patch("gen4399.submit._common.verify_account") as verify:
             result = submit_registration(self.bundle)
         self.assertFalse(result.ok)
         self.assertIsNone(result.verified)

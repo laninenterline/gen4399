@@ -2,6 +2,33 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.0.0] - 2026-11-08
+
+### 新增
+
+- **`configure()`**（`gen4399.config`）：运行期配置的稳定入口。
+  `configure(unified_send_realname=False)` 会让 unified 不再提交姓名/身份证
+  （`encrypted_fields` 从 4 个变 2 个）；`current_config()` 读回当前值。
+  2.x 的模块属性写法 `gen4399.submit.UNIFIED_SEND_REALNAME = False` 仍然有效。
+
+### 重构（包结构）
+
+- **`gen4399/submit.py` → `gen4399/submit/` 包**：
+  - `submit/web.py`：web 路径（DES + JSONP + 验证码重提交）
+  - `submit/unified.py`：unified 路径（AES + 表单页 + 验证码重提交）
+  - `submit/_common.py`：账号复核、登录 Cookie 名、JSONP 回调、参数校验
+  - `submit/__init__.py`：常量、`_build_payload`（保留 `UNIFIED_SEND_REALNAME`
+    这个模块级开关，因为测试与文档都靠它）、`submit_registration` 编排、对外再导出
+
+  对外名字全部保留：`gen4399.submit.submit_registration` / `SubmitResult` /
+  `UNIFIED_DROP_FIELDS` / `_submit_web` / `_http` 等旧引用照常工作；
+  只有私有符号的实际定义位置变了（`_verify_account` → `submit._common.verify_account`）。
+
+### 测试
+
+- 新增 `tests/test_config.py`（5 例，含「开关真的改变加密字段数」的端到端断言）；
+  737 passed，覆盖率维持 ~95%。
+
 ## [2.10.0] - 2026-11-08
 
 ### 新增

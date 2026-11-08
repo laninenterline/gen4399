@@ -54,6 +54,7 @@ from gen4399 import RegistrationProfile, prepare_registration, submit_registrati
 | `gen4399.proxy` | `ProxyPool`、`ProxyError`、`normalize_proxy()` |
 | `gen4399.ua` | `random_user_agent()` |
 | `gen4399.login` | `login()`、`LoginResult`（账号密码换登录 Cookie） |
+| `gen4399.config` | `configure()`、`current_config()`（运行期开关） |
 
 > `gen4399.constants` 是常量的**完整**出口：`UNIFIED_DROP_FIELDS`、`VERIFY_URL`
 > 这类实现细节只在这里（以及 `gen4399.submit`）导出，不占顶层命名空间。
