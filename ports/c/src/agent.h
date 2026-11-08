@@ -34,6 +34,8 @@ typedef struct {
                                    const char *referer, int *length, int *status);
     /* 需要人工识别验证码：返回 malloc 的 4 位字符，NULL 表示放弃 */
     char *(*captcha)(void *ctx, const unsigned char *image, int length);
+    /* 每个账号开始前调用（用于切换代理等，index 从 1 开始） */
+    void (*account_start)(void *ctx, int index);
     /* 日志 */
     void (*log)(void *ctx, const char *line);
 } g4399_agent_hooks;

@@ -193,6 +193,48 @@ static http_result fetch_image(const g4399_agent_hooks *hooks, cookie_jar *jar,
     return result;
 }
 
+/* ---------------- 工具 ---------------- */
+
+/** 把 JSON 里的 \uXXXX 转义解成 UTF-8，便于界面直接读 */
+static void decode_unicode_escapes(const char *in, char *out, size_t out_len)
+{
+    if (!out || out_len == 0) return;
+    size_t pos = 0;
+    for (const char *p = in; p && *p && pos + 5 < out_len; ) {
+        if (p[0] == '\\' && p[1] == 'u' && isxdigit((unsigned char)p[2]) &&
+            isxdigit((unsigned char)p[3]) && isxdigit((unsigned char)p[4]) &&
+            isxdigit((unsigned char)p[5])) {
+            char hex[5] = {p[2], p[3], p[4], p[5], 0};
+            unsigned int code = (unsigned int)strtoul(hex, NULL, 16);
+            if (code < 0x80) {
+                out[pos++] = (char)code;
+            } else if (code < 0x800) {
+                out[pos++] = (char)(0xC0 | (code >> 6));
+                out[pos++] = (char)(0x80 | (code & 0x3F));
+            } else {
+                out[pos++] = (char)(0xE0 | (code >> 12));
+                out[pos++] = (char)(0x80 | ((code >> 6) & 0x3F));
+                out[pos++] = (char)(0x80 | (code & 0x3F));
+            }
+            p += 6;
+        } else {
+            out[pos++] = *p++;
+        }
+    }
+    out[pos] = '\0';
+}
+
+/** 失败时把用的是哪张身份证带上，方便判断是不是这张已用尽 */
+static void append_masked_idcard(const char *idcard, char *message, size_t message_len)
+{
+    char masked[24] = {0};
+    g4399_mask_idcard(idcard, masked, sizeof(masked));
+    if (!masked[0]) return;
+    size_t len = strlen(message);
+    if (len + 32 >= message_len) return;
+    snprintf(message + len, message_len - len, "（身份 %s）", masked);
+}
+
 /* ---------------- 注册后验证 ---------------- */
 
 /** 从页面里抠出 <div id="Msg"> 的文本（payload.c 里的同名函数是 static） */
@@ -400,7 +442,7 @@ static void run_web(const g4399_agent_hooks *hooks, cookie_jar *jar, const ident
     http_result response = do_request(hooks, jar, WEB_REG_URL, "POST",
                                       "application/x-www-form-urlencoded", payload.data,
                                       "https://web.4399.com/user/reg.php");
-    for (int round = 0; round < 3 && response.body; round++) {
+    for (int round = 0; round < 5 && response.body; round++) {
         classify_into("web", response.status, response.body, result->kind, sizeof(result->kind),
                       result->message, sizeof(result->message));
         if (strcmp(result->kind, "captcha") != 0) break;
@@ -448,10 +490,16 @@ static void run_web(const g4399_agent_hooks *hooks, cookie_jar *jar, const ident
     if (response.body) {
         classify_into("web", response.status, response.body, result->kind, sizeof(result->kind),
                       result->message, sizeof(result->message));
+        char decoded[256];
+        decode_unicode_escapes(result->message, decoded, sizeof(decoded));
+        snprintf(result->message, sizeof(result->message), "%s", decoded);
     }
     free(response.body);
     free(payload.data);
     result->ok = strcmp(result->kind, "success") == 0;
+    if (!result->ok) {
+        append_masked_idcard(who->idcard, result->message, sizeof(result->message));
+    }
 
     /* 响应说成功还不够：真登录一次确认号确实建好了 */
     if (result->ok) {
@@ -530,7 +578,7 @@ static void run_unified(const g4399_agent_hooks *hooks, cookie_jar *jar, const i
 
     http_result response = do_request(hooks, jar, UNIFIED_REGISTER_URL, "POST",
                                       "application/x-www-form-urlencoded", body, form_url_keep);
-    for (int round = 0; round < 3 && response.body; round++) {
+    for (int round = 0; round < 5 && response.body; round++) {
         classify_into("unified", response.status, response.body, result->kind, sizeof(result->kind),
                       result->message, sizeof(result->message));
         if (strcmp(result->kind, "captcha") != 0) break;
@@ -585,6 +633,9 @@ static void run_unified(const g4399_agent_hooks *hooks, cookie_jar *jar, const i
     free(body);
     free(hidden);
     result->ok = strcmp(result->kind, "success") == 0;
+    if (!result->ok) {
+        append_masked_idcard(who->idcard, result->message, sizeof(result->message));
+    }
 
     if (result->ok) {
         char reason[128] = {0};
