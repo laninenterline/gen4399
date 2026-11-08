@@ -367,6 +367,22 @@ fun App() {
                     importStats = importStats,
                     onImport = { importLauncher.launch(arrayOf("text/plain", "*/*")) },
                     onContinue = { fileUri?.let { loadPage(it, nextOffset, firstPage = false) } },
+                    onFetchFreeProxies = {
+                        scope.launch {
+                            statusLine = "正在获取免费代理…"
+                            val result = runCatching {
+                                FreeProxy.refresh { msg -> scope.launch { statusLine = msg } }
+                            }.getOrNull()
+                            if (result == null || result.alive.isEmpty()) {
+                                statusLine = "没取到可用代理（免费代理存活率很低，稍后再试）"
+                                appendLog(statusLine)
+                            } else {
+                                settings = settings.copy(proxies = result.alive.joinToString("\n"))
+                                statusLine = "免费代理：${result.alive.size}/${result.fetched} 个可用，已填入"
+                                appendLog(statusLine)
+                            }
+                        }
+                    },
                     onRequestBatteryExemption = {
                         runCatching {
                             val intent = android.content.Intent(
@@ -418,6 +434,7 @@ private fun SettingsTab(
     importStats: ImportStats,
     onImport: () -> Unit,
     onContinue: () -> Unit,
+    onFetchFreeProxies: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
@@ -529,6 +546,15 @@ private fun SettingsTab(
             modifier = Modifier.fillMaxWidth().height(110.dp),
             textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
         )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onFetchFreeProxies) { Text("获取免费代理") }
+            Text(
+                if (settings.proxies.isBlank()) "（未配置，走直连）" else "（已填 ${settings.proxies.lines().count { it.isNotBlank() }} 条）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.align(Alignment.CenterVertically),
+            )
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("代理策略：", style = MaterialTheme.typography.bodySmall)
             listOf("round-robin" to "轮询", "random" to "随机").forEach { (value, label) ->
