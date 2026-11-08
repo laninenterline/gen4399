@@ -72,7 +72,10 @@ class TestNamespaceModules(unittest.TestCase):
         for name in captcha_ns.__all__:
             source = (
                 captcha_web
-                if name in ("learning_captcha_solver", "WebCaptchaBank", "segment_glyphs")
+                if name in (
+                    "learning_captcha_solver", "WebCaptchaBank",
+                    "segment_glyphs", "benchmark",
+                )
                 else _captcha
             )
             self.assertIs(getattr(captcha_ns, name), getattr(source, name))

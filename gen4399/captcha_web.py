@@ -30,6 +30,7 @@ __all__ = [
     "learning_captcha_solver",
     "default_bank_path",
     "segment_glyphs",
+    "benchmark",
 ]
 
 #: 字形归一化后的画布尺寸
@@ -387,6 +388,57 @@ class WebCaptchaBank:
             out.append((best, char))
         out.sort()
         return out
+
+
+def benchmark(directory: "str | os.PathLike[str]", *, labels=None, ext: str = ".png") -> dict:
+    """对目录里已标注的样本做留一法评估。
+
+    Args:
+        directory: 图片目录。
+        labels: ``{文件名: 答案}`` 映射；不给则读同目录的 ``labels.json``。
+        ext: 图片后缀。
+
+    Returns:
+        ``{"samples": n, "chars": ok, "total": n*4, "accuracy": float}``。
+    """
+    directory = Path(directory)
+    if labels is None:
+        labels_file = directory / "labels.json"
+        labels = json.loads(labels_file.read_text(encoding="utf-8"))
+    data = []
+    for stem, label in sorted(labels.items()):
+        if len(label) != 4 or "?" in label:
+            continue
+        path = None
+        for candidate in (f"{stem}{ext}", f"cap_{stem}{ext}", stem):
+            if (directory / candidate).exists():
+                path = directory / candidate
+                break
+        if path is None:
+            continue
+        glyphs = segment_glyphs(path.read_bytes())
+        if len(glyphs) == 4:
+            data.append((label, glyphs))
+
+    correct = total = 0
+    memory_bank = WebCaptchaBank.__new__(WebCaptchaBank)
+    for index, (label, glyphs) in enumerate(data):
+        memory_bank.glyphs = {}
+        memory_bank._maps = {}
+        for other, (other_label, other_glyphs) in enumerate(data):
+            if other == index:
+                continue
+            for char, glyph in zip(other_label, other_glyphs):
+                memory_bank.add(char, glyph)
+        guess = "".join(memory_bank.match(g)[0] for g in glyphs)
+        correct += sum(1 for a, b in zip(guess, label) if a == b)
+        total += 4
+    return {
+        "samples": len(data),
+        "chars": correct,
+        "total": total,
+        "accuracy": (correct / total) if total else 0.0,
+    }
 
 
 def _accepts_hint(fn) -> bool:

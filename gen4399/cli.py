@@ -818,6 +818,28 @@ def _cmd_captcha(args) -> int:
     """gen4399 captcha：标注样本 / 用字库识别一张图。"""
     from .captcha_web import WebCaptchaBank, learning_captcha_solver, segment_glyphs
 
+    if args.captcha_command == "bench":
+        from .captcha_web import benchmark
+
+        try:
+            labels = None
+            if args.labels:
+                import json as _json
+
+                labels = _json.loads(Path(args.labels).read_text(encoding="utf-8"))
+            stats = benchmark(args.directory, labels=labels)
+        except (OSError, ValueError) as exc:
+            print(f"错误：{exc}", file=sys.stderr)
+            return 2
+        if args.json:
+            _emit_json(stats)
+        else:
+            print(
+                f"样本 {stats['samples']}  字符 {stats['chars']}/{stats['total']}"
+                f"  准确率 {stats['accuracy']:.1%}"
+            )
+        return 0
+
     bank_path = args.bank
     if args.captcha_command == "solve":
         solver = learning_captcha_solver(bank_path)
@@ -1404,6 +1426,13 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
     cl.add_argument("--bank", default=None, metavar="FILE",
                     help="字库路径（默认 ~/.gen4399/web_captcha_bank.json）")
     cl.add_argument("--ext", default=".png", help="只处理这个后缀，默认 .png")
+
+    cb = csub.add_parser("bench", help="对已标注目录做留一法评估")
+    cb.set_defaults(**defaults)
+    cb.add_argument("directory")
+    cb.add_argument("--labels", default=None, metavar="FILE",
+                    help="标注文件（默认 DIR/labels.json）")
+    cb.add_argument("--json", action="store_true")
 
     cs = csub.add_parser("solve", help="用字库识别一张验证码图片")
     cs.set_defaults(**defaults)

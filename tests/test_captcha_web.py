@@ -193,3 +193,34 @@ class TestSolverFallbacks(unittest.TestCase):
         with mock.patch.object(captcha_web, "segment_glyphs", return_value=[]):
             solver.feedback(b"img", "ABCD", True)
         self.assertEqual(solver.bank.glyphs, {})
+
+
+class TestBenchmark(unittest.TestCase):
+    def test_benchmark_counts(self):
+        import json as _json
+
+        from gen4399.captcha_web import benchmark
+
+        glyphs = [[[1, 2]], [[3, 4]], [[5, 6]], [[7, 8]]]
+        with tempfile.TemporaryDirectory() as tmp:
+            dirpath = Path(tmp)
+            for stem in ("a", "b"):
+                (dirpath / f"{stem}.png").write_bytes(stem.encode())
+            (dirpath / "labels.json").write_text(
+                _json.dumps({"a": "ABCD", "b": "ABCD", "skip": "A?CD"}),
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                captcha_web, "segment_glyphs", return_value=glyphs
+            ):
+                stats = benchmark(str(dirpath))
+        self.assertEqual(stats["samples"], 2)
+        self.assertEqual(stats["total"], 8)
+        self.assertGreaterEqual(stats["accuracy"], 0.0)
+
+    def test_benchmark_missing_labels(self):
+        from gen4399.captcha_web import benchmark
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(FileNotFoundError):
+                benchmark(tmp)

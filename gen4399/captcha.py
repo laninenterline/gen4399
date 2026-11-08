@@ -25,6 +25,7 @@ from ._captcha import (
 )
 from .captcha_web import (
     WebCaptchaBank,
+    benchmark,
     learning_captcha_solver,
     segment_glyphs,
 )
@@ -41,4 +42,5 @@ __all__ = [
     "learning_captcha_solver",
     "WebCaptchaBank",
     "segment_glyphs",
+    "benchmark",
 ]
