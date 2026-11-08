@@ -71,6 +71,7 @@ from .forms import (
     validate_qq,
     validate_realname,
 )
+from .batch import BatchItem, BatchSummary, run_batch
 from .config import configure, current_config
 from .login import LoginResult, login
 from .registration import (
@@ -149,7 +150,7 @@ from .core import (
     validate_username,
 )
 
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 
 __all__ = [
     # ---- 核心：日常只需要这些 ----
@@ -178,6 +179,9 @@ __all__ = [
     "SubmitError",
     "login",
     "LoginResult",
+    "run_batch",
+    "BatchSummary",
+    "BatchItem",
     "configure",
     "current_config",
     "CaptchaSolver",

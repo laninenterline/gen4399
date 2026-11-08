@@ -814,6 +814,128 @@ def _cmd_check_available(args) -> int:
     return 0 if res.available else 1
 
 
+def _cmd_captcha(args) -> int:
+    """gen4399 captcha：标注样本 / 用字库识别一张图。"""
+    from .captcha_web import WebCaptchaBank, learning_captcha_solver, segment_glyphs
+
+    bank_path = args.bank
+    if args.captcha_command == "solve":
+        solver = learning_captcha_solver(bank_path)
+        try:
+            image = Path(args.image).read_bytes()
+        except OSError as exc:
+            print(f"错误：{exc}", file=sys.stderr)
+            return 2
+        print(solver(image))
+        return 0
+
+    # label
+    directory = Path(args.directory)
+    if not directory.is_dir():
+        print(f"错误：{directory} 不是目录", file=sys.stderr)
+        return 2
+    bank = WebCaptchaBank(bank_path)
+    files = sorted(p for p in directory.iterdir() if p.suffix.lower() == args.ext)
+    if not files:
+        print(f"错误：{directory} 里没有 {args.ext} 文件", file=sys.stderr)
+        return 2
+    added = skipped = 0
+    print(f"共 {len(files)} 张；输入 4 位答案，回车跳过，q 退出")
+    for path in files:
+        glyphs = segment_glyphs(path.read_bytes())
+        if len(glyphs) != 4:
+            print(f"{path.name}: 切字失败，跳过")
+            skipped += 1
+            continue
+        try:
+            label = input(f"{path.name} > ").strip().upper()
+        except EOFError:
+            break
+        if label.lower() == "q":
+            break
+        if len(label) != 4 or "?" in label:
+            skipped += 1
+            continue
+        for char, glyph in zip(label, glyphs):
+            bank.add(char, glyph)
+        added += 1
+    if added:
+        bank.save()
+    print(f"已标注 {added} 张，跳过 {skipped} 张；字库共 {len(bank)} 个样本 → {bank.path}")
+    return 0
+
+
+def _cmd_batch(args) -> int:
+    """gen4399 batch：批量注册编排。"""
+    from .batch import run_batch
+
+    timeout = DEFAULT_TIMEOUT if args.timeout is None else args.timeout
+    try:
+        policy = _retry_policy(args)
+        transport = _build_transport(args, timeout=timeout, policy=policy)
+        captcha = _make_captcha_solver(
+            prompt=bool(getattr(args, "captcha_prompt", False)),
+            command=getattr(args, "captcha_cmd", None),
+            directory=getattr(args, "captcha_dir", None),
+            auto=bool(getattr(args, "captcha_auto", False)),
+            matcher=bool(getattr(args, "captcha_matcher", False)),
+            zoom=int(getattr(args, "captcha_zoom", 1) or 1),
+            learn=getattr(args, "captcha_learn", None),
+        )
+        profiles = _load_identity_profiles(args)
+    except (Gen4399Error, TypeError, ValueError, OSError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
+
+    if args.count:
+        profiles = profiles[: args.count]
+    if not profiles:
+        print("错误：没有可用的身份信息", file=sys.stderr)
+        return 2
+
+    confirmed = bool(args.yes)
+    if not confirmed:
+        print("# DRY-RUN：未加 --yes，不会真正提交（加 --yes 才发送 POST）",
+              file=sys.stderr)
+    else:
+        print(
+            f"# 警告：即将真实提交 {len(profiles)} 个注册请求；"
+            "只应使用本人真实身份，并遵守 4399 用户协议。",
+            file=sys.stderr,
+        )
+
+    def progress(index, total, item):
+        flag = "OK " if item.ok else "FAIL"
+        print(f"[{index}/{total}] {flag} {item.username} {item.kind} "
+              f"({item.elapsed:.1f}s)", file=sys.stderr)
+
+    summary = run_batch(
+        profiles,
+        path=args.form_path,
+        captcha=captcha,
+        transport=transport,
+        interval=args.interval,
+        jitter=args.jitter,
+        dry_run=not confirmed,
+        max_failures=args.max_failures,
+        output=getattr(args, "output_file", None),
+        verify_login=args.verify_login,
+        on_progress=progress,
+    )
+
+    if args.json:
+        _emit_json(summary.to_dict())
+    else:
+        print(f"总数 {summary.total}（跳过 {summary.skipped}）"
+              f"  成功 {summary.success}  失败 {summary.failed}"
+              f"  用时 {summary.elapsed:.1f}s")
+        for kind, count in summary.by_kind().items():
+            print(f"  {kind}: {count}")
+        if summary.aborted:
+            print("  （已按 max-failures 中止）")
+    return 0 if summary.failed == 0 else 1
+
+
 def _cmd_accounts(args) -> int:
     """gen4399 accounts：列出 / 统计 / 导出 / 去重本地账号文件。"""
     from .account import (
@@ -1055,7 +1177,8 @@ def _cmd_generate(args) -> int:
 # ---------------------------------------------------------------------------
 
 _SUBCOMMANDS = {
-    "generate", "check", "account", "accounts", "fetch", "available", "login",
+    "generate", "check", "account", "accounts", "batch", "captcha",
+    "fetch", "available", "login",
     "form", "prepare", "submit", "profile", "rules", "version",
 }
 
@@ -1248,6 +1371,43 @@ def build_subcommand_parser() -> argparse.ArgumentParser:
     _add_identity_opts(fb)
     _add_io_opts(fb)
 
+    bt = new("batch", "批量注册编排（多身份 + 节奏 + 落盘 + 断点续跑）")
+    bt.add_argument("--form-path", choices=["web", "unified"], default="unified")
+    bt.add_argument("-c", "--count", type=int, default=None,
+                    help="最多跑几个身份（默认全部）")
+    bt.add_argument("--interval", type=float, default=30.0, metavar="SEC",
+                    help="身份之间的基础间隔，默认 30 秒")
+    bt.add_argument("--jitter", type=float, default=0.0, metavar="SEC",
+                    help="额外随机抖动上限（秒）")
+    bt.add_argument("--max-failures", type=int, default=0, metavar="N",
+                    help="连续失败 N 次就中止（0 = 不中止）")
+    bt.add_argument("--verify-login", action="store_true",
+                    help="每个号注册成功后立刻登录复核")
+    bt.add_argument("--yes", action="store_true", help="真正提交（默认 dry-run）")
+    bt.add_argument("--offline", action="store_true",
+                    help="跳过用户名查重（只影响 prepare 阶段的 isExist.do）")
+    _add_identity_opts(bt)
+    _add_io_opts(bt)
+    _add_remote_opts(bt)
+    _add_transport_opts(bt)
+    _add_captcha_opts(bt)
+
+    cap = new("captcha", "web 验证码字库：标注样本 / 试识别")
+    cap.set_defaults(**defaults)
+    csub = cap.add_subparsers(dest="captcha_command", required=True)
+
+    cl = csub.add_parser("label", help="标注目录里的验证码样本，写进字库")
+    cl.set_defaults(**defaults)
+    cl.add_argument("directory")
+    cl.add_argument("--bank", default=None, metavar="FILE",
+                    help="字库路径（默认 ~/.gen4399/web_captcha_bank.json）")
+    cl.add_argument("--ext", default=".png", help="只处理这个后缀，默认 .png")
+
+    cs = csub.add_parser("solve", help="用字库识别一张验证码图片")
+    cs.set_defaults(**defaults)
+    cs.add_argument("image")
+    cs.add_argument("--bank", default=None, metavar="FILE")
+
     acc = new("accounts", "查看 / 导出 / 去重本地账号文件（accounts.json）")
     acc.set_defaults(**defaults)
     asub = acc.add_subparsers(dest="accounts_command", required=True)
@@ -1401,6 +1561,10 @@ def _normalize_subcommand(args) -> None:
         args.login_cmd = True
     elif cmd == "accounts":
         args.accounts_cmd = args.accounts_command
+    elif cmd == "batch":
+        args.batch_cmd = True
+    elif cmd == "captcha":
+        args.captcha_cmd_name = args.captcha_command
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1442,6 +1606,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_login(args)
     if getattr(args, "accounts_cmd", None):
         return _cmd_accounts(args)
+    if getattr(args, "batch_cmd", False):
+        return _cmd_batch(args)
+    if getattr(args, "captcha_cmd_name", None):
+        return _cmd_captcha(args)
     if args.prepare:
         return _cmd_prepare(args)
     if args.build_form is not None:

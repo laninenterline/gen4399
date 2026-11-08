@@ -2,6 +2,30 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.2.0] - 2026-11-08
+
+### 新增
+
+- **批量注册编排**（`gen4399.batch.run_batch` / CLI `gen4399 batch`）：
+  - 每个身份独立 `prepare → submit`，代理/UA 由 `TransportOptions` 隔离
+  - 身份之间按 `--interval + --jitter` 随机间隔（默认 30s）
+  - `--max-failures N` 连续失败即中止；`--verify-login` 注册后自动登录复核
+  - **断点续跑**：账号记录新增 `idcard_hash`，已成功的身份默认跳过
+  - 结果继续追加到账号文件（0600），跑一半中断也不丢已建好的号
+  - 汇总：总数/成功/失败/按 kind 分组/用时，支持 `--json`
+- **web 验证码标注工具**（CLI `gen4399 captcha label` / `captcha solve`）：
+  批量标注目录里的样本直接写进字库，`solve` 用来单独试一张。
+
+### 改进
+
+- web 验证码种子字库从 33 个样本扩到 **47 个**，留一法字符准确率
+  **80% → 85%**（单轮整码约 52%，3 轮约 89%）。
+
+### 测试
+
+- 新增 `tests/test_batch.py`（10）与 `tests/test_cli_batch_captcha.py`（7）；
+  773 passed。
+
 ## [3.1.0] - 2026-11-08
 
 ### 新增

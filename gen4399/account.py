@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from datetime import datetime
@@ -52,6 +53,9 @@ def account_record(
         "endpoint": result.endpoint,
         "http_status": result.http_status,
         "idcard_masked": bundle.masked_idcard(),
+        "idcard_hash": hashlib.sha256(
+            str(getattr(bundle, "idcard", "")).encode("utf-8")
+        ).hexdigest()[:16],
     }
 
 

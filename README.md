@@ -54,6 +54,7 @@ from gen4399 import RegistrationProfile, prepare_registration, submit_registrati
 | `gen4399.proxy` | `ProxyPool`、`ProxyError`、`normalize_proxy()` |
 | `gen4399.ua` | `random_user_agent()` |
 | `gen4399.login` | `login()`、`LoginResult`（账号密码换登录 Cookie） |
+| `gen4399.batch` | `run_batch()`、`BatchSummary`（批量编排） |
 | `gen4399.config` | `configure()`、`current_config()`（运行期开关） |
 
 > `gen4399.constants` 是常量的**完整**出口：`UNIFIED_DROP_FIELDS`、`VERIFY_URL`
@@ -217,6 +218,32 @@ repr(acc)                                 # 密码打码，可安全写日志
 > 4399 没有密码校验接口，只有注册提交时才校验（2.1.0 起可显式提交，见
 > [提交注册（web / unified，2.4.0）](#提交注册web--unified240)）。
 > 密码侧只能保证通过公开规则（本库 `validate()` 在本地保证）。
+
+## 批量注册编排（3.2.0）
+
+```bash
+gen4399 batch --profile-file identities.txt --form-path unified \
+  --captcha-matcher --interval 45 --jitter 30 --max-failures 3 \
+  --verify-login --output accounts.json --yes
+```
+
+- 每个身份独立 `prepare → submit`；代理池 + 随机 UA 让每个号走不同出口
+- `--interval/--jitter` 控制节奏（默认 30s + 0 抖动）
+- `--max-failures 3`：连续失败 3 次自动停
+- **断点续跑**：账号记录写入 `idcard_hash`，已成功的身份下次自动跳过
+- 每条结果立即落盘（0600），中断不丢已建好的号
+- `--json` 输出汇总（总数/成功/失败/按 kind/用时）
+
+```python
+from gen4399 import RegistrationProfile, run_batch, matcher_captcha_solver
+
+summary = run_batch(
+    [RegistrationProfile("张三", "460206194611192084")],
+    path="unified", captcha=matcher_captcha_solver(),
+    interval=45, jitter=30, output="accounts.json",
+)
+summary.success, summary.failed, summary.by_kind()
+```
 
 ## web 验证码识别（3.1.0）
 
