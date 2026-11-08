@@ -438,10 +438,35 @@ health(); loadAccounts();
 """
 
 
+_MIME = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+    ".json": "application/json; charset=utf-8",
+    ".woff2": "font/woff2",
+}
+
+
+def default_static_dir() -> Path | None:
+    """React 构建产物目录（web/dist）；没有就返回 None，退回内置页面。"""
+    candidates = [
+        Path(os.environ.get("GEN4399_WEB_DIST", "")),
+        Path(__file__).resolve().parent.parent / "web" / "dist",
+    ]
+    for candidate in candidates:
+        if candidate and (candidate / "index.html").is_file():
+            return candidate
+    return None
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = f"gen4399-webui/{__version__}"
     accounts_path = "accounts.json"
     dry_run_only = False
+    static_dir: Path | None = None
 
     # ---- 基础工具 ----
     def log_message(self, fmt: str, *args) -> None:  # 安静一点
@@ -470,6 +495,9 @@ class _Handler(BaseHTTPRequestHandler):
     # ---- 路由 ----
     def do_GET(self) -> None:  # noqa: N802
         path = self.path.split("?")[0]
+        if not path.startswith("/api/"):
+            if self._serve_static(path):
+                return
         if path in ("/", "/index.html"):
             html = PAGE.replace("__VERSION__", f"v{__version__}")
             self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
@@ -491,6 +519,26 @@ class _Handler(BaseHTTPRequestHandler):
             self._export()
             return
         self._send(404, b"not found", "text/plain")
+
+    def _serve_static(self, path: str) -> bool:
+        """托管 web/dist 里的静态文件；找不到就交给 SPA 兜底（返回 index.html）。"""
+        root = self.static_dir
+        if root is None:
+            return False
+        target = (root / path.lstrip("/")).resolve()
+        try:
+            target.relative_to(root.resolve())
+        except ValueError:
+            return False
+        if not target.is_file():
+            if "." in Path(path).name:
+                return False
+            target = root / "index.html"
+            if not target.is_file():
+                return False
+        body = target.read_bytes()
+        self._send(200, body, _MIME.get(target.suffix, "application/octet-stream"))
+        return True
 
     def _export(self) -> None:
         from urllib.parse import parse_qs, urlparse
@@ -612,8 +660,11 @@ def serve(host: str = "127.0.0.1", port: int = 8765, *,
     """启动 WebUI（阻塞）。"""
     _Handler.accounts_path = accounts
     _Handler.dry_run_only = dry_run_only
+    _Handler.static_dir = default_static_dir()
     httpd = ThreadingHTTPServer((host, port), _Handler)
+    static = default_static_dir()
     print(f"gen4399 WebUI v{__version__} → http://{host}:{port}/")
+    print(f"前端：{static}" if static else "前端：内置页面（未找到 web/dist，先 cd web && npm run build）")
     print(f"账号文件：{Path(accounts).resolve()}；只监听 {host}，不要暴露到公网")
     try:
         httpd.serve_forever()

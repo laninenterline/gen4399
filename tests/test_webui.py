@@ -64,12 +64,52 @@ class TestWebCaptchaBridge(unittest.TestCase):
         self.assertFalse(webui._WebCaptcha().submit("X"))
 
 
+class TestStaticServing(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.dist = root / "dist"
+        (self.dist / "assets").mkdir(parents=True)
+        (self.dist / "index.html").write_text("<html>spa</html>", encoding="utf-8")
+        (self.dist / "assets" / "app.js").write_text("console.log(1)", encoding="utf-8")
+
+        webui._Handler.accounts_path = str(root / "accounts.json")
+        webui._Handler.dry_run_only = True
+        webui._Handler.static_dir = self.dist
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), webui._Handler)
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.shutdown)
+        self.addCleanup(setattr, webui._Handler, "static_dir", None)
+
+    def test_index_served_from_dist(self):
+        self.assertIn(b"spa", _get(self.port, "/"))
+
+    def test_asset_served_with_mime(self):
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/assets/app.js") as res:
+            self.assertIn("javascript", res.headers["Content-Type"])
+            self.assertIn(b"console.log", res.read())
+
+    def test_spa_fallback_for_unknown_route(self):
+        self.assertIn(b"spa", _get(self.port, "/some/route"))
+
+    def test_missing_asset_is_404(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            _get(self.port, "/assets/missing.js")
+        self.assertEqual(ctx.exception.code, 404)
+
+    def test_unknown_non_asset_falls_back_to_index(self):
+        self.assertIn(b"spa", _get(self.port, "/unknown"))
+
+
 class TestHttpApi(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         webui._Handler.accounts_path = str(Path(self.tmp.name) / "accounts.json")
         webui._Handler.dry_run_only = True
+        webui._Handler.static_dir = None
         webui.TASK = webui._Task()
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), webui._Handler)
         self.port = self.server.server_address[1]

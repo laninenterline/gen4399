@@ -95,12 +95,21 @@ python scripts/make_account.py --yes --form-path unified --proxy-file proxies.tx
 > 只支持 HTTP(S) 代理（SOCKS 需要额外依赖，本库保持零运行时依赖）。
 > 每次调用会自动取下一个代理；同一会话内（GET→POST→验证码）始终用同一个 IP。
 
-## WebUI 与 APK（3.9.0）
+## WebUI 与 APK
 
 ```bash
 python -m gen4399.webui            # → http://127.0.0.1:8765/
 gen4399 webui --port 9000 --open
 python -m gen4399.webui --dry-run-only   # 演示模式：禁止真实提交
+```
+
+前端是 **React 19 + TypeScript + Vite + Tailwind CSS 4**（`web/`），后端是 Python 标准库
+的 JSON API（`gen4399/webui.py`）。
+
+```bash
+cd web && npm install && npm run build   # 构建前端
+python -m gen4399.webui                  # 后端托管 web/dist
+# 开发时：python -m gen4399.webui + cd web && npm run dev（/api 自动代理）
 ```
 
 页面里能：导入 `sfz.txt`（粘贴/选文件）→ 设定数量、前后缀、通道、间隔、验证码模式
@@ -129,6 +138,7 @@ gen4399/           运行时包（core/identity/forms/registration/cli/submit/re
   captcha_web.py   web 150×45 自学习识别器（种子字库 _web_captcha_seed.json）
 tests/             778 个用例（覆盖率 93%）
 scripts/           make_account.py（跑一次拿一个号）、verify_rules.py（规则冒烟）
+web/               WebUI 前端（React 19 + TS + Vite + Tailwind 4）
 apk/               独立 Android App（Kotlin + Compose，自带协议实现）
 ports/             Node 版与 C 版移植（核心协议，见 ports/README.md）
 docs/              rules / submit / faq / project-overview / notes（早期自审记录）

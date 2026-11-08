@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/api.ts","./src/main.tsx","./src/components/CaptchaModal.tsx","./src/components/IdentityPanel.tsx","./src/components/ResultsPanel.tsx","./src/components/RunPanel.tsx","./src/components/SettingsPanel.tsx","./src/components/ui.tsx"],"version":"5.9.3"}

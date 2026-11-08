@@ -2,6 +2,26 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [3.11.0] - 2026-11-08
+
+### 改进
+
+- **WebUI 前端换成正式技术栈**（`web/`）：React 19 + TypeScript + Vite 7 +
+  Tailwind CSS 4，替代原来内嵌在 `webui.py` 里的那段 HTML 字符串。
+  - 组件化：`IdentityPanel` / `SettingsPanel` / `RunPanel` / `ResultsPanel` /
+    `CaptchaModal` + 一套 `Card/Button/Field/Input/Badge` 基础件
+  - 类型化 API 客户端（`src/api.ts`），`tsc -b` 严格模式零错误
+  - 开发时 Vite dev server 代理 `/api`；构建产物由后端直接托管，
+    SPA 路由回落到 `index.html`
+- 后端 `webui.py` 增加静态托管（`web/dist`）+ 路径穿越防护；
+  `GEN4399_WEB_DIST` 可指定产物目录；找不到 dist 时退回内置兜底页并给出提示。
+- 新增 5 个静态托管测试（index/资源 MIME/SPA 回落/404/路径校验）。
+
+### 说明
+
+- 本机 Python 3.14 (Termux/aarch64) 装不上 FastAPI 轮子，后端仍是标准库
+  `http.server`；API 契约与前端分离，将来换 FastAPI 只需替换 HTTP 层。
+
 ## [3.10.0] - 2026-11-08
 
 ### 新增
