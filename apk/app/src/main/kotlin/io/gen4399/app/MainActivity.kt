@@ -121,6 +121,7 @@ fun App() {
     var pendingCaptcha by remember { mutableStateOf<PendingCaptcha?>(null) }
     var importStats by remember { mutableStateOf(ImportStats()) }
     var autoStartToken by remember { mutableStateOf(0) }
+    var proxyStatus by remember { mutableStateOf("") }
     var fileUri by remember { mutableStateOf<String?>(null) }
     var nextOffset by remember { mutableStateOf(0L) }
     var atEof by remember { mutableStateOf(true) }
@@ -384,6 +385,7 @@ fun App() {
                 0 -> SettingsTab(
                     settings = settings,
                     status = statusLine,
+                    proxyStatus = proxyStatus,
                     onChange = { settings = it },
                     identityCount = identities.size,
                     pageIndex = pageIndex,
@@ -394,22 +396,22 @@ fun App() {
                     onPullFromApi = {
                         val url = settings.apiUrl.trim()
                         if (url.isEmpty()) {
-                            statusLine = "先填提取链接"
+                            proxyStatus = "先填提取链接"
                         } else {
                             scope.launch {
-                                statusLine = "正在从 API 提取…"
+                                proxyStatus = "正在从 API 提取…"
                                 val attempt = runCatching { ApiProxy.pull(url, settings.apiAuth.trim()) }
                                 val result = attempt.getOrNull()
                                 if (result == null || result.lines.isEmpty()) {
                                     val reason = attempt.exceptionOrNull()?.let {
                                         "${it.javaClass.simpleName}: ${it.message}"
                                     } ?: "没解析到 IP（返回：${result?.snippet ?: ""}）"
-                                    statusLine = "提取失败：$reason"
-                                    appendLog(statusLine)
+                                    proxyStatus = "提取失败：$reason"
+                                    appendLog(proxyStatus)
                                 } else {
                                     settings = settings.copy(proxies = result.lines.joinToString("\n"))
-                                    statusLine = "已提取 ${result.lines.size} 条（原始 ${result.raw} 条）"
-                                    appendLog(statusLine)
+                                    proxyStatus = "已提取 ${result.lines.size} 条（原始 ${result.raw} 条）"
+                                    appendLog(proxyStatus)
                                 }
                             }
                         }
@@ -417,36 +419,36 @@ fun App() {
                     onTestProxies = {
                         val lines = settings.proxies.lines().filter { it.isNotBlank() }
                         if (lines.isEmpty()) {
-                            statusLine = "代理池是空的"
+                            proxyStatus = "代理池是空的：先「从 API 提取」，或手动粘贴，或点「获取免费代理」"
                         } else {
                             scope.launch {
-                                statusLine = "正在检测 ${lines.size} 条代理的可达性…"
-                                val outcomes = ProxyProbe.testAll(lines) { msg -> scope.launch { statusLine = msg } }
+                                proxyStatus = "正在检测 ${lines.size} 条代理的可达性…"
+                                val outcomes = ProxyProbe.testAll(lines) { msg -> scope.launch { proxyStatus = msg } }
                                 val alive = outcomes.filter { it.alive }
                                 if (alive.isEmpty()) {
-                                    statusLine = "0/${lines.size} 可达（全部超时）"
+                                    proxyStatus = "0/${lines.size} 可达（全部超时）"
                                 } else {
                                     settings = settings.copy(proxies = alive.map { it.line }.joinToString("\n"))
                                     val avg = alive.map { it.millis }.average().toInt()
-                                    statusLine = "可达 ${alive.size}/${lines.size}，平均 ${avg}ms，已移除不可达的"
+                                    proxyStatus = "可达 ${alive.size}/${lines.size}，平均 ${avg}ms，已移除不可达的"
                                 }
-                                appendLog(statusLine)
+                                appendLog(proxyStatus)
                             }
                         }
                     },
                     onFetchFreeProxies = {
                         scope.launch {
-                            statusLine = "正在获取免费代理…"
+                            proxyStatus = "正在获取免费代理…"
                             val result = runCatching {
-                                FreeProxy.refresh { msg -> scope.launch { statusLine = msg } }
+                                FreeProxy.refresh { msg -> scope.launch { proxyStatus = msg } }
                             }.getOrNull()
                             if (result == null || result.alive.isEmpty()) {
-                                statusLine = "没取到可用代理（免费代理存活率很低，稍后再试）"
-                                appendLog(statusLine)
+                                proxyStatus = "没取到可用代理（免费代理存活率低，或当前网络拿不到列表）"
+                                appendLog(proxyStatus)
                             } else {
                                 settings = settings.copy(proxies = result.alive.joinToString("\n"))
-                                statusLine = "免费代理：${result.alive.size}/${result.fetched} 个可用，已填入"
-                                appendLog(statusLine)
+                                proxyStatus = "免费代理：${result.alive.size}/${result.fetched} 个可用，已填入"
+                                appendLog(proxyStatus)
                             }
                         }
                     },
@@ -495,6 +497,7 @@ fun App() {
 private fun SettingsTab(
     settings: Settings,
     status: String,
+    proxyStatus: String,
     onChange: (Settings) -> Unit,
     identityCount: Int,
     pageIndex: Int,
@@ -632,10 +635,21 @@ private fun SettingsTab(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onFetchFreeProxies) { Text("获取免费代理") }
             Text(
-                if (settings.proxies.isBlank()) "（未配置，走直连）" else "（已填 ${settings.proxies.lines().count { it.isNotBlank() }} 条）",
+                if (settings.proxies.isBlank()) {
+                    "（未配置，走直连）"
+                } else {
+                    "（已填 ${settings.proxies.lines().count { it.isNotBlank() }} 条）"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.align(Alignment.CenterVertically),
+            )
+        }
+        if (proxyStatus.isNotEmpty()) {
+            Text(
+                proxyStatus,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -20,8 +20,8 @@ android {
         applicationId = 'io.gen4399.app'
         minSdk = 24
         targetSdk = 37
-        versionCode = 25
-        versionName = '1.17.1'
+        versionCode = 26
+        versionName = '1.18.0'
     }
 
     signingConfigs {

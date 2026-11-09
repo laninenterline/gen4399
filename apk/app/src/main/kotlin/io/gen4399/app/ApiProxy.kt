@@ -66,6 +66,13 @@ object ApiProxy {
         conn.readTimeout = 15_000
         conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+        val status = conn.responseCode
+        if (status !in 200..299) {
+            val body = runCatching {
+                (conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "").take(120)
+            }.getOrDefault("")
+            throw java.io.IOException("HTTP $status ${conn.responseMessage ?: ""} $body".trim())
+        }
         return conn.inputStream.use { input ->
             val out = java.io.ByteArrayOutputStream()
             val buffer = ByteArray(32 * 1024)
