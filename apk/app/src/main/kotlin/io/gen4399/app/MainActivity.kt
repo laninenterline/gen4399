@@ -122,6 +122,7 @@ fun App() {
     var importStats by remember { mutableStateOf(ImportStats()) }
     var autoStartToken by remember { mutableStateOf(0) }
     var proxyStatus by remember { mutableStateOf("") }
+    var publicIp by remember { mutableStateOf("") }
     var fileUri by remember { mutableStateOf<String?>(null) }
     var nextOffset by remember { mutableStateOf(0L) }
     var atEof by remember { mutableStateOf(true) }
@@ -386,6 +387,7 @@ fun App() {
                     settings = settings,
                     status = statusLine,
                     proxyStatus = proxyStatus,
+                    publicIp = publicIp,
                     onChange = { settings = it },
                     identityCount = identities.size,
                     pageIndex = pageIndex,
@@ -406,13 +408,30 @@ fun App() {
                                     val reason = attempt.exceptionOrNull()?.let {
                                         "${it.javaClass.simpleName}: ${it.message}"
                                     } ?: "没解析到 IP（返回：${result?.snippet ?: ""}）"
-                                    proxyStatus = "提取失败：$reason"
+                                    proxyStatus = if (reason.contains("401") || reason.contains("API_AUTH_DENY")) {
+                                        "401 未授权：这个 key 要 IP 白名单。把出口 IP 加到青果后台，" +
+                                            "或改用通道直连（直接粘 IP:端口，不用 API）"
+                                    } else {
+                                        "提取失败：$reason"
+                                    }
                                     appendLog(proxyStatus)
                                 } else {
                                     settings = settings.copy(proxies = result.lines.joinToString("\n"))
                                     proxyStatus = "已提取 ${result.lines.size} 条（原始 ${result.raw} 条）"
                                     appendLog(proxyStatus)
                                 }
+                            }
+                        }
+                    },
+                    onCheckIp = {
+                        scope.launch {
+                            proxyStatus = "正在查询出口 IP…"
+                            val ip = NetInfo.currentIp()
+                            publicIp = ip ?: ""
+                            proxyStatus = if (ip != null) {
+                                "当前出口 IP：$ip（白名单要加这个）"
+                            } else {
+                                "查不到出口 IP（网络受限）"
                             }
                         }
                     },
@@ -498,6 +517,7 @@ private fun SettingsTab(
     settings: Settings,
     status: String,
     proxyStatus: String,
+    publicIp: String,
     onChange: (Settings) -> Unit,
     identityCount: Int,
     pageIndex: Int,
@@ -506,6 +526,7 @@ private fun SettingsTab(
     onImport: () -> Unit,
     onContinue: () -> Unit,
     onPullFromApi: () -> Unit,
+    onCheckIp: () -> Unit,
     onTestProxies: () -> Unit,
     onFetchFreeProxies: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
@@ -628,6 +649,17 @@ private fun SettingsTab(
             textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
             singleLine = true,
         )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = onCheckIp) { Text("查出口 IP") }
+            if (publicIp.isNotEmpty()) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    publicIp,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onPullFromApi) { Text("从 API 提取") }
             OutlinedButton(onClick = onTestProxies) { Text("测试代理") }
