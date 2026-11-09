@@ -86,12 +86,9 @@ data class Settings(
     val randomize: Boolean = true,
     val proxies: String = "",
     val proxyStrategy: String = "round-robin",
-    val autoAdvance: Boolean = true,
     val keepAlive: Boolean = true,
     val apiUrl: String = "",
     val apiAuth: String = "",
-    val autoStartAfterImport: Boolean = true,
-    val probeBeforeRun: Boolean = true,
     val passwordLength: Int = 16,
 )
 
@@ -171,7 +168,7 @@ fun App() {
             pageIndex = 1
             sfzText = page.preview
             results.clear()   // 新文件才清空结果，续跑会累积
-            if (page.identities.isNotEmpty() && settings.autoStartAfterImport) autoStartToken += 1
+            if (page.identities.isNotEmpty()) autoStartToken += 1
         } else {
             pageIndex++
         }
@@ -242,7 +239,7 @@ fun App() {
         progress = 0f
         val proxyLines = settings.proxies.lines().filter { it.isNotBlank() }
         HttpTransport.configure(settings.proxies, settings.proxyStrategy)
-        if (settings.probeBeforeRun && proxyLines.isNotEmpty()) {
+        if (proxyLines.isNotEmpty()) {
             scope.launch {
                 statusLine = "检测 ${proxyLines.size} 条代理可达性…"
                 val outcomes = ProxyProbe.testAll(proxyLines)
@@ -363,7 +360,7 @@ fun App() {
             }
             appendLog(statusLine)
             if (success >= 0) prefs.edit().putLong("sfz_offset", nextOffset).apply()
-            if (success >= 0 && settings.autoAdvance && !atEof) {
+            if (success >= 0 && !atEof) {
                 appendLog("自动载入下一批…")
                 fileUri?.let { loadPage(it, nextOffset, firstPage = false) }
             }
@@ -526,35 +523,11 @@ private fun SettingsTab(
             color = MaterialTheme.colorScheme.primary,
         )
         Button(onClick = onImport) { Text("导入 sfz.txt") }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(
-                checked = settings.autoStartAfterImport,
-                onCheckedChange = { onChange(settings.copy(autoStartAfterImport = it)) },
-            )
-            Spacer(Modifier.width(8.dp))
-            Text("导入后自动开始", style = MaterialTheme.typography.bodySmall)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(
-                checked = settings.autoAdvance,
-                onCheckedChange = { onChange(settings.copy(autoAdvance = it)) },
-            )
-            Spacer(Modifier.width(8.dp))
-            Text("跑完自动载入下一批", style = MaterialTheme.typography.bodySmall)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(
-                checked = settings.probeBeforeRun,
-                onCheckedChange = { onChange(settings.copy(probeBeforeRun = it)) },
-            )
-            Spacer(Modifier.width(8.dp))
-            Text("开始前先检测代理可达性", style = MaterialTheme.typography.bodySmall)
-        }
         Text(
             if (pageIndex > 0) {
-                "当前第 $pageIndex 批 · 断点续跑已开启（导入后自动解析，不用再点解析）"
+                "第 $pageIndex 批 · 导入后自动解析并开跑，跑完自动读下一批"
             } else {
-                "导入后会自动解析并载入第一批"
+                "导入后自动解析 → 载入第一批 → 检测代理 → 直接开跑"
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline,
