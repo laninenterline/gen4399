@@ -276,9 +276,17 @@ static int parse_proxy_line(char *line, char *out, size_t out_len)
         }
     }
 
-    /* user:pass@host:port 形式：先把 @ 前的凭据拆出来 */
+    /* user:pass@host:port 形式：先把 @ 前的凭据拆出来。
+       密码里可能含 @（如 x@y），所以从右往左找「@ 后面是合法 host:port」的那个 */
     char auth[128] = {0};
-    char *at = strchr(body, '@');
+    char *at = NULL;
+    for (char *cursor = strrchr(body, '@'); cursor && cursor != body; cursor = NULL) {
+        for (char *probe = cursor; probe && probe != body; probe--) {
+            if (*probe != '@') continue;
+            if (ends_with_port(probe + 1)) { at = probe; break; }
+        }
+        break;
+    }
     if (at && at != body) {
         size_t n = (size_t)(at - body);
         if (n >= sizeof(auth)) return 0;

@@ -88,6 +88,8 @@ data class Settings(
     val proxyStrategy: String = "round-robin",
     val autoAdvance: Boolean = true,
     val keepAlive: Boolean = true,
+    val apiUrl: String = "",
+    val apiAuth: String = "",
     val passwordLength: Int = 16,
 )
 
@@ -367,6 +369,27 @@ fun App() {
                     importStats = importStats,
                     onImport = { importLauncher.launch(arrayOf("text/plain", "*/*")) },
                     onContinue = { fileUri?.let { loadPage(it, nextOffset, firstPage = false) } },
+                    onPullFromApi = {
+                        val url = settings.apiUrl.trim()
+                        if (url.isEmpty()) {
+                            statusLine = "先填提取链接"
+                        } else {
+                            scope.launch {
+                                statusLine = "正在从 API 提取…"
+                                val result = runCatching {
+                                    ApiProxy.pull(url, settings.apiAuth.trim())
+                                }.getOrNull()
+                                if (result == null || result.lines.isEmpty()) {
+                                    statusLine = "提取失败：没有解析到 IP（返回：${result?.snippet ?: "请求失败"}）"
+                                    appendLog(statusLine)
+                                } else {
+                                    settings = settings.copy(proxies = result.lines.joinToString("\n"))
+                                    statusLine = "已提取 ${result.lines.size} 条（原始 ${result.raw} 条）"
+                                    appendLog(statusLine)
+                                }
+                            }
+                        }
+                    },
                     onFetchFreeProxies = {
                         scope.launch {
                             statusLine = "正在获取免费代理…"
@@ -434,6 +457,7 @@ private fun SettingsTab(
     importStats: ImportStats,
     onImport: () -> Unit,
     onContinue: () -> Unit,
+    onPullFromApi: () -> Unit,
     onFetchFreeProxies: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
 ) {
@@ -546,7 +570,26 @@ private fun SettingsTab(
             modifier = Modifier.fillMaxWidth().height(110.dp),
             textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
         )
+        OutlinedTextField(
+            value = settings.apiUrl,
+            onValueChange = { onChange(settings.copy(apiUrl = it)) },
+            label = { Text("代理商提取链接（可选）") },
+            placeholder = { Text("https://share.proxy.qg.net/get?key=XXXX") },
+            modifier = Modifier.fillMaxWidth(),
+            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            singleLine = true,
+        )
+        OutlinedTextField(
+            value = settings.apiAuth,
+            onValueChange = { onChange(settings.copy(apiAuth = it)) },
+            label = { Text("提取账号:密码（可选，会自动拼到每条代理）") },
+            placeholder = { Text("Authkey:Authpwd") },
+            modifier = Modifier.fillMaxWidth(),
+            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            singleLine = true,
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onPullFromApi) { Text("从 API 提取") }
             OutlinedButton(onClick = onFetchFreeProxies) { Text("获取免费代理") }
             Text(
                 if (settings.proxies.isBlank()) "（未配置，走直连）" else "（已填 ${settings.proxies.lines().count { it.isNotBlank() }} 条）",
