@@ -90,6 +90,8 @@ data class Settings(
     val keepAlive: Boolean = true,
     val apiUrl: String = "",
     val apiAuth: String = "",
+    val autoStartAfterImport: Boolean = true,
+    val probeBeforeRun: Boolean = true,
     val passwordLength: Int = 16,
 )
 
@@ -121,6 +123,7 @@ fun App() {
     var logText by remember { mutableStateOf("") }
     var pendingCaptcha by remember { mutableStateOf<PendingCaptcha?>(null) }
     var importStats by remember { mutableStateOf(ImportStats()) }
+    var autoStartToken by remember { mutableStateOf(0) }
     var fileUri by remember { mutableStateOf<String?>(null) }
     var nextOffset by remember { mutableStateOf(0L) }
     var atEof by remember { mutableStateOf(true) }
@@ -168,6 +171,7 @@ fun App() {
             pageIndex = 1
             sfzText = page.preview
             results.clear()   // 新文件才清空结果，续跑会累积
+            if (page.identities.isNotEmpty() && settings.autoStartAfterImport) autoStartToken += 1
         } else {
             pageIndex++
         }
@@ -236,7 +240,23 @@ fun App() {
         }
         running = true
         progress = 0f
+        val proxyLines = settings.proxies.lines().filter { it.isNotBlank() }
         HttpTransport.configure(settings.proxies, settings.proxyStrategy)
+        if (settings.probeBeforeRun && proxyLines.isNotEmpty()) {
+            scope.launch {
+                statusLine = "检测 ${proxyLines.size} 条代理可达性…"
+                val outcomes = ProxyProbe.testAll(proxyLines)
+                val alive = outcomes.filter { it.alive }.map { it.line }
+                if (alive.isEmpty()) {
+                    appendLog("代理全部不可达，本轮改走直连")
+                    HttpTransport.configure("", settings.proxyStrategy)
+                } else {
+                    appendLog("代理可达 ${alive.size}/${proxyLines.size}")
+                    HttpTransport.configure(alive.joinToString("\n"), settings.proxyStrategy)
+                    settings = settings.copy(proxies = alive.joinToString("\n"))
+                }
+            }
+        }
         if (settings.keepAlive) {
             KeepAliveService.start(context, "准备中…")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -350,6 +370,10 @@ fun App() {
         }
     }
 
+    LaunchedEffect(autoStartToken) {
+        if (autoStartToken > 0) startRun()
+    }
+
     Scaffold(
         topBar = { TopAppBar(title = { Text("gen4399") }) },
     ) { padding ->
@@ -362,6 +386,7 @@ fun App() {
             when (tab) {
                 0 -> SettingsTab(
                     settings = settings,
+                    status = statusLine,
                     onChange = { settings = it },
                     identityCount = identities.size,
                     pageIndex = pageIndex,
@@ -376,17 +401,39 @@ fun App() {
                         } else {
                             scope.launch {
                                 statusLine = "正在从 API 提取…"
-                                val result = runCatching {
-                                    ApiProxy.pull(url, settings.apiAuth.trim())
-                                }.getOrNull()
+                                val attempt = runCatching { ApiProxy.pull(url, settings.apiAuth.trim()) }
+                                val result = attempt.getOrNull()
                                 if (result == null || result.lines.isEmpty()) {
-                                    statusLine = "提取失败：没有解析到 IP（返回：${result?.snippet ?: "请求失败"}）"
+                                    val reason = attempt.exceptionOrNull()?.let {
+                                        "${it.javaClass.simpleName}: ${it.message}"
+                                    } ?: "没解析到 IP（返回：${result?.snippet ?: ""}）"
+                                    statusLine = "提取失败：$reason"
                                     appendLog(statusLine)
                                 } else {
                                     settings = settings.copy(proxies = result.lines.joinToString("\n"))
                                     statusLine = "已提取 ${result.lines.size} 条（原始 ${result.raw} 条）"
                                     appendLog(statusLine)
                                 }
+                            }
+                        }
+                    },
+                    onTestProxies = {
+                        val lines = settings.proxies.lines().filter { it.isNotBlank() }
+                        if (lines.isEmpty()) {
+                            statusLine = "代理池是空的"
+                        } else {
+                            scope.launch {
+                                statusLine = "正在检测 ${lines.size} 条代理的可达性…"
+                                val outcomes = ProxyProbe.testAll(lines) { msg -> scope.launch { statusLine = msg } }
+                                val alive = outcomes.filter { it.alive }
+                                if (alive.isEmpty()) {
+                                    statusLine = "0/${lines.size} 可达（全部超时）"
+                                } else {
+                                    settings = settings.copy(proxies = alive.map { it.line }.joinToString("\n"))
+                                    val avg = alive.map { it.millis }.average().toInt()
+                                    statusLine = "可达 ${alive.size}/${lines.size}，平均 ${avg}ms，已移除不可达的"
+                                }
+                                appendLog(statusLine)
                             }
                         }
                     },
@@ -450,6 +497,7 @@ fun App() {
 @Composable
 private fun SettingsTab(
     settings: Settings,
+    status: String,
     onChange: (Settings) -> Unit,
     identityCount: Int,
     pageIndex: Int,
@@ -458,10 +506,15 @@ private fun SettingsTab(
     onImport: () -> Unit,
     onContinue: () -> Unit,
     onPullFromApi: () -> Unit,
+    onTestProxies: () -> Unit,
     onFetchFreeProxies: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
+        if (status.isNotEmpty()) {
+            Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+        }
         Text("身份来源", style = MaterialTheme.typography.titleSmall)
         Text(
             if (importStats.lines > 0) {
@@ -472,11 +525,14 @@ private fun SettingsTab(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onImport) { Text("导入 sfz.txt") }
-            OutlinedButton(onClick = onContinue, enabled = pageIndex > 0 && !atEof) {
-                Text(if (pageIndex > 0 && !atEof) "继续下一批" else "已到末尾")
-            }
+        Button(onClick = onImport) { Text("导入 sfz.txt") }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(
+                checked = settings.autoStartAfterImport,
+                onCheckedChange = { onChange(settings.copy(autoStartAfterImport = it)) },
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("导入后自动开始", style = MaterialTheme.typography.bodySmall)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Switch(
@@ -485,6 +541,14 @@ private fun SettingsTab(
             )
             Spacer(Modifier.width(8.dp))
             Text("跑完自动载入下一批", style = MaterialTheme.typography.bodySmall)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(
+                checked = settings.probeBeforeRun,
+                onCheckedChange = { onChange(settings.copy(probeBeforeRun = it)) },
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("开始前先检测代理可达性", style = MaterialTheme.typography.bodySmall)
         }
         Text(
             if (pageIndex > 0) {
@@ -590,6 +654,9 @@ private fun SettingsTab(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onPullFromApi) { Text("从 API 提取") }
+            OutlinedButton(onClick = onTestProxies) { Text("测试代理") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onFetchFreeProxies) { Text("获取免费代理") }
             Text(
                 if (settings.proxies.isBlank()) "（未配置，走直连）" else "（已填 ${settings.proxies.lines().count { it.isNotBlank() }} 条）",

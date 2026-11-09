@@ -23,7 +23,20 @@ object ApiProxy {
     data class Result(val lines: List<String>, val raw: Int, val snippet: String)
 
     suspend fun pull(url: String, auth: String, limit: Int = 50): Result = withContext(Dispatchers.IO) {
-        val text = httpGet(url)
+        val normalized = when {
+            url.startsWith("http://") || url.startsWith("https://") -> url
+            else -> "https://$url"
+        }
+        val text = try {
+            httpGet(normalized)
+        } catch (first: Exception) {
+            // 有的接口只开 http，https 握手会失败，回退一次
+            if (normalized.startsWith("https://")) {
+                httpGet("http://" + normalized.removePrefix("https://"))
+            } else {
+                throw first
+            }
+        }
         val found = LinkedHashSet<String>()
 
         for (match in SERVER_FIELD.findAll(text)) {
