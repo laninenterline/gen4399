@@ -3,8 +3,6 @@ package io.gen4399.app
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
@@ -40,9 +38,14 @@ object FreeProxy {
     /** 验证用目标：能连上 4399 才算能用 */
     private const val PROBE_URL = "https://u.4399.com/"
     private const val FETCH_TIMEOUT = 9_000
-    private const val PROBE_TIMEOUT = 6_000
-    private const val MAX_KEEP = 40
+    private const val PROBE_TIMEOUT = 4_000
+    /** 最多留多少个可用的就够了 */
+    private const val MAX_KEEP = 25
+    /** 最多验证多少个候选（免费代理大多已死，验证太多只会干等） */
+    private const val MAX_CANDIDATES = 200
     private const val CONCURRENCY = 24
+    /** 整个验证阶段的预算，超时就带着已找到的返回 */
+    private const val VALIDATE_BUDGET_MS = 75_000L
 
     data class Result(val fetched: Int, val alive: List<String>)
 
@@ -60,24 +63,26 @@ object FreeProxy {
         }
         if (raw.isEmpty()) return@withContext Result(0, emptyList())
 
-        onProgress("候选 ${raw.size} 个，正在验证（并发 $CONCURRENCY）…")
-        val semaphore = Semaphore(CONCURRENCY)
+        val candidates = raw.take(MAX_CANDIDATES)
+        onProgress("候选 ${raw.size} 个，验证前 ${candidates.size} 个（并发 $CONCURRENCY）…")
+
         val alive = ArrayList<String>()
-        coroutineScope {
-            val jobs = raw.map { candidate ->
-                async {
-                    semaphore.withPermit {
-                        if (probe(candidate)) {
-                            synchronized(alive) {
-                                if (alive.size < MAX_KEEP) alive += candidate
-                            }
-                        }
-                    }
+        var checked = 0
+        val deadline = System.currentTimeMillis() + VALIDATE_BUDGET_MS
+
+        for (chunk in candidates.chunked(CONCURRENCY)) {
+            if (alive.size >= MAX_KEEP || System.currentTimeMillis() > deadline) break
+            coroutineScope {
+                val results = chunk.map { candidate -> async { probe(candidate) } }.map { it.await() }
+                chunk.forEachIndexed { index, candidate ->
+                    checked++
+                    if (results[index] && alive.size < MAX_KEEP) alive += candidate
                 }
             }
-            jobs.forEach { it.await() }
+            onProgress("验证中 $checked/${candidates.size}，已找到 ${alive.size} 个可用…")
         }
-        onProgress("验证完成：${alive.size}/${raw.size} 可用")
+
+        onProgress("验证完成：${alive.size}/$checked 可用")
         Result(raw.size, alive)
     }
 
