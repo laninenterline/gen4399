@@ -722,7 +722,12 @@ int g4399_agent_run(const char *identities, const g4399_agent_config *config,
             username = sbuf_take(&b);
         }
 
-        if (config->path && strcmp(config->path, "web") == 0) {
+        /* 通道：unified / web / mixed（每个账号随机挑一条） */
+        const char *chosen = config->path ? config->path : "unified";
+        if (strcmp(chosen, "mixed") == 0) {
+            chosen = (rand() % 2 == 0) ? "unified" : "web";
+        }
+        if (strcmp(chosen, "web") == 0) {
             run_web(hooks, &jar, who, username, password, config->dry_run, &result);
         } else {
             run_unified(hooks, &jar, who, username, password, config, &result);

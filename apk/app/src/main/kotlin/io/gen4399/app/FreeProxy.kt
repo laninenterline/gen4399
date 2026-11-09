@@ -39,8 +39,8 @@ object FreeProxy {
     private const val PROBE_URL = "https://u.4399.com/"
     private const val FETCH_TIMEOUT = 9_000
     private const val PROBE_TIMEOUT = 4_000
-    /** 最多留多少个可用的就够了 */
-    private const val MAX_KEEP = 25
+    /** 默认最多留多少个可用的 */
+    private const val DEFAULT_KEEP = 25
     /** 最多验证多少个候选（免费代理大多已死，验证太多只会干等） */
     private const val MAX_CANDIDATES = 200
     private const val CONCURRENCY = 24
@@ -50,7 +50,9 @@ object FreeProxy {
     data class Result(val fetched: Int, val alive: List<String>)
 
     /** 抓取 + 验证；[onProgress] 用于界面反馈 */
-    suspend fun refresh(onProgress: (String) -> Unit): Result = withContext(Dispatchers.IO) {
+    suspend fun refresh(keep: Int = DEFAULT_KEEP, onProgress: (String) -> Unit): Result =
+        withContext(Dispatchers.IO) {
+        val keepCount = keep.coerceIn(1, 200)
         onProgress("正在获取免费代理列表（${SOURCES.size} 个源，并发抓取）…")
         val raw = LinkedHashSet<String>()
         val perSource = coroutineScope {
@@ -71,12 +73,12 @@ object FreeProxy {
         val deadline = System.currentTimeMillis() + VALIDATE_BUDGET_MS
 
         for (chunk in candidates.chunked(CONCURRENCY)) {
-            if (alive.size >= MAX_KEEP || System.currentTimeMillis() > deadline) break
+            if (alive.size >= keepCount || System.currentTimeMillis() > deadline) break
             coroutineScope {
                 val results = chunk.map { candidate -> async { probe(candidate) } }.map { it.await() }
                 chunk.forEachIndexed { index, candidate ->
                     checked++
-                    if (results[index] && alive.size < MAX_KEEP) alive += candidate
+                    if (results[index] && alive.size < keepCount) alive += candidate
                 }
             }
             onProgress("验证中 $checked/${candidates.size}，已找到 ${alive.size} 个可用…")

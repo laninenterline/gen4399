@@ -89,6 +89,7 @@ data class Settings(
     val keepAlive: Boolean = true,
     val apiUrl: String = "",
     val apiAuth: String = "",
+    val freeProxyCount: Int = 25,
     val passwordLength: Int = 16,
 )
 
@@ -459,7 +460,9 @@ fun App() {
                         scope.launch {
                             proxyStatus = "正在获取免费代理…"
                             val result = runCatching {
-                                FreeProxy.refresh { msg -> scope.launch { proxyStatus = msg } }
+                                FreeProxy.refresh(settings.freeProxyCount) { msg ->
+                                    scope.launch { proxyStatus = msg }
+                                }
                             }.getOrNull()
                             if (result == null || result.alive.isEmpty()) {
                                 proxyStatus = "没取到可用代理（免费代理存活率低，或当前网络拿不到列表）"
@@ -560,14 +563,24 @@ private fun SettingsTab(
 
         Text("通道", style = MaterialTheme.typography.titleSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("unified", "web").forEach { channel ->
+            listOf("unified", "web", "mixed").forEach { channel ->
                 FilterChip(
                     selected = settings.channel == channel,
                     onClick = { onChange(settings.copy(channel = channel)) },
-                    label = { Text(channel) },
+                    label = { Text(if (channel == "mixed") "混合" else channel) },
                 )
             }
         }
+
+        Text(
+            when (settings.channel) {
+                "web" -> "web 通道：网页表单，需要图形验证码（已自动识别）"
+                "mixed" -> "混合：每个账号随机走 unified 或 web"
+                else -> "unified 通道：ptlogin 注册，字段最少"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+        )
 
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -608,6 +621,7 @@ private fun SettingsTab(
             value = settings.intervalSec.toString(),
             onValueChange = { onChange(settings.copy(intervalSec = it.toIntOrNull() ?: 0)) },
             label = { Text("账号间隔（秒）") },
+            supportingText = { Text("两个账号之间等多久，建议 15~30") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.width(180.dp),
         )
@@ -675,6 +689,15 @@ private fun SettingsTab(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.align(Alignment.CenterVertically),
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = settings.freeProxyCount.toString(),
+                onValueChange = { onChange(settings.copy(freeProxyCount = it.toIntOrNull() ?: 25)) },
+                label = { Text("免费代理保留数量") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.width(180.dp),
             )
         }
         if (proxyStatus.isNotEmpty()) {
