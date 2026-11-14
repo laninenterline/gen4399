@@ -1,5 +1,6 @@
 """CLI `gen4399 login` 子命令测试。"""
 
+import importlib
 import contextlib
 import io
 import unittest
@@ -20,7 +21,7 @@ class TestLoginCommand(unittest.TestCase):
     def test_success_exit_0(self):
         result = LoginResult(ok=True, kind="success", message="登录成功",
                              username="abc", cookies=("Pauth", "Uauth"))
-        with mock.patch("gen4399.login.login", return_value=result):
+        with mock.patch.object(importlib.import_module("gen4399.login"), "login", return_value=result):
             code, out, _ = run(["login", "abc", "--password", "pwd"])
         self.assertEqual(code, 0)
         self.assertIn("OK: 登录成功", out)
@@ -29,7 +30,7 @@ class TestLoginCommand(unittest.TestCase):
     def test_rejected_exit_1(self):
         result = LoginResult(ok=False, kind="rejected", message="密码错误",
                              username="abc")
-        with mock.patch("gen4399.login.login", return_value=result):
+        with mock.patch.object(importlib.import_module("gen4399.login"), "login", return_value=result):
             code, out, _ = run(["login", "abc", "--password", "pwd"])
         self.assertEqual(code, 1)
         self.assertIn("FAIL[rejected]", out)
@@ -38,7 +39,7 @@ class TestLoginCommand(unittest.TestCase):
     def test_json_output(self):
         result = LoginResult(ok=True, kind="success", message="ok",
                              username="abc", cookies=("Pauth",))
-        with mock.patch("gen4399.login.login", return_value=result):
+        with mock.patch.object(importlib.import_module("gen4399.login"), "login", return_value=result):
             code, out, _ = run(["login", "abc", "--password", "pwd", "--json"])
         self.assertEqual(code, 0)
         self.assertIn('"kind": "success"', out)
@@ -54,7 +55,7 @@ class TestLoginCommand(unittest.TestCase):
 
     def test_password_prompt(self):
         result = LoginResult(ok=True, kind="success", message="ok", username="abc")
-        with mock.patch("gen4399.login.login", return_value=result) as login_mock, \
+        with mock.patch.object(importlib.import_module("gen4399.login"), "login", return_value=result) as login_mock, \
              mock.patch("getpass.getpass", return_value="typed-pwd"):
             code, _, _ = run(["login", "abc"])
         self.assertEqual(code, 0)

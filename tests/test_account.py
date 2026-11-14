@@ -1,5 +1,6 @@
 """gen4399.account：账号记录与落盘。"""
 
+import importlib
 import json
 import stat
 import tempfile
@@ -138,7 +139,7 @@ class TestAccountCheck(unittest.TestCase):
         def fake_login(username, password, **kw):
             return ok if username == "alive" else bad
 
-        with mock.patch("gen4399.login.login", fake_login):
+        with mock.patch.object(importlib.import_module("gen4399.login"), "login", fake_login):
             results = check_accounts(records)
         self.assertEqual([r["kind"] for r in results],
                          ["success", "rejected", "no_password"])

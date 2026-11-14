@@ -1,5 +1,6 @@
 """gen4399.login：登录接口的离线测试。"""
 
+import importlib
 import unittest
 from unittest import mock
 
@@ -22,8 +23,8 @@ def _session(body, cookies=(), status=200):
 class TestLogin(unittest.TestCase):
     def _run(self, body, cookies=(), **kw):
         session = _session(body, cookies)
-        patcher = mock.patch(
-            "gen4399.login._http.RemoteSession", return_value=session
+        patcher = mock.patch.object(
+            importlib.import_module("gen4399.login")._http, "RemoteSession", return_value=session
         )
         with patcher as factory:
             result = login("abc12345", "Secret123", **kw)
@@ -81,8 +82,9 @@ class TestLogin(unittest.TestCase):
         session = _session("<html>ok</html>", cookies=("Pauth",))
         opts = mock.Mock()
         opts.new_session.return_value = session
-        with mock.patch(
-            "gen4399.login._http.RemoteSession"
+        with mock.patch.object(
+            importlib.import_module("gen4399.login")._http,
+            "RemoteSession",
         ) as factory:
             result = login("abc", "pwd", transport=opts)
         opts.new_session.assert_called_once()
