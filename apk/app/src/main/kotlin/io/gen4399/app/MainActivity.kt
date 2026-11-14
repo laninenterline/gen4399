@@ -842,7 +842,7 @@ private fun CaptchaDialog(image: ByteArray, onConfirm: (String) -> Unit, onDismi
                         modifier = Modifier.fillMaxWidth(),
                     )
                 } else {
-                    Text("图片解码失败")
+                    Text("图片解码失败（${image.size} 字节）——可能不是图片，可跳过或重试")
                 }
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = code, onValueChange = { code = it.take(4) }, label = { Text("4 位字符") })

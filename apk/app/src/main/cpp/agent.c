@@ -169,6 +169,17 @@ static http_result do_request(const g4399_agent_hooks *hooks, cookie_jar *jar,
 }
 
 /* 抓验证码图片：走 fetch_binary，避免二进制被当成 UTF-8 文本破坏 */
+/* 正常的验证码图片至少几百字节，太小的多半是错误页或空响应 */
+#define MIN_CAPTCHA_BYTES 200
+
+static void sleep_ms(int milliseconds)
+{
+    struct timespec ts;
+    ts.tv_sec = milliseconds / 1000;
+    ts.tv_nsec = (long)(milliseconds % 1000) * 1000000L;
+    nanosleep(&ts, NULL);
+}
+
 static http_result fetch_image(const g4399_agent_hooks *hooks, cookie_jar *jar,
                                const char *url, const char *referer)
 {
@@ -233,6 +244,27 @@ static void append_masked_idcard(const char *idcard, char *message, size_t messa
     size_t len = strlen(message);
     if (len + 32 >= message_len) return;
     snprintf(message + len, message_len - len, "（身份 %s）", masked);
+}
+
+/** 取验证码图：字节太少或状态异常就重试，最多 3 次 */
+static http_result fetch_image_checked(const g4399_agent_hooks *hooks, cookie_jar *jar,
+                                       const char *url, const char *referer,
+                                       int *attempts, int *last_status)
+{
+    http_result result = {0, NULL, 0};
+    if (attempts) *attempts = 0;
+    for (int i = 0; i < 3; i++) {
+        if (attempts) *attempts = i + 1;
+        http_result one = fetch_image(hooks, jar, url, referer);
+        if (last_status) *last_status = one.status;
+        int length = one.body_length > 0 ? one.body_length
+                                         : (one.body ? (int)strlen(one.body) : 0);
+        int status_ok = (one.status == 0) || (one.status >= 200 && one.status < 400);
+        if (one.body && length >= MIN_CAPTCHA_BYTES && status_ok) return one;
+        free(one.body);
+        if (i < 2) sleep_ms(600);
+    }
+    return result;
 }
 
 /* ---------------- 注册后验证 ---------------- */
@@ -447,9 +479,17 @@ static void run_web(const g4399_agent_hooks *hooks, cookie_jar *jar, const ident
                       result->message, sizeof(result->message));
         if (strcmp(result->kind, "captcha") != 0) break;
 
-        http_result image = fetch_image(hooks, jar, WEB_CAPTCHA_URL,
-                                        "https://web.4399.com/user/reg.php");
-        if (!image.body) break;
+        int image_attempts = 0, image_status = 0;
+        http_result image = fetch_image_checked(hooks, jar, WEB_CAPTCHA_URL,
+                                                "https://web.4399.com/user/reg.php",
+                                                &image_attempts, &image_status);
+        if (!image.body) {
+            snprintf(result->kind, sizeof(result->kind), "captcha");
+            snprintf(result->message, sizeof(result->message),
+                     "验证码图片拿不到（试了 %d 次，最后 HTTP %d）", image_attempts, image_status);
+            result->ok = 0;
+            break;
+        }
         int image_len = image.body_length > 0 ? image.body_length : (int)strlen(image.body ? image.body : "");
         char *code = hooks->captcha(hooks->ctx, (const unsigned char *)image.body, image_len);
         free(image.body);
@@ -595,9 +635,22 @@ static void run_unified(const g4399_agent_hooks *hooks, cookie_jar *jar, const i
         sbuf_init(&image_url);
         sbuf_add(&image_url, UNIFIED_CAPTCHA_URL);
         sbuf_add(&image_url, captcha_id);
-        http_result image = fetch_image(hooks, jar, image_url.data, form_url_keep);
+        int image_attempts = 0, image_status = 0;
+        http_result image = fetch_image_checked(hooks, jar, image_url.data, form_url_keep,
+                                                &image_attempts, &image_status);
         free(image_url.data);
-        if (!image.body) { free(captcha_id); break; }
+        if (!image.body) {
+            snprintf(result->kind, sizeof(result->kind), "captcha");
+            snprintf(result->message, sizeof(result->message),
+                     "验证码图片拿不到（试了 %d 次，最后 HTTP %d），已跳过这个账号",
+                     image_attempts, image_status);
+            result->ok = 0;
+            free(captcha_id);
+            free(response.body);
+            free(body);
+            free(hidden);
+            return;
+        }
         int image_len = image.body_length > 0 ? image.body_length : (int)strlen(image.body ? image.body : "");
         char *code = hooks->captcha(hooks->ctx, (const unsigned char *)image.body, image_len);
         free(image.body);

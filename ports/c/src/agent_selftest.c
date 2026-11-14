@@ -55,10 +55,13 @@ static unsigned char *fake_fetch_binary(void *ctx, const char *url, const char *
                                         const char *referer, int *length, int *status)
 {
     (void)ctx; (void)url; (void)cookie; (void)referer;
-    static const char payload[] = "\x89PNG\r\n\x1a\nFAKE";
-    unsigned char *buffer = malloc(sizeof(payload));
-    memcpy(buffer, payload, sizeof(payload));
-    *length = (int)sizeof(payload) - 1;
+    /* 真实的验证码图至少几百字节，这里造一个 320 字节的假 PNG */
+    static const char magic[] = "\x89PNG\r\n\x1a\n";
+    int size = 320;
+    unsigned char *buffer = malloc((size_t)size);
+    memset(buffer, 0x5A, (size_t)size);
+    memcpy(buffer, magic, sizeof(magic) - 1);
+    *length = size;
     *status = 200;
     return buffer;
 }

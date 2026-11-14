@@ -21,8 +21,8 @@ android {
         applicationId = 'io.gen4399.app'
         minSdk = 24
         targetSdk = (project.findProperty('targetSdk') ?: '37').toString().toInteger()
-        versionCode = 30
-        versionName = '1.19.1'
+        versionCode = 31
+        versionName = '1.19.2'
     }
 
     signingConfigs {
