@@ -81,6 +81,18 @@ kotlin {
     compilerVersion = '2.4.20'
 }
 
+def buildSdk = (project.findProperty('compileSdk') ?: '37').toString().toInteger()
+
+// compileSdk 低于 37 时（CI 环境），把要求更高 SDK 的库压回可用版本
+if (buildSdk < 37) {
+    configurations.all {
+        resolutionStrategy {
+            force 'androidx.core:core:1.15.0'
+            force 'androidx.core:core-ktx:1.15.0'
+        }
+    }
+}
+
 dependencies {
     // CI 上用 -PcomposeBom=2025.06.01（那版 Compose 只需要 compileSdk 36）
     implementation platform("androidx.compose:compose-bom:${project.findProperty('composeBom') ?: '2026.08.00'}")
@@ -92,7 +104,7 @@ dependencies {
     implementation 'androidx.compose.material:material-icons-core'
     implementation 'androidx.activity:activity-compose:1.13.0'
     implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.9.4'
-    implementation 'androidx.core:core-ktx:1.19.0'
+    implementation buildSdk >= 37 ? 'androidx.core:core-ktx:1.19.0' : 'androidx.core:core-ktx:1.15.0'
 
     debugImplementation 'androidx.compose.ui:ui-tooling'
 }

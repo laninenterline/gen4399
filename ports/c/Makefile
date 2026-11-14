@@ -1,6 +1,6 @@
 # gen4399 C 版构建
 CC      ?= cc
-CFLAGS  ?= -O2 -std=c11 -Wall -Wextra -Iinclude
+CFLAGS  ?= -O2 -std=c11 -D_GNU_SOURCE -Wall -Wextra -Iinclude
 LDLIBS  ?= -lcurl -lcrypto
 
 SRC = src/crypto.c src/rules.c src/http.c src/submit.c src/main.c
