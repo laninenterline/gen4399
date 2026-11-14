@@ -25,11 +25,16 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           # android-37 / NDK 29 尚未进公开仓库，CI 用 36 + NDK 28 构建
           # （本机构建仍走 37 / NDK 29，通过 -P 参数覆盖）
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            "platforms;android-36" \
-            "build-tools;36.0.0" \
-            "ndk;28.2.13676358" \
-            "cmake;3.22.1" > /dev/null
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKM" "platforms;android-36" "build-tools;36.0.0" \
+            "ndk;28.2.13676358" "cmake;3.22.1" > /dev/null
+          # 公开仓库若已发布 android-37（预览通道），优先用 37 构建，依赖版本不用降级
+          "$SDKM" --channel=3 "platforms;android-37" > /dev/null 2>&1 || true
+          if [ -d "$ANDROID_HOME/platforms/android-37" ]; then
+            echo "USING_SDK=37" >> "$GITHUB_ENV"
+          else
+            echo "USING_SDK=36" >> "$GITHUB_ENV"
+          fi
           echo "sdk.dir=$ANDROID_HOME" > apk/local.properties
 
       - name: 安装 Gradle 9.7.0
@@ -54,10 +59,15 @@ jobs:
       - name: 编译 release APK
         working-directory: apk
         run: |
-          gradle assembleRelease --no-daemon --console=plain \
-            -PcompileSdk=36 -PtargetSdk=36 \
-            -PndkVersion=28.2.13676358 -PcmakeVersion=3.22.1 \
-            -PcomposeBom=2025.06.00
+          if [ "$USING_SDK" = "37" ]; then
+            gradle assembleRelease --no-daemon --console=plain \
+              -PndkVersion=28.2.13676358 -PcmakeVersion=3.22.1
+          else
+            gradle assembleRelease --no-daemon --console=plain \
+              -PcompileSdk=36 -PtargetSdk=36 \
+              -PndkVersion=28.2.13676358 -PcmakeVersion=3.22.1 \
+              -PcomposeBom=2025.06.00
+          fi
 
       - name: 上传 APK
         uses: actions/upload-artifact@v4
