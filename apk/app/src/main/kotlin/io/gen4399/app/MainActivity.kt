@@ -89,6 +89,7 @@ data class Settings(
     val keepAlive: Boolean = true,
     val apiUrl: String = "",
     val apiAuth: String = "",
+    val apiNum: Int = 5,
     val freeProxyCount: Int = 25,
     val passwordLength: Int = 16,
 )
@@ -403,7 +404,9 @@ fun App() {
                         } else {
                             scope.launch {
                                 proxyStatus = "正在从 API 提取…"
-                                val attempt = runCatching { ApiProxy.pull(url, settings.apiAuth.trim()) }
+                                val attempt = runCatching {
+                                    ApiProxy.pull(url, settings.apiAuth.trim(), settings.apiNum)
+                                }
                                 val result = attempt.getOrNull()
                                 if (result == null || result.lines.isEmpty()) {
                                     val reason = attempt.exceptionOrNull()?.let {
@@ -418,7 +421,7 @@ fun App() {
                                     appendLog(proxyStatus)
                                 } else {
                                     settings = settings.copy(proxies = result.lines.joinToString("\n"))
-                                    proxyStatus = "已提取 ${result.lines.size} 条（原始 ${result.raw} 条）"
+                                    proxyStatus = "已提取 ${result.lines.size} 条（原始 ${result.raw} 条）· ${result.requestUrl}"
                                     appendLog(proxyStatus)
                                 }
                             }
@@ -663,6 +666,15 @@ private fun SettingsTab(
             textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
             singleLine = true,
         )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = settings.apiNum.toString(),
+                onValueChange = { onChange(settings.copy(apiNum = it.toIntOrNull() ?: 1)) },
+                label = { Text("一次提取数量") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.width(150.dp),
+            )
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = onCheckIp) { Text("查出口 IP") }
             if (publicIp.isNotEmpty()) {

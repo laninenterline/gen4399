@@ -20,13 +20,16 @@ object ApiProxy {
     private val SERVER_FIELD = Regex("\"server\"\\s*:\\s*\"([^\"]+)\"")
     private val IP_PORT = Regex("(\\d{1,3}(?:\\.\\d{1,3}){3})\\s*[:\",]\\s*(\\d{2,5})")
 
-    data class Result(val lines: List<String>, val raw: Int, val snippet: String)
+    data class Result(
+        val lines: List<String>,
+        val raw: Int,
+        val snippet: String,
+        val requestUrl: String = "",
+    )
 
-    suspend fun pull(url: String, auth: String, limit: Int = 50): Result = withContext(Dispatchers.IO) {
-        val normalized = when {
-            url.startsWith("http://") || url.startsWith("https://") -> url
-            else -> "https://$url"
-        }
+    suspend fun pull(url: String, auth: String, num: Int = 1, limit: Int = 50): Result =
+        withContext(Dispatchers.IO) {
+        val normalized = withNumber(url, num)
         val text = try {
             httpGet(normalized)
         } catch (first: Exception) {
@@ -57,7 +60,20 @@ object ApiProxy {
             lines = lines,
             raw = found.size,
             snippet = text.take(120).replace("\n", " "),
+            requestUrl = normalized,
         )
+    }
+
+    /** 把 num 参数拼进提取链接（链接里已经有 num= 就不动） */
+    fun withNumber(rawUrl: String, num: Int): String {
+        val withScheme = when {
+            rawUrl.startsWith("http://") || rawUrl.startsWith("https://") -> rawUrl
+            else -> "https://$rawUrl"
+        }
+        if (num <= 0) return withScheme
+        if (Regex("[?&]num=").containsMatchIn(withScheme)) return withScheme
+        val separator = if ('?' in withScheme) '&' else '?'
+        return withScheme + separator + "num=" + num
     }
 
     private fun httpGet(url: String): String {
