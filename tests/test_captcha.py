@@ -236,7 +236,7 @@ class TestCommandCaptchaSolver(unittest.TestCase):
         self.assertIn("0.2s", message)
 
     def test_error_is_gen4399_error(self):
-        self.assertTrue(issubclass(Gen4399Error))
+        self.assertTrue(issubclass(CaptchaSolverError, Gen4399Error))
         error = CaptchaSolverError("boom")
         self.assertIsInstance(error, Gen4399Error)
         self.assertEqual(str(error), "boom")
@@ -311,12 +311,12 @@ class TestPackageExports(unittest.TestCase):
     def test_top_level_exports(self):
         import gen4399
 
-        self.assertIs(gen4399.CaptchaSolverError)
+        self.assertIs(gen4399.CaptchaSolverError, CaptchaSolverError)
         self.assertIs(gen4399.prompt_captcha_solver, prompt_captcha_solver)
         self.assertIs(gen4399.command_captcha_solver, command_captcha_solver)
         self.assertIs(gen4399.save_captcha_images, save_captcha_images)
         self.assertIs(gen4399.make_solver, make_solver)
-        self.assertIs(_captcha.CaptchaSolverError)
+        self.assertIs(_captcha.CaptchaSolverError, CaptchaSolverError)
 
 
 if __name__ == "__main__":
@@ -327,7 +327,7 @@ class TestAutoCaptchaSolver(unittest.TestCase):
     """auto_captcha_solver：有 OCR 用 OCR，没有就退回人工输入。"""
 
     def test_falls_back_to_prompt_without_ocr(self):
-        from gen4399._captcha import auto_captcha_solver
+        from gen4399._captcha import CaptchaSolverError, auto_captcha_solver
 
         sentinel = object()
 
@@ -344,7 +344,7 @@ class TestAutoCaptchaSolver(unittest.TestCase):
             self.assertIs(solver(b"\xff\xd8not-a-captcha"), sentinel)
 
     def test_raises_without_ocr_and_no_fallback(self):
-        from gen4399._captcha import auto_captcha_solver
+        from gen4399._captcha import CaptchaSolverError, auto_captcha_solver
 
         with mock.patch("gen4399._captcha.shutil.which", return_value=None):
             solver = auto_captcha_solver(prompt_fallback=False)
@@ -475,7 +475,7 @@ class TestMatcher(unittest.TestCase):
         self.assertTrue(set(out) <= charset, out)
 
     def test_matcher_solver_wraps_error(self):
-        from gen4399._captcha import matcher_captcha_solver
+        from gen4399._captcha import CaptchaSolverError, matcher_captcha_solver
 
         solver = matcher_captcha_solver()
         with mock.patch("gen4399._captcha_matcher.shutil.which", return_value=None):
