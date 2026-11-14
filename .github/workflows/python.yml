@@ -25,7 +25,9 @@ jobs:
           python -m pip install pytest hypothesis
       - name: 跑测试
         run: python -m pytest -q
-      - name: 自检（不会联网）
+      - name: 自检（不联网）
         run: |
           python -m gen4399 --version
-          python -m gen4399 selftest
+          python -m gen4399 -n 10
+          python -m gen4399 check password Abc12345
+          python -c "import gen4399; print('符号数', len(gen4399.__all__))"
