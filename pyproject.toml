@@ -77,6 +77,8 @@ select = ["E4", "E7", "E9", "F"]
 # __init__.py 是再导出门面：导入是为了对外暴露，不是本模块使用
 [tool.ruff.lint.per-file-ignores]
 "gen4399/__init__.py" = ["F401"]
+"gen4399/remote/__init__.py" = ["F401"]
+"gen4399/submit/__init__.py" = ["F401"]
 
 [tool.mypy]
 python_version = "3.10"

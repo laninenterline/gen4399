@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 from .account import account_record, append_account, load_accounts
 from .core import Gen4399Error
-from .registration import RegistrationBundle, prepare_registration
+from .registration import prepare_registration
 from .submit import SubmitResult, submit_registration
 
 __all__ = ["BatchItem", "BatchSummary", "run_batch"]

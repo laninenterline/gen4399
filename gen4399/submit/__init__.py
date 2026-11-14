@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import re
 import time
-import urllib.parse
 from collections.abc import Callable
 
 from .._aes import encrypt_aes

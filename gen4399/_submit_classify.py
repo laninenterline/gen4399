@@ -6,7 +6,7 @@ import json
 import re
 import urllib.parse
 
-from ._submit_types import _extract_error_message, _page_excerpt
+from ._submit_types import SubmitKind, _extract_error_message, _page_excerpt
 from .remote import RemoteParseError
 
 __all__ = [
