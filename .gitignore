@@ -46,3 +46,4 @@ apk/art/
 apk/.gradle/
 apk/app/.cxx/
 apk/app/build/
+apk/gradle.properties.local

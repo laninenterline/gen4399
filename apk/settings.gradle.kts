@@ -18,4 +18,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "gen4399-apk"
+
 include(":app")
