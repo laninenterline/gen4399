@@ -327,7 +327,7 @@ class TestAutoCaptchaSolver(unittest.TestCase):
     """auto_captcha_solver：有 OCR 用 OCR，没有就退回人工输入。"""
 
     def test_falls_back_to_prompt_without_ocr(self):
-        from gen4399._captcha import CaptchaSolverError, auto_captcha_solver
+        from gen4399._captcha import auto_captcha_solver
 
         sentinel = object()
 
@@ -344,7 +344,7 @@ class TestAutoCaptchaSolver(unittest.TestCase):
             self.assertIs(solver(b"\xff\xd8not-a-captcha"), sentinel)
 
     def test_raises_without_ocr_and_no_fallback(self):
-        from gen4399._captcha import CaptchaSolverError, auto_captcha_solver
+        from gen4399._captcha import auto_captcha_solver
 
         with mock.patch("gen4399._captcha.shutil.which", return_value=None):
             solver = auto_captcha_solver(prompt_fallback=False)

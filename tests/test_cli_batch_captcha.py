@@ -28,7 +28,7 @@ class TestBatchCommand(unittest.TestCase):
         )
 
     def test_dry_run_exit_0(self):
-        with mock.patch("gen4399.batch.run_batch", return_value=self._summary(dry := False) if False else BatchSummary(items=[BatchItem(1, "u", "dry_run", False, "dry")])), \
+        with mock.patch("gen4399.batch.run_batch", return_value=BatchSummary(items=[BatchItem(1, "u", "dry_run", False, "dry")])), \
              mock.patch("gen4399.cli._load_identity_profiles",
                         return_value=[mock.Mock(idcard=ID_A)]):
             code, out, _ = run([
