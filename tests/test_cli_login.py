@@ -48,7 +48,7 @@ class TestLoginCommand(unittest.TestCase):
     def test_network_error_exit_2(self):
         from gen4399.remote import RemoteError
 
-        with mock.patch("gen4399.login.login", side_effect=RemoteError("boom")):
+        with mock.patch.object(importlib.import_module("gen4399.login"), "login", side_effect=RemoteError("boom")):
             code, _, err = run(["login", "abc", "--password", "pwd"])
         self.assertEqual(code, 2)
         self.assertIn("错误", err)
