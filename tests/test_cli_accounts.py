@@ -3,7 +3,6 @@
 import contextlib
 import io
 import json
-import os
 import stat
 import tempfile
 import unittest

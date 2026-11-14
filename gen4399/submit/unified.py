@@ -18,6 +18,7 @@ from .._submit_types import (
     mask_proxy,
 )
 from ..registration import RegistrationBundle
+from ..transport import TransportOptions
 from ..remote import RemoteParseError, RetryPolicy, _http
 from . import (
     UNIFIED_CAPTCHA_API,

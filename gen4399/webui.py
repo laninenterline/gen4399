@@ -17,7 +17,6 @@ import csv
 import io
 import json
 import os
-import queue
 import threading
 import time
 import webbrowser

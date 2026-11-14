@@ -76,6 +76,9 @@ jobs:
           path: apk/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
+      - name: 安装 C 依赖
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libssl-dev
+
       - name: 编译 native 自测
         working-directory: ports/c
         run: make test

@@ -18,6 +18,7 @@ from .._submit_types import (
     mask_proxy,
 )
 from ..registration import RegistrationBundle
+from ..transport import TransportOptions
 from ..remote import RemoteParseError, RetryPolicy, _http
 from . import (
     WEB_CAPTCHA_API,
@@ -32,7 +33,6 @@ from ._common import (
     _LOGIN_COOKIE_NAMES,
     jsonp_callback,
     present_login_cookies,
-    verify_account,
 )
 
 __all__ = ["submit_web"]
