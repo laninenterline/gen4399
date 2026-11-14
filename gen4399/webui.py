@@ -24,11 +24,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import __version__
-from .account import account_record, append_account, load_accounts
+from .account import load_accounts
 from .batch import run_batch
 from .core import Gen4399Error
 from .identity import RegistrationProfile, load_profiles_auto
-from .login import login as do_login
 
 __all__ = ["serve", "main"]
 
