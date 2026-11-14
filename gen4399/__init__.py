@@ -201,6 +201,13 @@ __all__ = [
     "ProxyError",
     "random_user_agent",
     "__version__",
+    # ---- 规则元信息 / 表单表 ----
+    "RULES_CHECKED_AT",
+    "RULES_SOURCES",
+    "RULES_VERSION",
+    "ProfileLoadErrors",
+    "FORMS",
+
 ]
 
 # ---------------------------------------------------------------------------
