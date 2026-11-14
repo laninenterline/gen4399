@@ -16,8 +16,12 @@ import re
 import sys
 import warnings
 from dataclasses import dataclass
+from typing import Literal
 
 from .core import Gen4399Error
+
+# sfz.txt 逐行加载时的容错策略：raise = 遇错抛异常，skip = 跳过坏行
+ProfileLoadErrors = Literal["raise", "skip"]
 
 __all__ = [
     "InvalidProfileError",

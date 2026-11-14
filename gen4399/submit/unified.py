@@ -7,6 +7,7 @@ import time
 import urllib.parse
 
 from .._captcha import CaptchaSolver
+from ._common import _LOGIN_COOKIE_NAMES, present_login_cookies
 from .._submit_classify import _classify_response
 from .._submit_types import (
     SubmitResult,
@@ -24,7 +25,6 @@ from . import (
     ResponseHook,
 )
 from . import _common
-from ._common import _LOGIN_COOKIE_NAMES, present_login_cookies, verify_account
 
 __all__ = ["submit_unified"]
 

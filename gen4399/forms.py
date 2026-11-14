@@ -23,6 +23,7 @@ from typing import Literal
 
 from .core import validate, validate_username
 from .identity import (
+    ProfileLoadErrors,
     InvalidProfileError,
     RegistrationProfile,
     load_profiles,
@@ -62,7 +63,6 @@ __all__ = [
 FieldKind = Literal["text", "password", "checkbox", "hidden"]
 
 #: ``load_profiles(errors=...)`` 的合法取值
-ProfileLoadErrors = Literal["raise", "skip"]
 
 
 @dataclass(frozen=True)
